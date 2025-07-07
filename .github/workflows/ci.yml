@@ -50,12 +50,12 @@ jobs:
           
           # Windows builds
           - os: windows
-            runner: windows-2019
+            runner: windows-latest
             arch: X64
             build_type: RELEASE
             toolchain: VS2019
           - os: windows
-            runner: windows-2019
+            runner: windows-latest
             arch: X64
             build_type: DEBUG
             toolchain: VS2019
@@ -201,7 +201,7 @@ jobs:
         fi
     
     - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-${{ matrix.os }}
         path: |
@@ -241,7 +241,7 @@ jobs:
     
     - name: Upload Analysis Results
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: static-analysis-results
         path: cppcheck-results.xml

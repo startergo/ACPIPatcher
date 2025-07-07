@@ -137,7 +137,7 @@ jobs:
         tar -czf "$DIST_DIR.tar.gz" "$DIST_DIR"
     
     - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-linux
         path: edk2/ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-linux.tar.gz
@@ -255,7 +255,7 @@ jobs:
         tar -czf "$DIST_DIR.tar.gz" "$DIST_DIR"
     
     - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-macos
         path: edk2/ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-macos.tar.gz
@@ -263,7 +263,7 @@ jobs:
 
   build-windows:
     name: Build on Windows (VS2019)
-    runs-on: windows-2019
+    runs-on: windows-latest
     
     strategy:
       matrix:
@@ -385,7 +385,7 @@ jobs:
         Compress-Archive -Path "$DIST_DIR" -DestinationPath "$DIST_DIR.zip"
     
     - name: Upload Build Artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-windows
         path: edk2/ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-windows.zip
@@ -441,7 +441,7 @@ jobs:
     
     - name: Upload Analysis Results
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: static-analysis-results
         path: cppcheck-results.xml

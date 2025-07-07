@@ -130,7 +130,7 @@ jobs:
     
     - name: Upload Security Reports
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: security-analysis-reports
         path: |
@@ -190,19 +190,19 @@ jobs:
           
           # Windows testing
           - platform: windows
-            runner: windows-2019
+            runner: windows-latest
             arch: X64
             build_type: RELEASE
             toolchain: VS2019
             test_efi: true
           - platform: windows
-            runner: windows-2019
+            runner: windows-latest
             arch: X64
             build_type: DEBUG
             toolchain: VS2019
             test_efi: true
           - platform: windows
-            runner: windows-2019
+            runner: windows-latest
             arch: IA32
             build_type: RELEASE
             toolchain: VS2019
@@ -402,7 +402,7 @@ jobs:
       shell: bash
     
     - name: Upload Test Artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: test-build-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.build_type }}
         path: edk2/ACPIPatcher-Test-*
