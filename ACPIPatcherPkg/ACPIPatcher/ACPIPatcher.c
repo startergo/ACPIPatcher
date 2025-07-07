@@ -53,6 +53,29 @@ UINT64                                              gXsdtEnd    = 0;
 #define MAX_PRINT_BUFFER (80 * 4)
 #endif
 
+//
+// Function Declarations
+//
+VOID
+DebugPrint (
+  IN UINTN         Level,
+  IN CONST CHAR16  *Format,
+  ...
+  );
+
+VOID
+HexDump (
+  IN UINT8   *Bytes,
+  IN UINTN   Length,
+  IN UINT64  BaseAddress
+  );
+
+EFI_STATUS
+ValidateAcpiTable (
+  IN UINT8   *TableBuffer,
+  IN UINTN   TableSize
+  );
+
 /**
   Conditionally prints formatted output to console.
   Only prints in non-DXE builds to avoid conflicts.
@@ -591,8 +614,6 @@ Cleanup:
   return Status;
 }
 
-#endif
-
 /**
   Enhanced debug print function with different levels.
   
@@ -709,5 +730,3 @@ HexDump (
   }
 #endif
 }
-
-/**
