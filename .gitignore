@@ -1,2 +1,5 @@
 .DS_Store
 ACPIPatcher/.DS_Store
+
+# Specstory directory (development artifacts)
+.specstory/

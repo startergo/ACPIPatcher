@@ -1,0 +1,648 @@
+name: Comprehensive Testing
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'ACPIPatcherPkg/**'
+      - '.github/workflows/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'ACPIPatcherPkg/**'
+      - '.github/workflows/**'
+  schedule:
+    # Run nightly tests at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      test_level:
+        description: 'Test Level'
+        required: false
+        default: 'standard'
+        type: choice
+        options:
+          - 'basic'
+          - 'standard'
+          - 'comprehensive'
+      enable_coverage:
+        description: 'Enable Code Coverage'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  EDK2_VERSION: edk2-stable202202
+  TEST_LEVEL: ${{ github.event.inputs.test_level || 'standard' }}
+
+jobs:
+  # Code Quality and Security Analysis
+  security-analysis:
+    name: Security & Quality Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Install Security Tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          cppcheck \
+          clang-tools \
+          flawfinder \
+          rats \
+          splint
+    
+    - name: Run Flawfinder (Security)
+      run: |
+        echo "🔍 Running Flawfinder security analysis..."
+        flawfinder --html --context --followdotdir ACPIPatcherPkg/ > flawfinder-report.html || true
+        flawfinder --context ACPIPatcherPkg/ > flawfinder-report.txt || true
+        
+        # Show summary
+        echo "Flawfinder Summary:"
+        tail -10 flawfinder-report.txt || true
+    
+    - name: Run RATS (Security)
+      run: |
+        echo "🔍 Running RATS security analysis..."
+        rats -w 3 --html ACPIPatcherPkg/ > rats-report.html 2>/dev/null || true
+        rats -w 3 ACPIPatcherPkg/ > rats-report.txt 2>/dev/null || true
+        
+        echo "RATS Analysis completed"
+    
+    - name: Advanced CPPCheck Analysis
+      run: |
+        echo "🔍 Running comprehensive CPPCheck analysis..."
+        cppcheck \
+          --enable=all \
+          --inconclusive \
+          --force \
+          --verbose \
+          --template="{file}:{line}: {severity}: {message}" \
+          --suppress=missingIncludeSystem \
+          --suppress=unusedFunction \
+          --suppress=ConfigurationNotChecked \
+          --check-config \
+          --xml --xml-version=2 \
+          ACPIPatcherPkg/ 2> cppcheck-detailed.xml || true
+        
+        # Generate simple report
+        if [ -s cppcheck-detailed.xml ]; then
+          echo "🔍 CPPCheck found potential issues:"
+          grep -o 'msg="[^"]*"' cppcheck-detailed.xml | sed 's/msg="//g' | sed 's/"//g' | head -10 || true
+        else
+          echo "✅ CPPCheck analysis passed - no issues found"
+        fi
+    
+    - name: Clang Static Analyzer
+      run: |
+        echo "🔍 Running Clang Static Analyzer..."
+        # Create compile_commands.json simulation for clang-tidy
+        find ACPIPatcherPkg -name "*.c" | head -10 | while read file; do
+          echo "Analyzing: $file"
+          clang-tidy "$file" -- -I./ACPIPatcherPkg/ACPIPatcher || true
+        done
+    
+    - name: Check for Common Vulnerabilities
+      run: |
+        echo "🔍 Checking for common vulnerability patterns..."
+        
+        # Check for unsafe functions
+        echo "Checking for unsafe functions..."
+        if grep -r "strcpy\|strcat\|sprintf\|gets\|scanf" ACPIPatcherPkg/ --include="*.c" --include="*.h"; then
+          echo "⚠️ Found potentially unsafe functions"
+        else
+          echo "✅ No unsafe functions found"
+        fi
+        
+        # Check for buffer allocation patterns
+        echo "Checking memory allocation patterns..."
+        if grep -r "malloc\|calloc\|realloc" ACPIPatcherPkg/ --include="*.c" --include="*.h"; then
+          echo "ℹ️ Found memory allocation - ensure proper cleanup"
+        fi
+        
+        # Check for UEFI-specific patterns
+        echo "Checking UEFI memory patterns..."
+        grep -r "AllocatePool\|AllocatePages" ACPIPatcherPkg/ --include="*.c" --include="*.h" || true
+    
+    - name: Upload Security Reports
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-analysis-reports
+        path: |
+          flawfinder-report.*
+          rats-report.*
+          cppcheck-detailed.xml
+        retention-days: 30
+
+  # Build Matrix Testing
+  build-matrix-test:
+    name: Build Matrix (${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.build_type }})
+    runs-on: ${{ matrix.runner }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Comprehensive Linux testing
+          - platform: linux
+            runner: ubuntu-latest
+            arch: X64
+            build_type: RELEASE
+            toolchain: GCC5
+            test_efi: true
+          - platform: linux
+            runner: ubuntu-latest
+            arch: X64
+            build_type: DEBUG
+            toolchain: GCC5
+            test_efi: true
+          - platform: linux
+            runner: ubuntu-latest
+            arch: IA32
+            build_type: RELEASE
+            toolchain: GCC5
+            test_efi: false
+          - platform: linux
+            runner: ubuntu-latest
+            arch: IA32
+            build_type: DEBUG
+            toolchain: GCC5
+            test_efi: false
+          
+          # macOS testing
+          - platform: macos
+            runner: macos-13
+            arch: X64
+            build_type: RELEASE
+            toolchain: XCODE5
+            test_efi: true
+          - platform: macos
+            runner: macos-13
+            arch: X64
+            build_type: DEBUG
+            toolchain: XCODE5
+            test_efi: true
+          
+          # Windows testing
+          - platform: windows
+            runner: windows-2019
+            arch: X64
+            build_type: RELEASE
+            toolchain: VS2019
+            test_efi: true
+          - platform: windows
+            runner: windows-2019
+            arch: X64
+            build_type: DEBUG
+            toolchain: VS2019
+            test_efi: true
+          - platform: windows
+            runner: windows-2019
+            arch: IA32
+            build_type: RELEASE
+            toolchain: VS2019
+            test_efi: false
+    
+    steps:
+    - name: Checkout ACPIPatcher
+      uses: actions/checkout@v4
+      with:
+        path: acpipatcher
+    
+    - name: Setup Build Environment (${{ matrix.platform }})
+      run: |
+        if [ "${{ matrix.platform }}" = "linux" ]; then
+          sudo apt-get update
+          sudo apt-get install -y build-essential nasm uuid-dev gcc-multilib file
+        elif [ "${{ matrix.platform }}" = "macos" ]; then
+          brew install nasm mtoc
+        fi
+      shell: bash
+    
+    - name: Setup Build Environment (Windows)
+      if: matrix.platform == 'windows'
+      run: |
+        choco install nasm
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Cache EDK2
+      id: cache-edk2
+      uses: actions/cache@v3
+      with:
+        path: edk2
+        key: edk2-${{ env.EDK2_VERSION }}-${{ matrix.platform }}-${{ matrix.arch }}-test
+    
+    - name: Checkout EDK2
+      if: steps.cache-edk2.outputs.cache-hit != 'true'
+      run: |
+        git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
+        cd edk2
+        git submodule update --init --recommend-shallow
+    
+    - name: Copy ACPIPatcher to EDK2
+      run: |
+        if [ "${{ matrix.platform }}" = "windows" ]; then
+          xcopy /E /I acpipatcher\\ACPIPatcherPkg edk2\\ACPIPatcherPkg
+        else
+          cp -r acpipatcher/ACPIPatcherPkg edk2/
+        fi
+      shell: bash
+    
+    - name: Build ACPIPatcher (Unix)
+      if: matrix.platform != 'windows'
+      run: |
+        cd edk2
+        . edksetup.sh
+        make -C BaseTools
+        
+        echo "Building ACPIPatcher with ${{ matrix.toolchain }}..."
+        build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t ${{ matrix.toolchain }} \
+              -p ACPIPatcherPkg/ACPIPatcherPkg.dsc \
+              -D DEBUG_LEVEL=3
+    
+    - name: Build ACPIPatcher (Windows)
+      if: matrix.platform == 'windows'
+      shell: cmd
+      run: |
+        cd edk2
+        call edksetup.bat
+        build -t VS2019
+        
+        echo Building ACPIPatcher with VS2019...
+        build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t VS2019 ^
+              -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
+              -D DEBUG_LEVEL=3
+    
+    - name: Verify Build and Test EFI Files
+      run: |
+        cd edk2
+        
+        if [ "${{ matrix.platform }}" = "windows" ]; then
+          BUILD_DIR="Build\\ACPIPatcherPkg\\${{ matrix.build_type }}_${{ matrix.toolchain }}\\${{ matrix.arch }}"
+        else
+          BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_${{ matrix.toolchain }}/${{ matrix.arch }}"
+        fi
+        
+        echo "=== Build Verification ==="
+        echo "Build directory: $BUILD_DIR"
+        
+        # Check if binaries exist and get their info
+        if [ "${{ matrix.platform }}" = "windows" ]; then
+          if [ -f "$BUILD_DIR\\ACPIPatcher.efi" ]; then
+            echo "✅ ACPIPatcher.efi exists"
+            ls -la "$BUILD_DIR\\ACPIPatcher.efi" 2>/dev/null || dir "$BUILD_DIR\\ACPIPatcher.efi" 2>/dev/null || true
+          else
+            echo "❌ ACPIPatcher.efi missing"
+            exit 1
+          fi
+          
+          if [ -f "$BUILD_DIR\\ACPIPatcherDxe.efi" ]; then
+            echo "✅ ACPIPatcherDxe.efi exists"
+            ls -la "$BUILD_DIR\\ACPIPatcherDxe.efi" 2>/dev/null || dir "$BUILD_DIR\\ACPIPatcherDxe.efi" 2>/dev/null || true
+          else
+            echo "❌ ACPIPatcherDxe.efi missing"
+            exit 1
+          fi
+        else
+          if [ -f "$BUILD_DIR/ACPIPatcher.efi" ]; then
+            echo "✅ ACPIPatcher.efi exists"
+            ls -la "$BUILD_DIR/ACPIPatcher.efi"
+            file "$BUILD_DIR/ACPIPatcher.efi" || true
+          else
+            echo "❌ ACPIPatcher.efi missing"
+            exit 1
+          fi
+          
+          if [ -f "$BUILD_DIR/ACPIPatcherDxe.efi" ]; then
+            echo "✅ ACPIPatcherDxe.efi exists"
+            ls -la "$BUILD_DIR/ACPIPatcherDxe.efi"
+            file "$BUILD_DIR/ACPIPatcherDxe.efi" || true
+          else
+            echo "❌ ACPIPatcherDxe.efi missing"
+            exit 1
+          fi
+        fi
+      shell: bash
+    
+    - name: Extended EFI Testing
+      if: matrix.test_efi && matrix.platform != 'windows'
+      run: |
+        cd edk2
+        BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_${{ matrix.toolchain }}/${{ matrix.arch }}"
+        
+        echo "=== Extended EFI File Analysis ==="
+        
+        # Check EFI file headers and basic structure
+        echo "Analyzing EFI file structure..."
+        hexdump -C "$BUILD_DIR/ACPIPatcher.efi" | head -5 || true
+        
+        # Check for common EFI signatures
+        echo "Checking for EFI signatures..."
+        if strings "$BUILD_DIR/ACPIPatcher.efi" | grep -i "uefi\|efi" | head -5; then
+          echo "✅ Found EFI/UEFI signatures"
+        else
+          echo "⚠️ No obvious EFI signatures found"
+        fi
+        
+        # Check file size (should be reasonable)
+        SIZE=$(stat -c%s "$BUILD_DIR/ACPIPatcher.efi" 2>/dev/null || stat -f%z "$BUILD_DIR/ACPIPatcher.efi" 2>/dev/null || echo "0")
+        echo "ACPIPatcher.efi size: $SIZE bytes"
+        
+        if [ "$SIZE" -gt 1000 ] && [ "$SIZE" -lt 10000000 ]; then
+          echo "✅ EFI file size is reasonable"
+        else
+          echo "⚠️ EFI file size seems unusual"
+        fi
+    
+    - name: Create Test Package
+      run: |
+        cd edk2
+        
+        if [ "${{ matrix.platform }}" = "windows" ]; then
+          BUILD_DIR="Build\\ACPIPatcherPkg\\${{ matrix.build_type }}_${{ matrix.toolchain }}\\${{ matrix.arch }}"
+          PACKAGE_NAME="ACPIPatcher-Test-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.build_type }}"
+          
+          mkdir "$PACKAGE_NAME"
+          cp "$BUILD_DIR\\ACPIPatcher.efi" "$PACKAGE_NAME\\" 2>/dev/null || true
+          cp "$BUILD_DIR\\ACPIPatcherDxe.efi" "$PACKAGE_NAME\\" 2>/dev/null || true
+          
+          # Create test report
+          echo "Test Build Report" > "$PACKAGE_NAME\\TEST_REPORT.txt"
+          echo "Platform: ${{ matrix.platform }}" >> "$PACKAGE_NAME\\TEST_REPORT.txt"
+          echo "Architecture: ${{ matrix.arch }}" >> "$PACKAGE_NAME\\TEST_REPORT.txt"
+          echo "Build Type: ${{ matrix.build_type }}" >> "$PACKAGE_NAME\\TEST_REPORT.txt"
+          echo "Toolchain: ${{ matrix.toolchain }}" >> "$PACKAGE_NAME\\TEST_REPORT.txt"
+          echo "Test Date: $(date)" >> "$PACKAGE_NAME\\TEST_REPORT.txt"
+        else
+          BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_${{ matrix.toolchain }}/${{ matrix.arch }}"
+          PACKAGE_NAME="ACPIPatcher-Test-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.build_type }}"
+          
+          mkdir "$PACKAGE_NAME"
+          cp "$BUILD_DIR/ACPIPatcher.efi" "$PACKAGE_NAME/" 2>/dev/null || true
+          cp "$BUILD_DIR/ACPIPatcherDxe.efi" "$PACKAGE_NAME/" 2>/dev/null || true
+          
+          # Create test report
+          echo "Test Build Report" > "$PACKAGE_NAME/TEST_REPORT.txt"
+          echo "Platform: ${{ matrix.platform }}" >> "$PACKAGE_NAME/TEST_REPORT.txt"
+          echo "Architecture: ${{ matrix.arch }}" >> "$PACKAGE_NAME/TEST_REPORT.txt"
+          echo "Build Type: ${{ matrix.build_type }}" >> "$PACKAGE_NAME/TEST_REPORT.txt"
+          echo "Toolchain: ${{ matrix.toolchain }}" >> "$PACKAGE_NAME/TEST_REPORT.txt"
+          echo "Test Date: $(date)" >> "$PACKAGE_NAME/TEST_REPORT.txt"
+          echo "Test Level: ${{ env.TEST_LEVEL }}" >> "$PACKAGE_NAME/TEST_REPORT.txt"
+        fi
+      shell: bash
+    
+    - name: Upload Test Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-build-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.build_type }}
+        path: edk2/ACPIPatcher-Test-*
+        retention-days: 7
+
+  # Documentation and Validation Tests
+  documentation-validation:
+    name: Documentation Validation
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Validate README Structure
+      run: |
+        echo "🔍 Validating README.md structure..."
+        
+        # Check for required sections
+        REQUIRED_SECTIONS=(
+          "## Features"
+          "## Quick Start"
+          "## Usage"
+          "## Build Instructions"
+          "## System Requirements"
+        )
+        
+        for section in "${REQUIRED_SECTIONS[@]}"; do
+          if grep -q "$section" README.md; then
+            echo "✅ Found: $section"
+          else
+            echo "❌ Missing: $section"
+          fi
+        done
+    
+    - name: Check Documentation Links
+      run: |
+        echo "🔍 Checking documentation links..."
+        
+        # Extract markdown links
+        grep -oE '\[([^\]]+)\]\(([^)]+)\)' README.md | while read link; do
+          echo "Found link: $link"
+        done
+        
+        # Check for broken internal links
+        grep -oE '\[([^\]]+)\]\(([^)]+)\)' README.md | grep -E '\.(md|txt)' | while read link; do
+          file=$(echo "$link" | sed 's/.*(\([^)]*\)).*/\1/')
+          if [ -f "$file" ]; then
+            echo "✅ Valid internal link: $file"
+          else
+            echo "❌ Broken internal link: $file"
+          fi
+        done
+    
+    - name: Validate Code Examples
+      run: |
+        echo "🔍 Validating code examples in documentation..."
+        
+        # Check if code blocks are properly formatted
+        if grep -E '^```[a-z]*$' README.md >/dev/null; then
+          echo "✅ Found properly formatted code blocks"
+        else
+          echo "⚠️ No code blocks found or improperly formatted"
+        fi
+        
+        # Count code blocks
+        CODE_BLOCKS=$(grep -c '^```' README.md || echo "0")
+        echo "Found $CODE_BLOCKS code block markers"
+        
+        if [ $((CODE_BLOCKS % 2)) -eq 0 ]; then
+          echo "✅ Code blocks are properly closed"
+        else
+          echo "❌ Unmatched code block markers"
+        fi
+
+  # Integration and Compatibility Tests  
+  compatibility-test:
+    name: Compatibility Testing
+    runs-on: ubuntu-latest
+    needs: [build-matrix-test]
+    if: github.event.inputs.test_level == 'comprehensive' || github.event_name == 'schedule'
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Download Build Artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: test-artifacts
+    
+    - name: Compatibility Analysis
+      run: |
+        echo "🔍 Running compatibility analysis..."
+        
+        echo "=== Artifact Summary ==="
+        find test-artifacts -name "*.efi" | while read efi_file; do
+          echo "Found EFI: $efi_file"
+          ls -la "$efi_file"
+          
+          # Basic EFI validation
+          if file "$efi_file" | grep -i "PE32\|executable"; then
+            echo "✅ Valid PE32 executable format"
+          else
+            echo "⚠️ Unexpected file format"
+          fi
+          
+          # Check file size consistency
+          SIZE=$(stat -c%s "$efi_file")
+          echo "Size: $SIZE bytes"
+          
+          # Extract platform info from path
+          PLATFORM=$(echo "$efi_file" | grep -oE "(linux|macos|windows)")
+          ARCH=$(echo "$efi_file" | grep -oE "(X64|IA32)")
+          echo "Platform: $PLATFORM, Architecture: $ARCH"
+          echo "---"
+        done
+    
+    - name: Cross-Platform Consistency Check
+      run: |
+        echo "🔍 Checking cross-platform consistency..."
+        
+        # Check if we have builds for all expected platforms
+        PLATFORMS=$(find test-artifacts -name "*.efi" | grep -oE "(linux|macos|windows)" | sort -u)
+        echo "Available platforms: $PLATFORMS"
+        
+        ARCHITECTURES=$(find test-artifacts -name "*.efi" | grep -oE "(X64|IA32)" | sort -u)
+        echo "Available architectures: $ARCHITECTURES"
+        
+        # Count builds per platform
+        for platform in $PLATFORMS; do
+          COUNT=$(find test-artifacts -name "*.efi" | grep "$platform" | wc -l)
+          echo "Platform $platform: $COUNT builds"
+        done
+
+  # Performance and Resource Tests
+  performance-test:
+    name: Performance Testing
+    runs-on: ubuntu-latest
+    needs: [build-matrix-test]
+    if: github.event.inputs.test_level == 'comprehensive' || github.event_name == 'schedule'
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Code Complexity Analysis
+      run: |
+        echo "🔍 Analyzing code complexity..."
+        
+        # Count lines of code
+        echo "=== Code Statistics ==="
+        find ACPIPatcherPkg -name "*.c" -o -name "*.h" | xargs wc -l | tail -1
+        
+        # Function complexity (approximate)
+        echo "=== Function Analysis ==="
+        grep -r "^[A-Za-z_][A-Za-z0-9_]* *(" ACPIPatcherPkg/ --include="*.c" | wc -l | xargs echo "Approximate function count:"
+        
+        # Check for large functions (potential complexity issues)
+        echo "=== Large Function Detection ==="
+        find ACPIPatcherPkg -name "*.c" | while read file; do
+          awk '/^[A-Za-z_][A-Za-z0-9_]* *\(/{func=$0; lines=1} /^}$/{if(lines>50) print func " in " FILENAME " (" lines " lines)"; lines=0} !/^[A-Za-z_][A-Za-z0-9_]* *\(/{if(lines>0) lines++}' "$file"
+        done
+    
+    - name: Memory Usage Analysis
+      run: |
+        echo "🔍 Analyzing memory usage patterns..."
+        
+        # Check for memory allocation calls
+        echo "=== Memory Allocation Patterns ==="
+        grep -r "AllocatePool\|AllocatePages\|AllocateZeroPool" ACPIPatcherPkg/ --include="*.c" | wc -l | xargs echo "Memory allocation calls:"
+        
+        # Check for memory deallocation calls
+        grep -r "FreePool\|FreePages" ACPIPatcherPkg/ --include="*.c" | wc -l | xargs echo "Memory deallocation calls:"
+        
+        # Look for potential memory leaks (allocations without corresponding frees)
+        echo "=== Potential Memory Management Issues ==="
+        ALLOC_COUNT=$(grep -r "AllocatePool\|AllocatePages\|AllocateZeroPool" ACPIPatcherPkg/ --include="*.c" | wc -l)
+        FREE_COUNT=$(grep -r "FreePool\|FreePages" ACPIPatcherPkg/ --include="*.c" | wc -l)
+        
+        echo "Allocation calls: $ALLOC_COUNT"
+        echo "Deallocation calls: $FREE_COUNT"
+        
+        if [ "$ALLOC_COUNT" -gt "$FREE_COUNT" ]; then
+          echo "⚠️ More allocations than deallocations - check for memory leaks"
+        elif [ "$FREE_COUNT" -gt "$ALLOC_COUNT" ]; then
+          echo "⚠️ More deallocations than allocations - check for double-free issues"
+        else
+          echo "✅ Allocation/deallocation count balanced"
+        fi
+
+  # Summary and Reporting
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [security-analysis, build-matrix-test, documentation-validation, compatibility-test, performance-test]
+    if: always()
+    
+    steps:
+    - name: Generate Test Report
+      run: |
+        echo "# Comprehensive Test Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Test Results Overview" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Test Category | Status | Details |" >> $GITHUB_STEP_SUMMARY
+        echo "|---------------|---------|---------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Security Analysis | ${{ needs.security-analysis.result == 'success' && '✅ Passed' || needs.security-analysis.result == 'skipped' && '⏭️ Skipped' || '❌ Failed' }} | Static security analysis with multiple tools |" >> $GITHUB_STEP_SUMMARY
+        echo "| Build Matrix | ${{ needs.build-matrix-test.result == 'success' && '✅ Passed' || needs.build-matrix-test.result == 'skipped' && '⏭️ Skipped' || '❌ Failed' }} | Multi-platform build testing |" >> $GITHUB_STEP_SUMMARY
+        echo "| Documentation | ${{ needs.documentation-validation.result == 'success' && '✅ Passed' || needs.documentation-validation.result == 'skipped' && '⏭️ Skipped' || '❌ Failed' }} | Documentation structure and link validation |" >> $GITHUB_STEP_SUMMARY
+        echo "| Compatibility | ${{ needs.compatibility-test.result == 'success' && '✅ Passed' || needs.compatibility-test.result == 'skipped' && '⏭️ Skipped' || '❌ Failed' }} | Cross-platform compatibility analysis |" >> $GITHUB_STEP_SUMMARY
+        echo "| Performance | ${{ needs.performance-test.result == 'success' && '✅ Passed' || needs.performance-test.result == 'skipped' && '⏭️ Skipped' || '❌ Failed' }} | Code complexity and performance analysis |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Overall status
+        if [[ "${{ needs.security-analysis.result }}" == "success" && 
+              "${{ needs.build-matrix-test.result }}" == "success" && 
+              "${{ needs.documentation-validation.result }}" == "success" ]]; then
+          echo "## ✅ Overall Status: PASSED" >> $GITHUB_STEP_SUMMARY
+          echo "All critical tests completed successfully." >> $GITHUB_STEP_SUMMARY
+        else
+          echo "## ❌ Overall Status: FAILED" >> $GITHUB_STEP_SUMMARY
+          echo "One or more critical tests failed. Please review the results above." >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Test Configuration" >> $GITHUB_STEP_SUMMARY
+        echo "- **Test Level:** ${{ env.TEST_LEVEL }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+    
+    - name: Determine Final Status
+      run: |
+        if [[ "${{ needs.security-analysis.result }}" == "success" && 
+              "${{ needs.build-matrix-test.result }}" == "success" && 
+              "${{ needs.documentation-validation.result }}" == "success" ]]; then
+          echo "🎉 All critical tests passed!"
+          exit 0
+        else
+          echo "❌ One or more critical tests failed"
+          exit 1
+        fi

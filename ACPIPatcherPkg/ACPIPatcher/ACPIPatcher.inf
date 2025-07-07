@@ -1,12 +1,17 @@
 ## @file
-#  Sample UEFI Application Reference EDKII Module.
+#  ACPI Patcher UEFI Application
 #
-#  This is a sample shell application that will print "UEFI Hello World!" to the
-#  UEFI Console based on PCD setting.
+#  This application patches ACPI tables during UEFI boot by reading .aml files
+#  from an ACPI directory and either replacing the DSDT or adding additional
+#  SSDT tables to the system's XSDT.
 #
-#  It demos how to use EDKII PCD mechanism to make code more flexible.
+#  Features:
+#  - Validates ACPI table integrity before patching
+#  - Proper error handling and resource cleanup  
+#  - Supports both DSDT replacement and SSDT addition
+#  - Updates checksums for modified tables
 #
-#  Copyright (c) 2008 - 2018, Intel Corporation. All rights reserved.<BR>
+#  Copyright (c) 2008 - 2025, Intel Corporation. All rights reserved.<BR>
 #
 #  This program and the accompanying materials
 #  are licensed and made available under the terms and conditions of the BSD License
@@ -50,6 +55,10 @@
   UefiLib
   BaseLib
   MemoryAllocationLib
+  UefiBootServicesTableLib
+  PrintLib
+  DevicePathLib
+  BaseMemoryLib
   
 [Protocols]
   gEfiLoadedImageProtocolGuid            ## CONSUMES

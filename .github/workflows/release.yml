@@ -1,0 +1,42 @@
+name: Release ACPIPatcher
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name for release'
+        required: true
+        default: 'v1.1.0'
+
+jobs:
+  upload-release-assets:
+    name: Upload Release Assets
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - name: Download Release Artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: artifacts
+    
+    - name: Prepare Release Assets
+      run: |
+        mkdir release-assets
+        find artifacts -name "*.tar.gz" -o -name "*.zip" | while read file; do
+          cp "$file" release-assets/
+        done
+        
+        # List what we're uploading
+        echo "Release assets prepared:"
+        ls -la release-assets/
+    
+    - name: Upload Assets to Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ github.event.inputs.tag_name || github.event.release.tag_name }}
+        files: release-assets/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

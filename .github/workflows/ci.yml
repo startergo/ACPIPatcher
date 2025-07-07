@@ -1,0 +1,284 @@
+name: Build ACPIPatcher
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  EDK2_VERSION: edk2-stable202202
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }} (${{ matrix.arch }}, ${{ matrix.build_type }})
+    runs-on: ${{ matrix.runner }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux builds
+          - os: linux
+            runner: ubuntu-latest
+            arch: X64
+            build_type: RELEASE
+            toolchain: GCC5
+          - os: linux
+            runner: ubuntu-latest
+            arch: X64
+            build_type: DEBUG
+            toolchain: GCC5
+          - os: linux
+            runner: ubuntu-latest
+            arch: IA32
+            build_type: RELEASE
+            toolchain: GCC5
+          
+          # macOS builds
+          - os: macos
+            runner: macos-13
+            arch: X64
+            build_type: RELEASE
+            toolchain: XCODE5
+          - os: macos
+            runner: macos-13
+            arch: X64
+            build_type: DEBUG
+            toolchain: XCODE5
+          
+          # Windows builds
+          - os: windows
+            runner: windows-2019
+            arch: X64
+            build_type: RELEASE
+            toolchain: VS2019
+          - os: windows
+            runner: windows-2019
+            arch: X64
+            build_type: DEBUG
+            toolchain: VS2019
+    
+    steps:
+    - name: Checkout ACPIPatcher
+      uses: actions/checkout@v4
+      with:
+        path: acpipatcher
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    # Platform-specific dependency installation
+    - name: Install Linux Dependencies
+      if: matrix.os == 'linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential nasm uuid-dev gcc-multilib
+    
+    - name: Install macOS Dependencies
+      if: matrix.os == 'macos'
+      run: |
+        brew install nasm mtoc
+    
+    - name: Install Windows Dependencies
+      if: matrix.os == 'windows'
+      run: |
+        choco install nasm
+    
+    # EDK2 setup with caching
+    - name: Cache EDK2
+      id: cache-edk2
+      uses: actions/cache@v3
+      with:
+        path: edk2
+        key: edk2-${{ env.EDK2_VERSION }}-${{ matrix.os }}-${{ matrix.arch }}
+    
+    - name: Checkout EDK2
+      if: steps.cache-edk2.outputs.cache-hit != 'true'
+      run: |
+        git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
+        cd edk2
+        git submodule update --init --recommend-shallow
+    
+    - name: Copy ACPIPatcher to EDK2
+      shell: bash
+      run: |
+        if [ "${{ matrix.os }}" = "windows" ]; then
+          cp -r acpipatcher/ACPIPatcherPkg edk2/
+        else
+          cp -r acpipatcher/ACPIPatcherPkg edk2/
+        fi
+    
+    # Build steps - Linux/macOS
+    - name: Build on Unix (Linux/macOS)
+      if: matrix.os != 'windows'
+      run: |
+        cd edk2
+        . edksetup.sh
+        make -C BaseTools
+        build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t ${{ matrix.toolchain }} -p ACPIPatcherPkg/ACPIPatcherPkg.dsc
+    
+    # Build steps - Windows
+    - name: Build on Windows
+      if: matrix.os == 'windows'
+      shell: cmd
+      run: |
+        cd edk2
+        call edksetup.bat
+        build -t VS2019
+        build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t ${{ matrix.toolchain }} -p ACPIPatcherPkg\ACPIPatcherPkg.dsc
+    
+    # Verification and packaging
+    - name: Verify Build Output
+      shell: bash
+      run: |
+        cd edk2
+        if [ "${{ matrix.os }}" = "windows" ]; then
+          BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_${{ matrix.toolchain }}/${{ matrix.arch }}"
+        else
+          BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_${{ matrix.toolchain }}/${{ matrix.arch }}"
+        fi
+        
+        echo "Build directory contents:"
+        ls -la "$BUILD_DIR/" || true
+        
+        # Check if binaries exist
+        if [ -f "$BUILD_DIR/ACPIPatcher.efi" ]; then
+          echo "✅ ACPIPatcher.efi built successfully"
+          ls -la "$BUILD_DIR/ACPIPatcher.efi"
+        else
+          echo "❌ ACPIPatcher.efi not found"
+          exit 1
+        fi
+        
+        if [ -f "$BUILD_DIR/ACPIPatcherDxe.efi" ]; then
+          echo "✅ ACPIPatcherDxe.efi built successfully"
+          ls -la "$BUILD_DIR/ACPIPatcherDxe.efi"
+        else
+          echo "❌ ACPIPatcherDxe.efi not found"
+          exit 1
+        fi
+    
+    - name: Create Distribution Package
+      shell: bash
+      run: |
+        cd edk2
+        BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_${{ matrix.toolchain }}/${{ matrix.arch }}"
+        DIST_DIR="ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-${{ matrix.os }}"
+        
+        mkdir -p "$DIST_DIR"
+        cp "$BUILD_DIR/ACPIPatcher.efi" "$DIST_DIR/"
+        cp "$BUILD_DIR/ACPIPatcherDxe.efi" "$DIST_DIR/"
+        
+        # Copy documentation if it exists
+        [ -f "../acpipatcher/README.md" ] && cp "../acpipatcher/README.md" "$DIST_DIR/"
+        [ -f "../acpipatcher/DEBUG_GUIDE.md" ] && cp "../acpipatcher/DEBUG_GUIDE.md" "$DIST_DIR/"
+        [ -f "../acpipatcher/IMPROVEMENTS.md" ] && cp "../acpipatcher/IMPROVEMENTS.md" "$DIST_DIR/"
+        [ -d "../acpipatcher/Build/ACPI" ] && cp -r "../acpipatcher/Build/ACPI" "$DIST_DIR/"
+        
+        # Create build info
+        cat > "$DIST_DIR/BUILD_INFO.txt" << EOF
+        ACPIPatcher Build Information
+        ============================
+        Version: $(git -C ../acpipatcher describe --tags --always 2>/dev/null || echo "unknown")
+        Commit: $(git -C ../acpipatcher rev-parse HEAD 2>/dev/null || echo "unknown")
+        Build Date: $(date -u)
+        Architecture: ${{ matrix.arch }}
+        Build Type: ${{ matrix.build_type }}
+        Toolchain: ${{ matrix.toolchain }}
+        Platform: ${{ matrix.os }}
+        Runner: ${{ matrix.runner }}
+        EOF
+        
+        # Create archive
+        if [ "${{ matrix.os }}" = "windows" ]; then
+          zip -r "$DIST_DIR.zip" "$DIST_DIR"
+        else
+          tar -czf "$DIST_DIR.tar.gz" "$DIST_DIR"
+        fi
+    
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-${{ matrix.os }}
+        path: |
+          edk2/ACPIPatcher-*.tar.gz
+          edk2/ACPIPatcher-*.zip
+        retention-days: 30
+        if-no-files-found: error
+
+  # Static analysis job
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Install Analysis Tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cppcheck
+    
+    - name: Run CPPCheck
+      run: |
+        echo "Running CPPCheck static analysis..."
+        cppcheck --enable=all --inconclusive --xml --xml-version=2 \
+                 --suppress=missingIncludeSystem \
+                 --suppress=unusedFunction \
+                 ACPIPatcherPkg/ACPIPatcher/ 2> cppcheck-results.xml || true
+        
+        if [ -s cppcheck-results.xml ]; then
+          echo "CPPCheck found issues:"
+          cat cppcheck-results.xml
+        else
+          echo "✅ CPPCheck analysis passed"
+        fi
+    
+    - name: Upload Analysis Results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: static-analysis-results
+        path: cppcheck-results.xml
+        retention-days: 7
+
+  # Summary job
+  build-summary:
+    name: Build Summary
+    runs-on: ubuntu-latest
+    needs: [build, static-analysis]
+    if: always()
+    
+    steps:
+    - name: Generate Summary
+      run: |
+        echo "## ACPIPatcher Build Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Build Matrix Results" >> $GITHUB_STEP_SUMMARY
+        echo "| Platform | Architecture | Build Type | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|----------|--------------|------------|--------|" >> $GITHUB_STEP_SUMMARY
+        
+        # Note: In a real scenario, you'd parse the matrix results
+        # For now, we'll show the overall status
+        if [ "${{ needs.build.result }}" = "success" ]; then
+          echo "| All Platforms | All Architectures | All Types | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| All Platforms | All Architectures | All Types | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Static Analysis" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ needs.static-analysis.result }}" = "success" ]; then
+          echo "✅ Static analysis completed successfully" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ Static analysis failed or found issues" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+        echo "Built binaries are available in the Actions artifacts section." >> $GITHUB_STEP_SUMMARY

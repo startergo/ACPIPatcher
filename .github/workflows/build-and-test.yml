@@ -1,0 +1,571 @@
+name: Build and Test ACPIPatcher
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      debug_level:
+        description: 'Debug Level (1-4)'
+        required: false
+        default: '3'
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
+          - '4'
+
+env:
+  EDK2_VERSION: edk2-stable202202
+  DEBUG_LEVEL: ${{ github.event.inputs.debug_level || '3' }}
+
+jobs:
+  build-linux:
+    name: Build on Ubuntu (GCC5)
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        arch: [X64, IA32]
+        build_type: [RELEASE, DEBUG]
+    
+    steps:
+    - name: Checkout ACPIPatcher
+      uses: actions/checkout@v4
+      with:
+        path: acpipatcher
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential nasm uuid-dev gcc-multilib
+    
+    - name: Cache EDK2
+      id: cache-edk2
+      uses: actions/cache@v3
+      with:
+        path: edk2
+        key: edk2-${{ env.EDK2_VERSION }}-ubuntu-${{ matrix.arch }}
+    
+    - name: Checkout EDK2
+      if: steps.cache-edk2.outputs.cache-hit != 'true'
+      run: |
+        git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
+        cd edk2
+        git submodule update --init --recommend-shallow
+    
+    - name: Copy ACPIPatcher to EDK2
+      run: |
+        cp -r acpipatcher/ACPIPatcherPkg edk2/
+    
+    - name: Setup EDK2 Environment
+      run: |
+        cd edk2
+        . edksetup.sh
+        make -C BaseTools
+    
+    - name: Build ACPIPatcher
+      run: |
+        cd edk2
+        . edksetup.sh
+        
+        # Build with custom debug level
+        build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t GCC5 \
+              -p ACPIPatcherPkg/ACPIPatcherPkg.dsc \
+              -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
+    
+    - name: Verify Build Output
+      run: |
+        cd edk2
+        BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_GCC5/${{ matrix.arch }}"
+        
+        echo "Build directory contents:"
+        ls -la "$BUILD_DIR/" || true
+        
+        # Check if binaries exist
+        if [ -f "$BUILD_DIR/ACPIPatcher.efi" ]; then
+          echo "✅ ACPIPatcher.efi built successfully"
+          file "$BUILD_DIR/ACPIPatcher.efi"
+        else
+          echo "❌ ACPIPatcher.efi not found"
+          exit 1
+        fi
+        
+        if [ -f "$BUILD_DIR/ACPIPatcherDxe.efi" ]; then
+          echo "✅ ACPIPatcherDxe.efi built successfully"
+          file "$BUILD_DIR/ACPIPatcherDxe.efi"
+        else
+          echo "❌ ACPIPatcherDxe.efi not found"
+          exit 1
+        fi
+    
+    - name: Create Distribution Package
+      run: |
+        cd edk2
+        BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_GCC5/${{ matrix.arch }}"
+        DIST_DIR="ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-linux"
+        
+        mkdir -p "$DIST_DIR"
+        cp "$BUILD_DIR/ACPIPatcher.efi" "$DIST_DIR/"
+        cp "$BUILD_DIR/ACPIPatcherDxe.efi" "$DIST_DIR/"
+        cp -r acpipatcher/Build/ACPI "$DIST_DIR/" || true
+        cp acpipatcher/README.md "$DIST_DIR/"
+        cp acpipatcher/DEBUG_GUIDE.md "$DIST_DIR/" || true
+        cp acpipatcher/IMPROVEMENTS.md "$DIST_DIR/" || true
+        
+        # Create version info
+        echo "ACPIPatcher Build Information" > "$DIST_DIR/BUILD_INFO.txt"
+        echo "============================" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Version: $(git -C acpipatcher describe --tags --always)" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Commit: $(git -C acpipatcher rev-parse HEAD)" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Build Date: $(date -u)" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Architecture: ${{ matrix.arch }}" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Build Type: ${{ matrix.build_type }}" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Debug Level: ${{ env.DEBUG_LEVEL }}" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Toolchain: GCC5" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Platform: Ubuntu Linux" >> "$DIST_DIR/BUILD_INFO.txt"
+        
+        tar -czf "$DIST_DIR.tar.gz" "$DIST_DIR"
+    
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-linux
+        path: edk2/ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-linux.tar.gz
+        retention-days: 30
+
+  build-macos:
+    name: Build on macOS (Xcode)
+    runs-on: macos-13
+    
+    strategy:
+      matrix:
+        arch: [X64]
+        build_type: [RELEASE, DEBUG]
+    
+    steps:
+    - name: Checkout ACPIPatcher
+      uses: actions/checkout@v4
+      with:
+        path: acpipatcher
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install Dependencies
+      run: |
+        brew install nasm mtoc
+    
+    - name: Cache EDK2
+      id: cache-edk2
+      uses: actions/cache@v3
+      with:
+        path: edk2
+        key: edk2-${{ env.EDK2_VERSION }}-macos-${{ matrix.arch }}
+    
+    - name: Checkout EDK2
+      if: steps.cache-edk2.outputs.cache-hit != 'true'
+      run: |
+        git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
+        cd edk2
+        git submodule update --init --recommend-shallow
+    
+    - name: Copy ACPIPatcher to EDK2
+      run: |
+        cp -r acpipatcher/ACPIPatcherPkg edk2/
+    
+    - name: Setup EDK2 Environment
+      run: |
+        cd edk2
+        . edksetup.sh
+        make -C BaseTools
+    
+    - name: Build ACPIPatcher
+      run: |
+        cd edk2
+        . edksetup.sh
+        
+        # Build with custom debug level
+        build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t XCODE5 \
+              -p ACPIPatcherPkg/ACPIPatcherPkg.dsc \
+              -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
+    
+    - name: Verify Build Output
+      run: |
+        cd edk2
+        BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_XCODE5/${{ matrix.arch }}"
+        
+        echo "Build directory contents:"
+        ls -la "$BUILD_DIR/" || true
+        
+        # Check if binaries exist
+        if [ -f "$BUILD_DIR/ACPIPatcher.efi" ]; then
+          echo "✅ ACPIPatcher.efi built successfully"
+          file "$BUILD_DIR/ACPIPatcher.efi"
+        else
+          echo "❌ ACPIPatcher.efi not found"
+          exit 1
+        fi
+        
+        if [ -f "$BUILD_DIR/ACPIPatcherDxe.efi" ]; then
+          echo "✅ ACPIPatcherDxe.efi built successfully"
+          file "$BUILD_DIR/ACPIPatcherDxe.efi"
+        else
+          echo "❌ ACPIPatcherDxe.efi not found"
+          exit 1
+        fi
+    
+    - name: Create Distribution Package
+      run: |
+        cd edk2
+        BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_XCODE5/${{ matrix.arch }}"
+        DIST_DIR="ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-macos"
+        
+        mkdir -p "$DIST_DIR"
+        cp "$BUILD_DIR/ACPIPatcher.efi" "$DIST_DIR/"
+        cp "$BUILD_DIR/ACPIPatcherDxe.efi" "$DIST_DIR/"
+        cp -r acpipatcher/Build/ACPI "$DIST_DIR/" || true
+        cp acpipatcher/README.md "$DIST_DIR/"
+        cp acpipatcher/DEBUG_GUIDE.md "$DIST_DIR/" || true
+        cp acpipatcher/IMPROVEMENTS.md "$DIST_DIR/" || true
+        
+        # Create version info
+        echo "ACPIPatcher Build Information" > "$DIST_DIR/BUILD_INFO.txt"
+        echo "============================" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Version: $(git -C acpipatcher describe --tags --always)" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Commit: $(git -C acpipatcher rev-parse HEAD)" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Build Date: $(date -u)" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Architecture: ${{ matrix.arch }}" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Build Type: ${{ matrix.build_type }}" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Debug Level: ${{ env.DEBUG_LEVEL }}" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Toolchain: XCODE5" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Platform: macOS" >> "$DIST_DIR/BUILD_INFO.txt"
+        
+        tar -czf "$DIST_DIR.tar.gz" "$DIST_DIR"
+    
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-macos
+        path: edk2/ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-macos.tar.gz
+        retention-days: 30
+
+  build-windows:
+    name: Build on Windows (VS2019)
+    runs-on: windows-2019
+    
+    strategy:
+      matrix:
+        arch: [X64, IA32]
+        build_type: [RELEASE, DEBUG]
+    
+    steps:
+    - name: Checkout ACPIPatcher
+      uses: actions/checkout@v4
+      with:
+        path: acpipatcher
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install NASM
+      run: |
+        choco install nasm
+    
+    - name: Cache EDK2
+      id: cache-edk2
+      uses: actions/cache@v3
+      with:
+        path: edk2
+        key: edk2-${{ env.EDK2_VERSION }}-windows-${{ matrix.arch }}
+    
+    - name: Checkout EDK2
+      if: steps.cache-edk2.outputs.cache-hit != 'true'
+      run: |
+        git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
+        cd edk2
+        git submodule update --init --recommend-shallow
+    
+    - name: Copy ACPIPatcher to EDK2
+      run: |
+        xcopy /E /I acpipatcher\ACPIPatcherPkg edk2\ACPIPatcherPkg
+    
+    - name: Setup EDK2 Environment and Build
+      shell: cmd
+      run: |
+        cd edk2
+        call edksetup.bat
+        
+        REM Build BaseTools
+        build -t VS2019
+        
+        REM Build ACPIPatcher with custom debug level
+        build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t VS2019 ^
+              -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
+              -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
+    
+    - name: Verify Build Output
+      shell: powershell
+      run: |
+        cd edk2
+        $BUILD_DIR = "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2019\${{ matrix.arch }}"
+        
+        Write-Host "Build directory contents:"
+        Get-ChildItem "$BUILD_DIR" -ErrorAction SilentlyContinue | Format-Table
+        
+        # Check if binaries exist
+        if (Test-Path "$BUILD_DIR\ACPIPatcher.efi") {
+          Write-Host "✅ ACPIPatcher.efi built successfully"
+          Get-ItemProperty "$BUILD_DIR\ACPIPatcher.efi" | Select-Object Name, Length, LastWriteTime
+        } else {
+          Write-Host "❌ ACPIPatcher.efi not found"
+          exit 1
+        }
+        
+        if (Test-Path "$BUILD_DIR\ACPIPatcherDxe.efi") {
+          Write-Host "✅ ACPIPatcherDxe.efi built successfully" 
+          Get-ItemProperty "$BUILD_DIR\ACPIPatcherDxe.efi" | Select-Object Name, Length, LastWriteTime
+        } else {
+          Write-Host "❌ ACPIPatcherDxe.efi not found"
+          exit 1
+        }
+    
+    - name: Create Distribution Package
+      shell: powershell
+      run: |
+        cd edk2
+        $BUILD_DIR = "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2019\${{ matrix.arch }}"
+        $DIST_DIR = "ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-windows"
+        
+        New-Item -ItemType Directory -Path "$DIST_DIR" -Force
+        Copy-Item "$BUILD_DIR\ACPIPatcher.efi" "$DIST_DIR\"
+        Copy-Item "$BUILD_DIR\ACPIPatcherDxe.efi" "$DIST_DIR\"
+        if (Test-Path "acpipatcher\Build\ACPI") {
+          Copy-Item "acpipatcher\Build\ACPI" "$DIST_DIR\" -Recurse
+        }
+        Copy-Item "acpipatcher\README.md" "$DIST_DIR\"
+        if (Test-Path "acpipatcher\DEBUG_GUIDE.md") {
+          Copy-Item "acpipatcher\DEBUG_GUIDE.md" "$DIST_DIR\"
+        }
+        if (Test-Path "acpipatcher\IMPROVEMENTS.md") {
+          Copy-Item "acpipatcher\IMPROVEMENTS.md" "$DIST_DIR\"
+        }
+        
+        # Create version info
+        $version = git -C acpipatcher describe --tags --always
+        $commit = git -C acpipatcher rev-parse HEAD
+        $buildDate = Get-Date -Format "yyyy-MM-dd HH:mm:ss UTC"
+        
+        $buildInfo = "ACPIPatcher Build Information`n"
+        $buildInfo += "============================`n"
+        $buildInfo += "Version: $version`n"
+        $buildInfo += "Commit: $commit`n"
+        $buildInfo += "Build Date: $buildDate`n"
+        $buildInfo += "Architecture: ${{ matrix.arch }}`n"
+        $buildInfo += "Build Type: ${{ matrix.build_type }}`n"
+        $buildInfo += "Debug Level: ${{ env.DEBUG_LEVEL }}`n"
+        $buildInfo += "Toolchain: VS2019`n"
+        $buildInfo += "Platform: Windows`n"
+        
+        $buildInfo | Out-File -FilePath "$DIST_DIR\BUILD_INFO.txt" -Encoding UTF8
+        
+        Compress-Archive -Path "$DIST_DIR" -DestinationPath "$DIST_DIR.zip"
+    
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-windows
+        path: edk2/ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-windows.zip
+        retention-days: 30
+
+  test-static-analysis:
+    name: Static Code Analysis
+    runs-on: ubuntu-latest
+    needs: [build-linux]
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Install Analysis Tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cppcheck clang-tidy
+    
+    - name: Run CPPCheck
+      run: |
+        echo "Running CPPCheck static analysis..."
+        cppcheck --enable=all --inconclusive --xml --xml-version=2 \
+                 --suppress=missingIncludeSystem \
+                 --suppress=unusedFunction \
+                 ACPIPatcherPkg/ACPIPatcher/ 2> cppcheck-results.xml || true
+        
+        # Convert to human readable format
+        if [ -s cppcheck-results.xml ]; then
+          echo "CPPCheck found issues:"
+          cat cppcheck-results.xml
+        else
+          echo "✅ CPPCheck analysis passed"
+        fi
+    
+    - name: Check Code Style
+      run: |
+        echo "Checking code formatting..."
+        
+        # Check for consistent indentation (spaces vs tabs)
+        if grep -r $'\t' ACPIPatcherPkg/ACPIPatcher/ --include="*.c" --include="*.h"; then
+          echo "⚠️  Warning: Found tab characters, consider using spaces"
+        else
+          echo "✅ Indentation check passed"
+        fi
+        
+        # Check for trailing whitespace
+        if grep -r ' $' ACPIPatcherPkg/ACPIPatcher/ --include="*.c" --include="*.h"; then
+          echo "⚠️  Warning: Found trailing whitespace"
+        else
+          echo "✅ Trailing whitespace check passed"
+        fi
+    
+    - name: Upload Analysis Results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: static-analysis-results
+        path: cppcheck-results.xml
+        retention-days: 7
+
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [build-linux, build-macos, build-windows, test-static-analysis]
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Download All Artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: artifacts
+    
+    - name: Prepare Release Assets
+      run: |
+        mkdir release-assets
+        
+        # Copy all build artifacts to release directory
+        find artifacts -name "*.tar.gz" -o -name "*.zip" | while read file; do
+          cp "$file" release-assets/
+        done
+        
+        # Create a combined release package
+        mkdir ACPIPatcher-All-Platforms
+        
+        # Extract all builds to combined package
+        cd release-assets
+        for archive in *.tar.gz *.zip; do
+          if [[ $archive == *.tar.gz ]]; then
+            tar -xzf "$archive"
+          else
+            unzip -q "$archive"
+          fi
+        done
+        cd ..
+        
+        # Copy documentation
+        cp README.md ACPIPatcher-All-Platforms/ || true
+        cp DEBUG_GUIDE.md ACPIPatcher-All-Platforms/ || true
+        cp IMPROVEMENTS.md ACPIPatcher-All-Platforms/ || true
+        cp LICENSE ACPIPatcher-All-Platforms/ || true
+        
+        # Create the combined archive
+        tar -czf release-assets/ACPIPatcher-All-Platforms.tar.gz ACPIPatcher-All-Platforms
+    
+    - name: Generate Release Notes
+      id: release_notes
+      run: |
+        echo "## ACPIPatcher Release ${GITHUB_REF#refs/tags/}" > release_notes.md
+        echo "" >> release_notes.md
+        echo "### Build Information" >> release_notes.md
+        echo "- **Build Date:** $(date -u)" >> release_notes.md
+        echo "- **Commit:** ${GITHUB_SHA:0:8}" >> release_notes.md
+        echo "- **EDK II Version:** ${{ env.EDK2_VERSION }}" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "### Supported Platforms" >> release_notes.md
+        echo "- ✅ **Linux (Ubuntu)** - GCC5 toolchain" >> release_notes.md
+        echo "- ✅ **macOS** - Xcode5 toolchain" >> release_notes.md
+        echo "- ✅ **Windows** - VS2019 toolchain" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "### Available Architectures" >> release_notes.md
+        echo "- **X64** - 64-bit Intel/AMD (Primary)" >> release_notes.md
+        echo "- **IA32** - 32-bit Intel/AMD (Legacy)" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "### Package Contents" >> release_notes.md
+        echo "- \`ACPIPatcher.efi\` - Application version" >> release_notes.md
+        echo "- \`ACPIPatcherDxe.efi\` - Driver version" >> release_notes.md
+        echo "- \`ACPI/\` - Sample ACPI tables" >> release_notes.md
+        echo "- Documentation files" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "### Installation" >> release_notes.md
+        echo "1. Download the appropriate package for your platform" >> release_notes.md
+        echo "2. Extract the archive" >> release_notes.md
+        echo "3. Follow the instructions in README.md" >> release_notes.md
+        echo "" >> release_notes.md
+        echo "For detailed usage instructions, see the [README](README.md) and [Debug Guide](DEBUG_GUIDE.md)." >> release_notes.md
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        name: ACPIPatcher ${{ github.ref_name }}
+        body_path: release_notes.md
+        files: release-assets/*
+        draft: false
+        prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notification:
+    name: Build Notification
+    runs-on: ubuntu-latest
+    needs: [build-linux, build-macos, build-windows, test-static-analysis]
+    if: always()
+    
+    steps:
+    - name: Determine Status
+      id: status
+      run: |
+        if [[ "${{ needs.build-linux.result }}" == "success" && 
+              "${{ needs.build-macos.result }}" == "success" && 
+              "${{ needs.build-windows.result }}" == "success" ]]; then
+          echo "status=success" >> $GITHUB_OUTPUT
+          echo "message=✅ All builds completed successfully" >> $GITHUB_OUTPUT
+        else
+          echo "status=failure" >> $GITHUB_OUTPUT
+          echo "message=❌ One or more builds failed" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Build Summary
+      run: |
+        echo "## Build Results Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Platform | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|----------|---------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Linux (Ubuntu) | ${{ needs.build-linux.result == 'success' && '✅ Success' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| macOS | ${{ needs.build-macos.result == 'success' && '✅ Success' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Windows | ${{ needs.build-windows.result == 'success' && '✅ Success' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Static Analysis | ${{ needs.test-static-analysis.result == 'success' && '✅ Success' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Overall Status:** ${{ steps.status.outputs.message }}" >> $GITHUB_STEP_SUMMARY
