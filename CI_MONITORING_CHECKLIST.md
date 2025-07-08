@@ -34,13 +34,16 @@ Calling edksetup.bat...
 
 ### 4. BaseTools Build (With warning suppression)
 ```
-Patching ms.common to disable warnings-as-errors...
-✓ Patched ms.common to disable warnings-as-errors
-Building BaseTools with warnings disabled (CFLAGS=/W0 /WX- /wd4244 ...)
+Building BaseTools with nmake (warnings suppressed via makefile patches)...
+Current directory: D:\a\ACPIPatcher\ACPIPatcher\edk2\BaseTools
+MAKEFLAGS: /nologo
+Microsoft (R) Program Maintenance Utility Version 14.44.35209.0
+Copyright (C) Microsoft Corporation.  All rights reserved.
+[... build output ...]
 ✅ BaseTools build completed
 ```
 
-**Expected Result**: ✅ No error C2220 or warnings-as-errors failures
+**Expected Result**: ✅ Successful BaseTools compilation without NMAKE option errors
 
 ### 5. VS2022 Toolchain Setup (Before ACPIPatcher build)
 ```

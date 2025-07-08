@@ -231,60 +231,86 @@ jobs:
         fi
       shell: bash
     
-    - name: Setup Build Environment (Windows)
+    - name: Setup MSYS2 and Build Tools (Windows)
       if: matrix.platform == 'windows'
-      run: |
-        choco install nasm -y
-        
-        # Show where Chocolatey installed NASM
-        echo "Checking NASM installation locations..."
-        Get-ChildItem "C:\ProgramData\chocolatey\lib\nasm" -Recurse -Filter "nasm.exe" -ErrorAction SilentlyContinue | Select-Object FullName
-        
-        # Find and add NASM to PATH for this session
-        $possiblePaths = @(
-          "C:\ProgramData\chocolatey\lib\nasm\tools",
-          "C:\ProgramData\chocolatey\bin",
-          "C:\tools\nasm",
-          "C:\Program Files\NASM"
-        )
-        
-        $nasmFound = $false
-        foreach ($path in $possiblePaths) {
-          if (Test-Path "$path\nasm.exe") {
-            $env:PATH = "$path;$env:PATH"
-            echo "Found and added NASM to PATH: $path"
-            
-            # Set GitHub environment variable to persist across steps
-            echo "$path" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-            echo "Added to GITHUB_PATH: $path"
-            $nasmFound = $true
-            break
-          }
-        }
-        
-        if (-not $nasmFound) {
-          echo "WARNING: NASM not found in standard locations"
-          echo "Searching entire system for nasm.exe..."
-          Get-ChildItem C:\ -Recurse -Filter "nasm.exe" -ErrorAction SilentlyContinue | Select-Object FullName
-        }
-        
-        # Try to verify NASM installation
-        try {
-          nasm -v
-          echo "✅ NASM is accessible"
-        } catch {
-          echo "⚠️ NASM verification failed, but it may still work in build environment"
-        }
-    
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          mingw-w64-x86_64-clang
+          mingw-w64-x86_64-llvm
+          nasm
+          make
+          mingw-w64-x86_64-diffutils
+          mingw-w64-x86_64-gcc
+          git
+
     - name: Setup Visual Studio Environment (Windows)
       if: matrix.platform == 'windows'
-      uses: microsoft/setup-msbuild@v1.3
+      uses: microsoft/setup-msbuild@v1.3.3
       
     - name: Setup Windows Build Environment
       if: matrix.platform == 'windows'
       uses: ilammy/msvc-dev-cmd@v1.13.0
       with:
         arch: x64
+
+    - name: Add MSYS2 Tools to Windows PATH
+      if: matrix.platform == 'windows'
+      shell: pwsh
+      run: |
+        # Add MSYS2 paths to Windows PATH for access from cmd/batch
+        # Using exact pattern from successful implementation
+        $msys2Paths = @(
+          "D:\a\_temp\msys64\mingw64\bin",
+          "D:\a\_temp\msys64\usr\bin"
+        )
+        
+        foreach ($path in $msys2Paths) {
+          if (Test-Path $path) {
+            echo "Adding to PATH: $path"
+            echo "$path" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          } else {
+            echo "Path not found: $path"
+          }
+        }
+        
+        # Also try to find MSYS2 installation dynamically
+        $possibleMsys2Roots = @(
+          "D:\a\_temp\msys64",
+          "C:\msys64",
+          "D:\msys64"
+        )
+        
+        foreach ($root in $possibleMsys2Roots) {
+          if (Test-Path "$root\mingw64\bin") {
+            echo "Found MSYS2 at: $root"
+            echo "$root\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            echo "$root\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            break
+          }
+        }
+
+    - name: Set EDK2 Environment Variables (Windows)
+      if: matrix.platform == 'windows'
+      shell: pwsh
+      run: |
+        # Set EDK2 environment variables to suppress warnings
+        $msys2Root = "D:\a\_temp\msys64"
+        if (-not (Test-Path $msys2Root)) {
+          $msys2Root = "C:\msys64"
+        }
+        
+        echo "Setting EDK2 environment variables..."
+        echo "NASM_PREFIX=$msys2Root\usr\bin\" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        echo "CLANG_BIN=$msys2Root\mingw64\bin\" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        echo "CYGWIN_HOME=$msys2Root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        
+        echo "Environment variables set:"
+        echo "NASM_PREFIX=$msys2Root\usr\bin\"
+        echo "CLANG_BIN=$msys2Root\mingw64\bin\"
+        echo "CYGWIN_HOME=$msys2Root"
 
     - name: Setup Python
       uses: actions/setup-python@v5

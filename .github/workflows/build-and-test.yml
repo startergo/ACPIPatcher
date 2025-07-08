@@ -675,9 +675,46 @@ jobs:
         echo CLANG_BIN=%CLANG_BIN%
         echo CYGWIN_HOME=%CYGWIN_HOME%
         
+        REM Configure Python for EDK2 BaseTools
+        echo Python configuration for EDK2:
+        echo PYTHON_COMMAND=%PYTHON_COMMAND%
+        
         REM Set BASE_TOOLS_PATH before building
         set "BASE_TOOLS_PATH=%WORKSPACE%\BaseTools"
         echo Set BASE_TOOLS_PATH to: %BASE_TOOLS_PATH%
+        
+        REM Set PYTHON_COMMAND to avoid '\python.exe' error in BaseTools
+        where python >nul 2>&1
+        if %ERRORLEVEL%==0 (
+          for /f "delims=" %%i in ('where python') do set "PYTHON_COMMAND=%%i"
+          echo ✓ Found Python: %PYTHON_COMMAND%
+        ) else (
+          REM Try python3 if python is not found
+          where python3 >nul 2>&1
+          if %ERRORLEVEL%==0 (
+            for /f "delims=" %%i in ('where python3') do set "PYTHON_COMMAND=%%i"
+            echo ✓ Found Python3: %PYTHON_COMMAND%
+          ) else (
+            echo ✗ Python not found in PATH - this will cause BaseTools build to fail
+            echo Available commands in PATH:
+            where py >nul 2>&1 && echo "py.exe found" || echo "py.exe not found"
+            exit /b 1
+          )
+        )
+        
+        REM Verify Python works
+        "%PYTHON_COMMAND%" --version
+        if errorlevel 1 (
+          echo ✗ Python command verification failed
+          exit /b 1
+        )
+        
+        REM Debug: Show Python information
+        echo Python executable path: %PYTHON_COMMAND%
+        echo Python version: 
+        "%PYTHON_COMMAND%" --version
+        echo Python location details:
+        where python python3 py 2>nul | findstr /V "INFO:" || echo "No Python executables found with where command"
         
         REM Build BaseTools FIRST, before calling edksetup.bat
         echo Building BaseTools with warning suppression...
@@ -709,15 +746,28 @@ jobs:
         echo Current directory: %CD%
         
         REM Clear all potentially problematic environment variables
+        REM Preserve PYTHON_COMMAND and other required variables
+        set "SAVED_PYTHON_COMMAND=%PYTHON_COMMAND%"
+        set "SAVED_BASE_TOOLS_PATH=%BASE_TOOLS_PATH%"
+        set "SAVED_EDK_TOOLS_PATH=%EDK_TOOLS_PATH%"
+        set "SAVED_WORKSPACE=%WORKSPACE%"
+        
         set MAKEFLAGS=
         set CFLAGS=
         set CXXFLAGS=
         set LDFLAGS=
         set MFLAGS=
-        echo Cleared potentially problematic build flags
         
-        REM Build BaseTools with nmake (use clean environment)
-        nmake
+        REM Restore critical variables
+        set "PYTHON_COMMAND=%SAVED_PYTHON_COMMAND%"
+        set "BASE_TOOLS_PATH=%SAVED_BASE_TOOLS_PATH%"
+        set "EDK_TOOLS_PATH=%SAVED_EDK_TOOLS_PATH%"
+        set "WORKSPACE=%SAVED_WORKSPACE%"
+        echo Cleared potentially problematic build flags and restored critical variables
+        
+        REM Build BaseTools with nmake (use clean environment but explicit PYTHON_COMMAND)
+        echo Running nmake with PYTHON_COMMAND: %PYTHON_COMMAND%
+        nmake PYTHON_COMMAND="%PYTHON_COMMAND%"
         if errorlevel 1 (
           echo ❌ BaseTools build failed, trying without makefile patches...
           
@@ -735,7 +785,8 @@ jobs:
           set LDFLAGS=
           set MFLAGS=
           
-          nmake
+          echo Retry nmake with PYTHON_COMMAND: %PYTHON_COMMAND%
+          nmake PYTHON_COMMAND="%PYTHON_COMMAND%"
           
           if errorlevel 1 (
             echo ❌ BaseTools build failed even without patches
