@@ -65,15 +65,15 @@ DebugPrint (
 
 VOID
 HexDump (
-  IN UINT8   *Bytes,
-  IN UINTN   Length,
-  IN UINT64  BaseAddress
+  IN VOID    *Data,
+  IN UINTN   Size,
+  IN UINT64  Address
   );
 
 EFI_STATUS
 ValidateAcpiTable (
-  IN UINT8   *TableBuffer,
-  IN UINTN   TableSize
+  IN VOID    *TableBuffer,
+  IN UINTN   BufferSize
   );
 
 /**
