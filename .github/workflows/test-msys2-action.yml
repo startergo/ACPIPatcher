@@ -154,6 +154,57 @@ jobs:
           )
         )
     
+    - name: Set EDK2 Environment Variables for Windows
+      if: github.event.inputs.test_mode == 'full-build'
+      shell: pwsh
+      run: |
+        # Set EDK2 environment variables to suppress warnings
+        $msys2Root = "D:\a\_temp\msys64"
+        if (-not (Test-Path $msys2Root)) {
+          $msys2Root = "C:\msys64"
+        }
+        
+        echo "Setting EDK2 environment variables..."
+        echo "NASM_PREFIX=$msys2Root\usr\bin\" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        echo "CLANG_BIN=$msys2Root\mingw64\bin\" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        echo "CYGWIN_HOME=$msys2Root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        
+        echo "Environment variables set:"
+        echo "NASM_PREFIX=$msys2Root\usr\bin\"
+        echo "CLANG_BIN=$msys2Root\mingw64\bin\"
+        echo "CYGWIN_HOME=$msys2Root"
+
+    - name: Verify EDK2 Environment Variables
+      if: github.event.inputs.test_mode == 'full-build'
+      shell: cmd
+      run: |
+        echo === Verifying EDK2 Environment Variables ===
+        echo NASM_PREFIX=%NASM_PREFIX%
+        echo CLANG_BIN=%CLANG_BIN%
+        echo CYGWIN_HOME=%CYGWIN_HOME%
+        echo.
+        
+        REM Test if the paths actually exist and contain the expected tools
+        if exist "%NASM_PREFIX%nasm.exe" (
+          echo ✓ NASM found at: %NASM_PREFIX%nasm.exe
+          "%NASM_PREFIX%nasm.exe" -version | findstr "version"
+        ) else (
+          echo ✗ NASM not found at: %NASM_PREFIX%nasm.exe
+        )
+        
+        if exist "%CLANG_BIN%clang.exe" (
+          echo ✓ Clang found at: %CLANG_BIN%clang.exe
+          "%CLANG_BIN%clang.exe" --version | findstr "clang version"
+        ) else (
+          echo ✗ Clang not found at: %CLANG_BIN%clang.exe
+        )
+        
+        if exist "%CYGWIN_HOME%" (
+          echo ✓ CYGWIN_HOME directory exists: %CYGWIN_HOME%
+        ) else (
+          echo ✗ CYGWIN_HOME directory not found: %CYGWIN_HOME%
+        )
+
     - name: Setup EDK2 Environment (MSYS2)
       if: github.event.inputs.test_mode == 'full-build'
       shell: msys2 {0}
@@ -263,6 +314,7 @@ jobs:
         echo "• Clang accessible from both MSYS2 and Windows batch shells" >> msys2_test_report.txt
         echo "• NASM package requires careful PATH management for Windows batch access" >> msys2_test_report.txt
         echo "• Environment variables can be set for EDK2 compatibility" >> msys2_test_report.txt
+        echo "• EDK2 environment variables (NASM_PREFIX, CLANG_BIN, CYGWIN_HOME) suppress warnings" >> msys2_test_report.txt
         echo "" >> msys2_test_report.txt
         
         echo "=== Tools Available ===" >> msys2_test_report.txt
@@ -299,6 +351,7 @@ jobs:
         echo "2. Add MSYS2 paths to GITHUB_PATH for Windows batch access" >> msys2_test_report.txt
         echo "3. Use msys2 shell for complex build operations" >> msys2_test_report.txt
         echo "4. Set EDK2 environment variables using dynamic tool detection" >> msys2_test_report.txt
+        echo "5. Set NASM_PREFIX, CLANG_BIN, CYGWIN_HOME before edksetup.bat to suppress warnings" >> msys2_test_report.txt
         
         cat msys2_test_report.txt
     
