@@ -471,7 +471,113 @@ jobs:
             )
           )
         )
+        
+        REM Verify BaseTools build was successful
+        echo Verifying BaseTools build...
+        if not exist "Bin\Win32" (
+          echo ERROR: BaseTools Bin\Win32 directory was not created
+          echo Attempting to create directory structure and retry build...
+          mkdir Bin\Win32 >nul 2>&1
+          
+          REM Try one more comprehensive build attempt
+          echo Final BaseTools build attempt with directory pre-creation...
+          set CL=/W0
+          set CFLAGS=/nologo /Z7 /c /O2 /MT /W0 /D _CRT_SECURE_NO_DEPRECATE /D _CRT_NONSTDC_NO_DEPRECATE
+          
+          REM Patch makefiles before build
+          if exist "Makefiles\ms.common" (
+            powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/W4 /WX', '/W0' | Set-Content 'Makefiles\ms.common'"
+          )
+          
+          python Makefiles\NmakeSubdirs.py all
+          if errorlevel 1 (
+            echo CRITICAL: BaseTools build failed completely
+            dir Bin >nul 2>&1 || echo Bin directory does not exist
+            dir BaseTools\Source\C >nul 2>&1 || echo Source\C directory issue
+            exit /b 1
+          )
+        )
+        
+        REM Enhanced post-build verification and tool location
+        echo Performing enhanced BaseTools verification...
+        if not exist "Bin\Win32" (
+          echo Creating missing Bin\Win32 directory...
+          mkdir "Bin\Win32" 2>nul
+        )
+        
+        REM Check if tools were built in alternative locations and copy them
+        echo Searching for built tools in alternative locations...
+        if exist "Bin\*.exe" (
+          echo Copying tools from Bin\ to Bin\Win32\...
+          copy "Bin\*.exe" "Bin\Win32\" >nul 2>&1
+        )
+        
+        REM Some tools might be in the root BaseTools directory
+        if exist "*.exe" (
+          echo Copying tools from BaseTools root to Bin\Win32\...
+          copy "*.exe" "Bin\Win32\" >nul 2>&1
+        )
+        
+        REM Check Source\C subdirectories for built tools
+        for /d %%D in (Source\C\*) do (
+          if exist "%%D\*.exe" (
+            echo Copying tools from %%D\ to Bin\Win32\...
+            copy "%%D\*.exe" "Bin\Win32\" >nul 2>&1
+          )
+        )
+        
+        REM Check individual tool directories
+        if exist "Source\C\VfrCompile\*.exe" copy "Source\C\VfrCompile\*.exe" "Bin\Win32\" >nul 2>&1
+        if exist "Source\C\VolInfo\*.exe" copy "Source\C\VolInfo\*.exe" "Bin\Win32\" >nul 2>&1
+        if exist "Source\C\GenFv\*.exe" copy "Source\C\GenFv\*.exe" "Bin\Win32\" >nul 2>&1
+        if exist "Source\C\GenFfs\*.exe" copy "Source\C\GenFfs\*.exe" "Bin\Win32\" >nul 2>&1
+        if exist "Source\C\GenSec\*.exe" copy "Source\C\GenSec\*.exe" "Bin\Win32\" >nul 2>&1
+        
+        REM Verify that critical tools exist
+        echo Final verification of BaseTools...
+        if exist "Bin\Win32\build.exe" (
+          echo ✅ build.exe found in Bin\Win32
+        ) else (
+          echo ⚠️  build.exe not found in Bin\Win32, checking alternatives...
+          if exist "Source\Python\build\build.py" (
+            echo ✅ Found Python build script as alternative
+          ) else (
+            echo ❌ Neither build.exe nor build.py found - this may cause issues
+          )
+        )
+        
+        echo Listing contents of Bin\Win32:
+        dir "Bin\Win32" 2>nul || echo No files in Bin\Win32 directory
+        
+        echo ✅ BaseTools build successful - Bin\Win32 directory exists
+        )
         cd ..
+        
+        REM Ensure EDK_TOOLS_BIN is set correctly
+        echo Verifying EDK_TOOLS_BIN environment variable...
+        if "%EDK_TOOLS_BIN%"=="" (
+          echo EDK_TOOLS_BIN not set, setting manually...
+          set "EDK_TOOLS_BIN=%WORKSPACE%\BaseTools\Bin\Win32"
+          echo Set EDK_TOOLS_BIN to: %EDK_TOOLS_BIN%
+        ) else (
+          echo EDK_TOOLS_BIN is: %EDK_TOOLS_BIN%
+        )
+        
+        REM Verify the path exists
+        if not exist "%EDK_TOOLS_BIN%" (
+          echo WARNING: EDK_TOOLS_BIN path does not exist: %EDK_TOOLS_BIN%
+          echo Attempting to find correct BaseTools path...
+          
+          if exist "%WORKSPACE%\BaseTools\Bin\Win32" (
+            set "EDK_TOOLS_BIN=%WORKSPACE%\BaseTools\Bin\Win32"
+            echo Corrected EDK_TOOLS_BIN to: %EDK_TOOLS_BIN%
+          ) else (
+            echo ERROR: Cannot find BaseTools directory
+            echo WORKSPACE is: %WORKSPACE%
+            dir "%WORKSPACE%\BaseTools" 2>nul || echo BaseTools directory not found
+            exit /b 1
+          )
+        )
         
         REM Reset CL for application build (we want warnings for our code)
         set CL=

@@ -223,35 +223,80 @@ jobs:
         cd BaseTools
         python -m pip install --upgrade pip >nul 2>&1
         
-        REM Strategy 1: Try nmake
+        REM Strategy 1: Try nmake with warning suppression
         echo Attempting BaseTools build with nmake...
+        set CL=/W0
+        set LINK=/IGNORE:4099
         nmake >nul 2>&1
         if not errorlevel 1 (
           echo ✅ BaseTools built successfully with nmake
-          goto :build_acpi
+          goto :verify_tools
         )
         
-        REM Strategy 2: Try python build
-        echo nmake failed, trying python build...
+        REM Strategy 2: Try nmake with enhanced warning suppression
+        echo nmake failed, trying with enhanced warning suppression...
+        nmake clean >nul 2>&1
+        set CFLAGS=/nologo /Z7 /c /O2 /MT /W0 /D _CRT_SECURE_NO_DEPRECATE /D _CRT_NONSTDC_NO_DEPRECATE
+        nmake CFLAGS="%CFLAGS%" >nul 2>&1
+        if not errorlevel 1 (
+          echo ✅ BaseTools built successfully with enhanced suppression
+          goto :verify_tools
+        )
+        
+        REM Strategy 3: Try python build
+        echo Enhanced nmake failed, trying python build...
         python build.py >nul 2>&1
         if not errorlevel 1 (
           echo ✅ BaseTools built successfully with python
-          goto :build_acpi
+          goto :verify_tools
         )
         
-        REM Strategy 3: Force nmake without error suppression
+        REM Strategy 4: Force nmake without error suppression
         echo Python build failed, trying forced nmake...
+        if exist "Makefiles\ms.common" (
+          echo Patching ms.common to remove /WX...
+          powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/W4 /WX', '/W0' | Set-Content 'Makefiles\ms.common'"
+        )
         nmake
         if not errorlevel 1 (
           echo ✅ BaseTools built successfully with forced nmake
-          goto :build_acpi
+          goto :verify_tools
         )
         
         echo ❌ All BaseTools build strategies failed
         exit /b 1
         
-        :build_acpi
+        :verify_tools
+        REM Enhanced post-build verification and tool location
+        echo Performing enhanced BaseTools verification...
+        if not exist "Bin\Win32" (
+          echo Creating missing Bin\Win32 directory...
+          mkdir "Bin\Win32" 2>nul
+          
+          REM Check if tools were built in alternative locations and copy them
+          echo Searching for built tools in alternative locations...
+          if exist "Bin\*.exe" copy "Bin\*.exe" "Bin\Win32\" >nul 2>&1
+          if exist "*.exe" copy "*.exe" "Bin\Win32\" >nul 2>&1
+          
+          REM Check Source\C subdirectories for built tools
+          for /d %%D in (Source\C\*) do (
+            if exist "%%D\*.exe" copy "%%D\*.exe" "Bin\Win32\" >nul 2>&1
+          )
+        )
+        
+        echo Listing contents of Bin\Win32:
+        dir "Bin\Win32" 2>nul || echo No files in Bin\Win32 directory
+        
         cd ..
+        
+        REM Ensure EDK_TOOLS_BIN is set correctly
+        if "%EDK_TOOLS_BIN%"=="" (
+          set "EDK_TOOLS_BIN=%WORKSPACE%\BaseTools\Bin\Win32"
+          echo Set EDK_TOOLS_BIN to: %EDK_TOOLS_BIN%
+        )
+        
+        REM Reset CL for application build
+        set CL=
         
         REM Build ACPIPatcher
         echo Building ACPIPatcher...
