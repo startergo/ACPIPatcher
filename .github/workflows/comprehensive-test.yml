@@ -403,6 +403,20 @@ jobs:
         set "CYGWIN_HOME="
         echo Set CYGWIN_HOME to empty
         
+        REM CRITICAL FIX: Call edksetup.bat FIRST to set BASE_TOOLS_PATH
+        echo Setting up EDK2 environment BEFORE BaseTools build...
+        call edksetup.bat
+        
+        REM Verify BASE_TOOLS_PATH is set
+        echo Verifying BASE_TOOLS_PATH environment variable...
+        if "%BASE_TOOLS_PATH%"=="" (
+          echo WARNING: BASE_TOOLS_PATH not set by edksetup, setting manually...
+          set "BASE_TOOLS_PATH=%WORKSPACE%\BaseTools"
+          echo Set BASE_TOOLS_PATH to: %BASE_TOOLS_PATH%
+        ) else (
+          echo BASE_TOOLS_PATH is: %BASE_TOOLS_PATH%
+        )
+        
         echo Building BaseTools for Windows...
         cd BaseTools
         python -m pip install --upgrade pip

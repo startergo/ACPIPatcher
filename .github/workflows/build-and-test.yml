@@ -156,16 +156,45 @@ jobs:
         mkdir -p "$DIST_DIR"
         cp "$EFI_PATH" "$DIST_DIR/"
         cp "$DXE_PATH" "$DIST_DIR/"
-        cp -r acpipatcher/Build/ACPI "$DIST_DIR/" || true
-        cp acpipatcher/README.md "$DIST_DIR/"
-        cp acpipatcher/DEBUG_GUIDE.md "$DIST_DIR/" || true
-        cp acpipatcher/IMPROVEMENTS.md "$DIST_DIR/" || true
+        
+        # Copy documentation and test files using dynamic path discovery
+        echo "Copying documentation and test files..."
+        
+        # Find the actual path to the source repository
+        SOURCE_PATH="../acpipatcher"
+        if [ ! -d "$SOURCE_PATH" ]; then
+          SOURCE_PATH="$(find .. -name "ACPIPatcherPkg" -type d | head -1 | xargs dirname)"
+        fi
+        
+        if [ -d "$SOURCE_PATH/Build/ACPI" ]; then
+          cp -r "$SOURCE_PATH/Build/ACPI" "$DIST_DIR/" || echo "Warning: Could not copy ACPI test files"
+        else
+          echo "Warning: ACPI test directory not found at $SOURCE_PATH/Build/ACPI"
+        fi
+        
+        if [ -f "$SOURCE_PATH/README.md" ]; then
+          cp "$SOURCE_PATH/README.md" "$DIST_DIR/"
+        else
+          echo "Warning: README.md not found at $SOURCE_PATH/README.md"
+        fi
+        
+        if [ -f "$SOURCE_PATH/DEBUG_GUIDE.md" ]; then
+          cp "$SOURCE_PATH/DEBUG_GUIDE.md" "$DIST_DIR/" || echo "Warning: Could not copy DEBUG_GUIDE.md"
+        else
+          echo "Warning: DEBUG_GUIDE.md not found"
+        fi
+        
+        if [ -f "$SOURCE_PATH/IMPROVEMENTS.md" ]; then
+          cp "$SOURCE_PATH/IMPROVEMENTS.md" "$DIST_DIR/" || echo "Warning: Could not copy IMPROVEMENTS.md"
+        else
+          echo "Warning: IMPROVEMENTS.md not found"
+        fi
         
         # Create version info
         echo "ACPIPatcher Build Information" > "$DIST_DIR/BUILD_INFO.txt"
         echo "============================" >> "$DIST_DIR/BUILD_INFO.txt"
-        echo "Version: $(git -C acpipatcher describe --tags --always)" >> "$DIST_DIR/BUILD_INFO.txt"
-        echo "Commit: $(git -C acpipatcher rev-parse HEAD)" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Version: $(git -C ../acpipatcher describe --tags --always)" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Commit: $(git -C ../acpipatcher rev-parse HEAD)" >> "$DIST_DIR/BUILD_INFO.txt"
         echo "Build Date: $(date -u)" >> "$DIST_DIR/BUILD_INFO.txt"
         echo "Architecture: ${{ matrix.arch }}" >> "$DIST_DIR/BUILD_INFO.txt"
         echo "Build Type: ${{ matrix.build_type }}" >> "$DIST_DIR/BUILD_INFO.txt"
@@ -336,16 +365,45 @@ jobs:
         mkdir -p "$DIST_DIR"
         cp "$EFI_PATH" "$DIST_DIR/"
         cp "$DXE_PATH" "$DIST_DIR/"
-        cp -r acpipatcher/Build/ACPI "$DIST_DIR/" || true
-        cp acpipatcher/README.md "$DIST_DIR/"
-        cp acpipatcher/DEBUG_GUIDE.md "$DIST_DIR/" || true
-        cp acpipatcher/IMPROVEMENTS.md "$DIST_DIR/" || true
+        
+        # Copy documentation and test files using dynamic path discovery
+        echo "Copying documentation and test files..."
+        
+        # Find the actual path to the source repository
+        SOURCE_PATH="../acpipatcher"
+        if [ ! -d "$SOURCE_PATH" ]; then
+          SOURCE_PATH="$(find .. -name "ACPIPatcherPkg" -type d | head -1 | xargs dirname)"
+        fi
+        
+        if [ -d "$SOURCE_PATH/Build/ACPI" ]; then
+          cp -r "$SOURCE_PATH/Build/ACPI" "$DIST_DIR/" || echo "Warning: Could not copy ACPI test files"
+        else
+          echo "Warning: ACPI test directory not found at $SOURCE_PATH/Build/ACPI"
+        fi
+        
+        if [ -f "$SOURCE_PATH/README.md" ]; then
+          cp "$SOURCE_PATH/README.md" "$DIST_DIR/"
+        else
+          echo "Warning: README.md not found at $SOURCE_PATH/README.md"
+        fi
+        
+        if [ -f "$SOURCE_PATH/DEBUG_GUIDE.md" ]; then
+          cp "$SOURCE_PATH/DEBUG_GUIDE.md" "$DIST_DIR/" || echo "Warning: Could not copy DEBUG_GUIDE.md"
+        else
+          echo "Warning: DEBUG_GUIDE.md not found"
+        fi
+        
+        if [ -f "$SOURCE_PATH/IMPROVEMENTS.md" ]; then
+          cp "$SOURCE_PATH/IMPROVEMENTS.md" "$DIST_DIR/" || echo "Warning: Could not copy IMPROVEMENTS.md"
+        else
+          echo "Warning: IMPROVEMENTS.md not found"
+        fi
         
         # Create version info
         echo "ACPIPatcher Build Information" > "$DIST_DIR/BUILD_INFO.txt"
         echo "============================" >> "$DIST_DIR/BUILD_INFO.txt"
-        echo "Version: $(git -C acpipatcher describe --tags --always)" >> "$DIST_DIR/BUILD_INFO.txt"
-        echo "Commit: $(git -C acpipatcher rev-parse HEAD)" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Version: $(git -C ../acpipatcher describe --tags --always)" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Commit: $(git -C ../acpipatcher rev-parse HEAD)" >> "$DIST_DIR/BUILD_INFO.txt"
         echo "Build Date: $(date -u)" >> "$DIST_DIR/BUILD_INFO.txt"
         echo "Architecture: ${{ matrix.arch }}" >> "$DIST_DIR/BUILD_INFO.txt"
         echo "Build Type: ${{ matrix.build_type }}" >> "$DIST_DIR/BUILD_INFO.txt"
@@ -579,7 +637,21 @@ jobs:
         REM CYGWIN_HOME is not needed for VS2022 builds, suppress warning
         set "CYGWIN_HOME="
         
-        REM Build BaseTools first BEFORE calling edksetup.bat
+        REM CRITICAL FIX: Call edksetup.bat FIRST to set BASE_TOOLS_PATH
+        echo Setting up EDK2 environment BEFORE BaseTools build...
+        call edksetup.bat
+        
+        REM Verify BASE_TOOLS_PATH is set
+        echo Verifying BASE_TOOLS_PATH environment variable...
+        if "%BASE_TOOLS_PATH%"=="" (
+          echo WARNING: BASE_TOOLS_PATH not set by edksetup, setting manually...
+          set "BASE_TOOLS_PATH=%WORKSPACE%\BaseTools"
+          echo Set BASE_TOOLS_PATH to: %BASE_TOOLS_PATH%
+        ) else (
+          echo BASE_TOOLS_PATH is: %BASE_TOOLS_PATH%
+        )
+        
+        REM Build BaseTools AFTER setting BASE_TOOLS_PATH
         echo Building BaseTools for Windows...
         cd BaseTools
         python -m pip install --upgrade pip
@@ -720,9 +792,19 @@ jobs:
         set "CYGWIN_HOME="
         echo Set CYGWIN_HOME to empty to suppress warning
         
-        REM Now call edksetup.bat after BaseTools are built and verified
-        echo Setting up EDK2 environment after BaseTools build...
+        REM Call edksetup.bat again after BaseTools build to refresh environment
+        echo Refreshing EDK2 environment after BaseTools build...
         call edksetup.bat
+        
+        REM Verify BASE_TOOLS_PATH is still set after refresh
+        echo Verifying BASE_TOOLS_PATH after refresh...
+        if "%BASE_TOOLS_PATH%"=="" (
+          echo WARNING: BASE_TOOLS_PATH lost after refresh, setting manually...
+          set "BASE_TOOLS_PATH=%WORKSPACE%\BaseTools"
+          echo Set BASE_TOOLS_PATH to: %BASE_TOOLS_PATH%
+        ) else (
+          echo BASE_TOOLS_PATH confirmed: %BASE_TOOLS_PATH%
+        )
         
         REM Verify EDK_TOOLS_BIN is set correctly after edksetup
         echo Verifying EDK_TOOLS_BIN environment variable...

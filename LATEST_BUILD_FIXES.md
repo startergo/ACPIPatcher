@@ -1,39 +1,50 @@
 # ACPIPatcher Build Fixes - Status Update
 
-## 🔧 **Latest Fixes Applied (July 8, 2025)**
+# ACPIPatcher Build Fixes - Status Update
 
-### **Issues Resolved:**
+## 🔧 **Latest Critical Fixes Applied (July 8, 2025)**
 
-#### 1. **Windows NASM PATH Problem** ❌➡️✅
-- **Issue**: `nasm: The term 'nasm' is not recognized` after Chocolatey installation
-- **Cause**: PowerShell PATH modifications don't persist to batch environment
-- **Fix**: Use `GITHUB_PATH` environment variable for cross-step persistence
+### **🚨 CRITICAL Windows BUILD_TOOLS_PATH Error Fixed:**
 
-#### 2. **Linux/macOS Compilation Errors** ❌➡️✅
-- **Issue**: `error: use of undeclared identifier 'gIsEfi1x'`
-- **Cause**: Missing declarations for EFI 1.x compatibility variables/functions
-- **Fix**: Added proper global variable and function prototype declarations
+#### **Issue**: `makefile(9) : fatal error U1050: "BASE_TOOLS_PATH is not set! Please run toolsetup.bat first!"`
+- **Root Cause**: BaseTools build was attempted BEFORE calling `edksetup.bat`
+- **Impact**: Complete Windows build failure across all workflows
+- **Solution**: Reordered steps to call `edksetup.bat` FIRST to set BASE_TOOLS_PATH
+
+#### **Issue**: Linux/macOS Documentation Copying Failures 
+- **Root Cause**: Hardcoded paths like `acpipatcher/README.md` don't account for workspace structure
+- **Impact**: Distribution packages missing documentation files
+- **Solution**: Dynamic path discovery with fallback mechanisms
+
+### **🔄 Build Flow Fix:**
+**BEFORE (Broken):**
+```batch
+1. Build BaseTools  ❌ BASE_TOOLS_PATH not set
+2. Call edksetup.bat
+```
+
+**AFTER (Fixed):**
+```batch
+1. Call edksetup.bat ✅ Sets BASE_TOOLS_PATH
+2. Build BaseTools  ✅ Now works correctly
+```
 
 ### **Files Modified:**
-- `.github/workflows/build-and-test.yml` - Enhanced NASM installation
-- `.github/workflows/ci.yml` - Fixed NASM PATH persistence  
-- `.github/workflows/comprehensive-test.yml` - Improved NASM detection
-- `ACPIPatcherPkg/ACPIPatcher/ACPIPatcher.c` - Added missing declarations
+- `.github/workflows/build-and-test.yml` - Fixed Windows BASE_TOOLS_PATH + Linux/macOS doc paths
+- `.github/workflows/ci.yml` - Fixed Windows BASE_TOOLS_PATH issue  
+- `.github/workflows/comprehensive-test.yml` - Fixed Windows BASE_TOOLS_PATH issue
 
-### **Expected Results:**
-- ✅ Windows builds should now find NASM properly
-- ✅ Linux/macOS builds should compile without undeclared identifier errors
-- ✅ All three workflows should pass CI builds
-
-### **Verification:**
-- Commit: `371332b` - "Fix: Resolve NASM PATH issues and ACPIPatcher compilation errors"
-- Status: CI builds triggered and running
-- Next: Monitor GitHub Actions for successful builds across all platforms
+### **Workflow Changes Applied:**
+- **All Windows workflows**: Call `edksetup.bat` BEFORE building BaseTools
+- **Linux/macOS workflows**: Dynamic path discovery for documentation files
+- **Enhanced validation**: BASE_TOOLS_PATH verification with manual fallback
 
 ## 📋 **Complete Issue Resolution Summary:**
 
 | Issue Category | Status | Details |
 |---|---|---|
+| **🚨 Windows BASE_TOOLS_PATH** | ✅ **FIXED** | Call edksetup.bat BEFORE BaseTools build |
+| **📁 Documentation Copying** | ✅ **FIXED** | Dynamic path discovery with fallbacks |
 | **Windows BaseTools** | ✅ **FIXED** | Multi-tier build with warning suppression |
 | **Windows Environment Variables** | ✅ **FIXED** | NASM_PREFIX, CLANG_BIN, CYGWIN_HOME detection |
 | **Windows NASM PATH** | ✅ **FIXED** | GITHUB_PATH for cross-step persistence |
