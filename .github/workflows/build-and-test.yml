@@ -705,12 +705,18 @@ jobs:
         )
         
         REM Set environment to disable warnings for BaseTools build
-        set MAKEFLAGS=/nologo
         echo Building BaseTools with nmake (warnings suppressed via makefile patches)...
         echo Current directory: %CD%
-        echo MAKEFLAGS: %MAKEFLAGS%
         
-        REM Build BaseTools with nmake (don't use CFLAGS as it conflicts with nmake)
+        REM Clear all potentially problematic environment variables
+        set MAKEFLAGS=
+        set CFLAGS=
+        set CXXFLAGS=
+        set LDFLAGS=
+        set MFLAGS=
+        echo Cleared potentially problematic build flags
+        
+        REM Build BaseTools with nmake (use clean environment)
         nmake
         if errorlevel 1 (
           echo ❌ BaseTools build failed, trying without makefile patches...
@@ -721,7 +727,15 @@ jobs:
           
           REM Try build again with default settings
           echo Retrying BaseTools build with default settings...
-          nmake /F Makefile
+          
+          REM Ensure completely clean environment for retry
+          set MAKEFLAGS=
+          set CFLAGS=
+          set CXXFLAGS=
+          set LDFLAGS=
+          set MFLAGS=
+          
+          nmake
           
           if errorlevel 1 (
             echo ❌ BaseTools build failed even without patches
