@@ -3,8 +3,15 @@
 ## Overview
 This guide explains how to suppress EDK2 environment setup warnings by setting the required environment variables when using the msys2/setup-msys2 action.
 
-## The Warnings
-When running `edksetup.bat`, EDK2 displays these warnings if environment variables are not set:
+## The Issue
+
+The EDK2 environment variable warnings occur because:
+
+1. **NASM_PREFIX**: EDK2 needs to know where to find the NASM assembler
+2. **CLANG_BIN**: EDK2 needs to know where to find the Clang compiler  
+3. **CYGWIN_HOME**: EDK2 expects a Unix-like environment (MSYS2 provides this)
+
+**Critical**: These environment variables must be set **before** calling `edksetup.bat` and must be available in the **same shell session** where EDK2 operations run. Using `GITHUB_ENV` ensures they persist across workflow steps.
 
 ```
 !!! WARNING !!! NASM_PREFIX environment variable is not set
@@ -15,6 +22,13 @@ When running `edksetup.bat`, EDK2 displays these warnings if environment variabl
 
 !!! WARNING !!! No CYGWIN_HOME set, gcc build may not be used !!!
 ```
+
+## Key Requirements
+
+1. **Environment variables must be set via `GITHUB_ENV`** - This ensures they persist across workflow steps
+2. **Variables must be set BEFORE calling `edksetup.bat`** - EDK2 reads them during initialization  
+3. **Paths must point to actual MSYS2 tool locations** - EDK2 will verify the tools exist
+4. **Use absolute Windows paths** - EDK2 runs in Windows batch context, not MSYS2
 
 ## Solution: Pre-set Environment Variables
 
