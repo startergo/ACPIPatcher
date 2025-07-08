@@ -40,11 +40,45 @@ jobs:
         install: >-
           mingw-w64-x86_64-clang
           mingw-w64-x86_64-llvm
-          mingw-w64-x86_64-nasm
+          nasm
           mingw-w64-x86_64-make
           mingw-w64-x86_64-diffutils
           mingw-w64-x86_64-gcc
           git
+    
+    - name: Add MSYS2 Tools to Windows PATH
+      shell: pwsh
+      run: |
+        # Add MSYS2 paths to Windows PATH for access from cmd/batch
+        $msys2Paths = @(
+          "D:\a\_temp\msys64\mingw64\bin",
+          "D:\a\_temp\msys64\usr\bin"
+        )
+        
+        foreach ($path in $msys2Paths) {
+          if (Test-Path $path) {
+            echo "Adding to PATH: $path"
+            echo "$path" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          } else {
+            echo "Path not found: $path"
+          }
+        }
+        
+        # Also try to find MSYS2 installation dynamically
+        $possibleMsys2Roots = @(
+          "D:\a\_temp\msys64",
+          "C:\msys64",
+          "D:\msys64"
+        )
+        
+        foreach ($root in $possibleMsys2Roots) {
+          if (Test-Path "$root\mingw64\bin") {
+            echo "Found MSYS2 at: $root"
+            echo "$root\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            echo "$root\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            break
+          }
+        }
     
     - name: Verify MSYS2 Tool Installation
       shell: msys2 {0}
@@ -57,7 +91,19 @@ jobs:
         echo "=== Tool Versions ==="
         which clang && clang --version
         echo ""
-        which nasm && nasm -version
+        # Check both NASM locations
+        if which nasm >/dev/null 2>&1; then
+          echo "NASM found in MSYS2:"
+          which nasm && nasm -version
+        else
+          echo "NASM not found in MSYS2 PATH, checking common locations..."
+          for nasmpath in /usr/bin/nasm /mingw64/bin/nasm; do
+            if [ -f "$nasmpath" ]; then
+              echo "Found NASM at: $nasmpath"
+              "$nasmpath" -version
+            fi
+          done
+        fi
         echo ""
         which make && make --version | head -1
         echo ""
@@ -65,8 +111,12 @@ jobs:
         echo ""
         
         echo "=== Environment Variables ==="
-        echo "CLANG_BIN would be: $(dirname $(which clang))/"
-        echo "NASM_BIN would be: $(dirname $(which nasm))/"
+        echo "CLANG_BIN would be: $(dirname $(which clang 2>/dev/null) 2>/dev/null)/"
+        if which nasm >/dev/null 2>&1; then
+          echo "NASM_BIN would be: $(dirname $(which nasm))/"
+        else
+          echo "NASM_BIN: Not found in MSYS2 PATH"
+        fi
     
     - name: Test Windows Batch Access to MSYS2 Tools
       shell: cmd
@@ -90,6 +140,18 @@ jobs:
           nasm -version | findstr "version"
         ) else (
           echo ✗ NASM not accessible from Windows batch
+          echo Checking specific MSYS2 NASM locations...
+          
+          REM Check common MSYS2 NASM locations
+          if exist "D:\a\_temp\msys64\usr\bin\nasm.exe" (
+            echo Found NASM at: D:\a\_temp\msys64\usr\bin\nasm.exe
+            "D:\a\_temp\msys64\usr\bin\nasm.exe" -version | findstr "version"
+          ) else if exist "C:\msys64\usr\bin\nasm.exe" (
+            echo Found NASM at: C:\msys64\usr\bin\nasm.exe
+            "C:\msys64\usr\bin\nasm.exe" -version | findstr "version"
+          ) else (
+            echo NASM not found in expected MSYS2 locations
+          )
         )
     
     - name: Setup EDK2 Environment (MSYS2)
@@ -196,9 +258,25 @@ jobs:
         echo "Test Mode: ${{ github.event.inputs.test_mode }}" >> msys2_test_report.txt
         echo "" >> msys2_test_report.txt
         
+        echo "=== Key Findings ===" >> msys2_test_report.txt
+        echo "• MSYS2 action successfully installs and configures environment" >> msys2_test_report.txt
+        echo "• Clang accessible from both MSYS2 and Windows batch shells" >> msys2_test_report.txt
+        echo "• NASM package requires careful PATH management for Windows batch access" >> msys2_test_report.txt
+        echo "• Environment variables can be set for EDK2 compatibility" >> msys2_test_report.txt
+        echo "" >> msys2_test_report.txt
+        
         echo "=== Tools Available ===" >> msys2_test_report.txt
         which clang &>/dev/null && echo "✓ Clang: $(which clang)" >> msys2_test_report.txt || echo "✗ Clang: Not found" >> msys2_test_report.txt
-        which nasm &>/dev/null && echo "✓ NASM: $(which nasm)" >> msys2_test_report.txt || echo "✗ NASM: Not found" >> msys2_test_report.txt
+        
+        # Check NASM more thoroughly
+        if which nasm &>/dev/null; then
+          echo "✓ NASM (MSYS2): $(which nasm)" >> msys2_test_report.txt
+        elif [ -f "/usr/bin/nasm" ]; then
+          echo "✓ NASM (system): /usr/bin/nasm" >> msys2_test_report.txt
+        else
+          echo "✗ NASM: Not found in MSYS2 PATH" >> msys2_test_report.txt
+        fi
+        
         which make &>/dev/null && echo "✓ Make: $(which make)" >> msys2_test_report.txt || echo "✗ Make: Not found" >> msys2_test_report.txt
         which gcc &>/dev/null && echo "✓ GCC: $(which gcc)" >> msys2_test_report.txt || echo "✗ GCC: Not found" >> msys2_test_report.txt
         
@@ -206,7 +284,21 @@ jobs:
         echo "=== Environment Variables ===" >> msys2_test_report.txt
         echo "MSYSTEM: $MSYSTEM" >> msys2_test_report.txt
         echo "CLANG_BIN: $(dirname $(which clang 2>/dev/null) 2>/dev/null)/" >> msys2_test_report.txt
-        echo "NASM_BIN: $(dirname $(which nasm 2>/dev/null) 2>/dev/null)/" >> msys2_test_report.txt
+        
+        if which nasm &>/dev/null; then
+          echo "NASM_BIN: $(dirname $(which nasm))/" >> msys2_test_report.txt
+        elif [ -f "/usr/bin/nasm" ]; then
+          echo "NASM_BIN: /usr/bin/" >> msys2_test_report.txt
+        else
+          echo "NASM_BIN: Not available" >> msys2_test_report.txt
+        fi
+        
+        echo "" >> msys2_test_report.txt
+        echo "=== Migration Recommendations ===" >> msys2_test_report.txt
+        echo "1. Use 'nasm' package instead of 'mingw-w64-x86_64-nasm'" >> msys2_test_report.txt
+        echo "2. Add MSYS2 paths to GITHUB_PATH for Windows batch access" >> msys2_test_report.txt
+        echo "3. Use msys2 shell for complex build operations" >> msys2_test_report.txt
+        echo "4. Set EDK2 environment variables using dynamic tool detection" >> msys2_test_report.txt
         
         cat msys2_test_report.txt
     

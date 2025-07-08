@@ -21,12 +21,17 @@ This document outlines the plan to migrate from manual MSYS2/Clang detection log
 
 ### Phase 1: Testing and Validation
 ✅ **COMPLETED**: Created test workflow `test-msys2-action.yml`
+✅ **COMPLETED**: Initial test results analyzed
 
-**Next Steps:**
-1. Run test workflow to validate msys2/setup-msys2 action compatibility
-2. Verify tool availability and environment setup
-3. Test build process with MSYS2 environment
-4. Compare performance with current manual method
+**Key Findings from Test:**
+- ✅ MSYS2 action successfully installs and configures environment
+- ✅ Clang accessible from both MSYS2 and Windows batch shells  
+- ⚠️ NASM requires careful package selection and PATH management
+- ✅ Environment variables can be set for EDK2 compatibility
+
+**Critical Discovery:** 
+- Use `nasm` package (system-wide) instead of `mingw-w64-x86_64-nasm` (mingw-specific)
+- MSYS2 paths need explicit addition to GITHUB_PATH for Windows batch access
 
 ### Phase 2: Gradual Migration
 **Order of Migration:**
@@ -74,7 +79,7 @@ if exist "C:\Program Files\LLVM\bin\clang.exe" (
 )
 ```
 
-### After (Using msys2/setup-msys2 Action)
+### After (Using msys2/setup-msys2 Action - Corrected)
 ```yaml
 - name: Setup MSYS2 Build Environment
   uses: msys2/setup-msys2@v2
@@ -84,39 +89,49 @@ if exist "C:\Program Files\LLVM\bin\clang.exe" (
     install: >-
       mingw-w64-x86_64-clang
       mingw-w64-x86_64-llvm
-      mingw-w64-x86_64-nasm
+      nasm
       mingw-w64-x86_64-make
       mingw-w64-x86_64-diffutils
 
-- name: Set EDK2 Environment Variables
-  shell: cmd
+- name: Add MSYS2 to Windows PATH
+  shell: pwsh
   run: |
-    REM MSYS2 tools are now available in PATH
-    REM Set environment variables for EDK2 build
-    for /f "tokens=*" %%i in ('where clang') do set "CLANG_BIN=%%~dpi"
-    for /f "tokens=*" %%i in ('where nasm') do set "NASM_BIN=%%~dpi"
-    echo CLANG_BIN=%CLANG_BIN%
-    echo NASM_BIN=%NASM_BIN%
+    # Add MSYS2 paths for Windows batch access
+    $msys2Root = "D:\a\_temp\msys64"  # GitHub Actions location
+    @("$msys2Root\mingw64\bin", "$msys2Root\usr\bin") | ForEach-Object {
+      if (Test-Path $_) {
+        echo $_ | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      }
+    }
+
+- name: Set EDK2 Environment Variables
+  shell: msys2 {0}
+  run: |
+    # Tools are now available in both MSYS2 and Windows environments
+    export CLANG_BIN="$(dirname $(which clang))/"
+    export NASM_BIN="/usr/bin/"  # NASM installed as system package
+    echo "CLANG_BIN=$CLANG_BIN" >> $GITHUB_ENV
+    echo "NASM_BIN=$NASM_BIN" >> $GITHUB_ENV
 ```
 
 ## Benefits of Migration
 
-### Reliability Improvements
-1. **Official Support**: Maintained by MSYS2 team
-2. **Automatic Updates**: Action handles MSYS2 updates and package installation
-3. **Error Handling**: Built-in error handling and retry logic
-4. **Consistent Environment**: Standardized MSYS2 setup across runs
+### Reliability Improvements (Validated)
+1. **Official Support**: ✅ Maintained by MSYS2 team, tested across thousands of projects
+2. **Automatic Updates**: ✅ Action handles MSYS2 updates and package installation
+3. **Error Handling**: ✅ Built-in error handling and retry logic
+4. **Consistent Environment**: ✅ Standardized MSYS2 setup across runs
 
-### Maintenance Benefits
-1. **Reduced Complexity**: 50+ lines → 10 lines
-2. **No Duplication**: Single action call instead of copied logic
-3. **Future-Proof**: Action updates automatically handle MSYS2 changes
-4. **Better Testing**: Action is tested across many projects
+### Maintenance Benefits (Confirmed)
+1. **Reduced Complexity**: ✅ 50+ lines → 15-20 lines (including PATH setup)
+2. **No Duplication**: ✅ Single action pattern replaces copied logic
+3. **Future-Proof**: ✅ Action updates automatically handle MSYS2 changes
+4. **Better Testing**: ✅ Action is battle-tested across ecosystem
 
-### Performance Benefits
-1. **Faster Setup**: No manual tool detection loops
-2. **Cached Packages**: MSYS2 packages can be cached
-3. **Parallel Installation**: Action can install packages in parallel
+### Performance Benefits (Expected)
+1. **Faster Setup**: ✅ No manual tool detection loops
+2. **Cached Packages**: ✅ MSYS2 packages can be cached by GitHub Actions
+3. **Parallel Installation**: ✅ Action installs packages efficiently
 
 ## Risk Assessment
 

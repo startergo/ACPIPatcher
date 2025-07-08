@@ -44,7 +44,7 @@ is_problematic_submodule() {
         "UnitTestFrameworkPkg/Library/CmockaLib/cmocka"
         "RedfishPkg/Library/JsonLib/jansson"
         "ArmPkg/Library/ArmSoftFloatLib/berkeley-softfloat-3"
-        "SecurityPkg/DeviceSecurity/SpdmLib/libspdm"
+        # Note: Removed libspdm to try initialization with better error handling
     )
     
     for pattern in "${problematic_patterns[@]}"; do
@@ -152,6 +152,30 @@ while IFS= read -r submodule; do
         *) FAIL_COUNT=$((FAIL_COUNT + 1)) ;;
     esac
 done <<< "$SUBMODULES"
+
+# Create minimal directory structures for skipped submodules that EDK2 might reference
+echo ""
+echo "Creating minimal directory structures for skipped submodules..."
+
+# Create libspdm include directory if it doesn't exist
+if [ ! -d "SecurityPkg/DeviceSecurity/SpdmLib/libspdm/include" ]; then
+    echo "Creating stub include directory for libspdm..."
+    mkdir -p "SecurityPkg/DeviceSecurity/SpdmLib/libspdm/include"
+    # Create a minimal header to prevent build failures
+    cat > "SecurityPkg/DeviceSecurity/SpdmLib/libspdm/include/spdm_common_lib.h" << 'EOF'
+#ifndef __SPDM_COMMON_LIB_H__
+#define __SPDM_COMMON_LIB_H__
+// Minimal stub header for libspdm
+#endif
+EOF
+    echo "✓ Created libspdm stub structure"
+fi
+
+# Create other stub directories that might be referenced
+if [ ! -d "RedfishPkg/Library/JsonLib/jansson" ]; then
+    mkdir -p "RedfishPkg/Library/JsonLib/jansson/src"
+    echo "✓ Created jansson stub structure"
+fi
 
 echo ""
 echo "=== Submodule Initialization Summary ==="

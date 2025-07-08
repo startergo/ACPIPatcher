@@ -691,21 +691,30 @@ jobs:
         
         REM Create a custom C4267.h header to suppress specific warnings
         echo Creating custom warning suppression header...
+        
+        REM Create header in Source\C\Include (main location)
         if not exist "Source\C\Include" mkdir "Source\C\Include" 2>nul
         echo #pragma warning(disable:4267) > "Source\C\Include\C4267.h"
         echo #pragma warning(disable:4311) >> "Source\C\Include\C4267.h"
         echo #pragma warning(disable:4312) >> "Source\C\Include\C4267.h"
         echo #pragma warning(disable:4819) >> "Source\C\Include\C4267.h"
         
-        REM Also create in the location where the compiler expects it
+        REM Create header in all compilation directories where it might be needed
+        if not exist "Source\C\Common\Include" mkdir "Source\C\Common\Include" 2>nul
+        copy "Source\C\Include\C4267.h" "Source\C\Common\Include\" >nul 2>&1
+        
+        if not exist "Source\C\VfrCompile\Include" mkdir "Source\C\VfrCompile\Include" 2>nul
+        copy "Source\C\Include\C4267.h" "Source\C\VfrCompile\Include\" >nul 2>&1
+        
+        if not exist "Source\C\GenFw\Include" mkdir "Source\C\GenFw\Include" 2>nul
+        copy "Source\C\Include\C4267.h" "Source\C\GenFw\Include\" >nul 2>&1
+        
+        REM Also try creating in relative path locations that the compiler might use
         if not exist "Include" mkdir "Include" 2>nul
-        echo #pragma warning(disable:4267) > "Include\C4267.h"
-        echo #pragma warning(disable:4311) >> "Include\C4267.h"
-        echo #pragma warning(disable:4312) >> "Include\C4267.h"
-        echo #pragma warning(disable:4819) >> "Include\C4267.h"
+        copy "Source\C\Include\C4267.h" "Include\" >nul 2>&1
         
         REM Set environment to completely disable warnings for BaseTools build
-        set CL=/W0 /WX- /wd4267 /wd4311 /wd4312 /wd4819 /FIInclude\C4267.h
+        set CL=/W0 /WX- /wd4267 /wd4311 /wd4312 /wd4819 /FI"%WORKSPACE%\BaseTools\Source\C\Include\C4267.h"
         set LINK=/IGNORE:4099
         echo Building BaseTools with all warnings disabled...
         
@@ -722,8 +731,8 @@ jobs:
           nmake clean >nul 2>&1
           
           REM More aggressive approach: override CFLAGS completely
-          set CFLAGS=/nologo /Z7 /c /O2 /MT /W0 /WX- /wd4267 /wd4311 /wd4312 /wd4819 /FIInclude\C4267.h /D _CRT_SECURE_NO_DEPRECATE /D _CRT_NONSTDC_NO_DEPRECATE
-          set CL=/W0 /WX- /wd4267 /wd4311 /wd4312 /wd4819 /FIInclude\C4267.h
+          set CFLAGS=/nologo /Z7 /c /O2 /MT /W0 /WX- /wd4267 /wd4311 /wd4312 /wd4819 /FI"%WORKSPACE%\BaseTools\Source\C\Include\C4267.h" /D _CRT_SECURE_NO_DEPRECATE /D _CRT_NONSTDC_NO_DEPRECATE
+          set CL=/W0 /WX- /wd4267 /wd4311 /wd4312 /wd4819 /FI"%WORKSPACE%\BaseTools\Source\C\Include\C4267.h"
           
           echo Attempting BaseTools build with overridden CFLAGS...
           nmake CFLAGS="%CFLAGS%" 2>build_warnings2.log
@@ -892,10 +901,31 @@ jobs:
           echo Re-set NASM_PREFIX=%NASM_PREFIX%
         )
         
-        REM Re-set CLANG_BIN
+        REM Re-set CLANG_BIN with fallback to MSYS2 locations
         if exist "C:\Program Files\LLVM\bin\clang.exe" (
           set "CLANG_BIN=C:\Program Files\LLVM\bin\"
           echo Re-set CLANG_BIN=%CLANG_BIN%
+        ) else (
+          echo LLVM not found in standard location, checking MSYS2...
+          if exist "C:\msys64\mingw64\bin\clang.exe" (
+            set "CLANG_BIN=C:\msys64\mingw64\bin\"
+            echo Found clang in MSYS2 mingw64: %CLANG_BIN%
+            REM Add MSYS2 mingw64 to PATH if not already there
+            echo %PATH% | findstr /i "msys64\mingw64\bin" >nul || (
+              set "PATH=%PATH%;C:\msys64\mingw64\bin"
+              echo Added MSYS2 mingw64 to PATH
+            )
+          ) else if exist "C:\msys64\mingw32\bin\clang.exe" (
+            set "CLANG_BIN=C:\msys64\mingw32\bin\"
+            echo Found clang in MSYS2 mingw32: %CLANG_BIN%
+            REM Add MSYS2 mingw32 to PATH if not already there
+            echo %PATH% | findstr /i "msys64\mingw32\bin" >nul || (
+              set "PATH=%PATH%;C:\msys64\mingw32\bin"
+              echo Added MSYS2 mingw32 to PATH
+            )
+          ) else (
+            echo Warning: clang not found in standard or MSYS2 locations
+          )
         )
         
         REM Re-set CYGWIN_HOME to empty to suppress warning
@@ -1033,7 +1063,7 @@ jobs:
                 -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
           set BUILD_RESULT=%ERRORLEVEL%
           
-          if %BUILD_RESULT% NEQ 0 (
+          if "%BUILD_RESULT%" NEQ "0" (
             echo "Python build approach failed, trying traditional build command..."
             build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t VS2022 ^
                   -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
@@ -1049,7 +1079,7 @@ jobs:
         )
         
         REM Check build result
-        if %BUILD_RESULT% NEQ 0 (
+        if "%BUILD_RESULT%" NEQ "0" (
           echo ❌ Build failed with error code %BUILD_RESULT%
           echo Attempting to continue despite build failure...
         ) else (
