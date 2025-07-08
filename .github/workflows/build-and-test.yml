@@ -617,18 +617,9 @@ jobs:
         REM CRITICAL FIX: Set WORKSPACE and call edksetup.bat FIRST to set BASE_TOOLS_PATH
         echo Setting up EDK2 environment BEFORE BaseTools build...
         
-        REM Setup Visual Studio environment explicitly - this ensures cl.exe is in PATH
-        echo "Setting up Visual Studio environment with vcvarsall.bat..."
-        if exist "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" (
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" amd64
-        ) else (
-          echo "Searching for vcvarsall.bat..."
-          for /f "tokens=*" %%i in ('dir /s /b "C:\Program Files\Microsoft Visual Studio\*\VC\Auxiliary\Build\vcvarsall.bat"') do (
-            echo Found vcvarsall.bat: %%i
-            call "%%i" amd64
-          )
-        )
-        where cl || echo "WARNING: cl.exe not found in PATH after vcvarsall.bat call"
+        REM Visual Studio environment is already set up by ilammy/msvc-dev-cmd action
+        echo "Visual Studio environment already configured by GitHub Actions"
+        where cl && echo "✅ cl.exe is available in PATH" || echo "⚠️ cl.exe not found in PATH"
         
         REM Use for loop to capture current directory path reliably
         cd %GITHUB_WORKSPACE%\edk2
@@ -705,6 +696,13 @@ jobs:
         echo #pragma warning(disable:4311) >> "Source\C\Include\C4267.h"
         echo #pragma warning(disable:4312) >> "Source\C\Include\C4267.h"
         echo #pragma warning(disable:4819) >> "Source\C\Include\C4267.h"
+        
+        REM Also create in the location where the compiler expects it
+        if not exist "Include" mkdir "Include" 2>nul
+        echo #pragma warning(disable:4267) > "Include\C4267.h"
+        echo #pragma warning(disable:4311) >> "Include\C4267.h"
+        echo #pragma warning(disable:4312) >> "Include\C4267.h"
+        echo #pragma warning(disable:4819) >> "Include\C4267.h"
         
         REM Set environment to completely disable warnings for BaseTools build
         set CL=/W0 /WX- /wd4267 /wd4311 /wd4312 /wd4819 /FIInclude\C4267.h
