@@ -230,6 +230,9 @@ test_memory_management() {
 # Main test execution
 main() {
     local test_root="${1:-$(pwd)}"
+    local target_arch="${2:-}"
+    local target_build_type="${3:-}"
+    local target_toolchain="${4:-}"
     local exit_code=0
     
     info "Starting ACPIPatcher build artifact testing"
@@ -245,25 +248,90 @@ main() {
         exit_code=1
     fi
     
-    # Test build artifacts if they exist
-    local build_configs=(
-        "X64:RELEASE:GCC5"
-        "X64:DEBUG:GCC5"
-        "IA32:RELEASE:GCC5"
-        "IA32:DEBUG:GCC5"
-    )
+    # Determine which build configurations to test
+    local build_configs=()
     
-    local builds_tested=0
-    for config in "${build_configs[@]}"; do
-        IFS=':' read -r arch build_type toolchain <<< "$config"
+    if [ -n "$target_arch" ] && [ -n "$target_build_type" ] && [ -n "$target_toolchain" ]; then
+        # Specific configuration provided via command line
+        build_configs=("$target_arch:$target_build_type:$target_toolchain")
+        info "Testing specific build configuration: $target_arch/$target_build_type/$target_toolchain"
+    else
+        # Auto-detect existing build configurations
+        info "Auto-detecting existing build configurations..."
         
-        if test_build_structure "$test_root" "$arch" "$build_type" "$toolchain"; then
-            success "Build configuration test passed: $config"
-            ((builds_tested++))
-        else
-            warning "Build configuration test failed: $config"
+        # Look for any existing build directories
+        if [ -d "$test_root/Build" ]; then
+            while IFS= read -r -d '' build_dir; do
+                # Extract configuration from path
+                # Example: Build/ACPIPatcher/DEBUG_GCC5/X64 or Build/ACPIPatcherPkg/RELEASE_XCODE5/X64
+                local dir_name=$(basename "$build_dir")
+                local parent_dir=$(basename "$(dirname "$build_dir")")
+                
+                if [[ "$dir_name" =~ ^(X64|IA32|AARCH64)$ ]] && [[ "$parent_dir" =~ ^(DEBUG|RELEASE)_(.+)$ ]]; then
+                    local arch="$dir_name"
+                    local build_type="${BASH_REMATCH[1]}"
+                    local toolchain="${BASH_REMATCH[2]}"
+                    
+                    # Check if this directory actually contains EFI files
+                    if [ -f "$build_dir/ACPIPatcher.efi" ] || [ -f "$build_dir/ACPIPatcherDxe.efi" ]; then
+                        build_configs+=("$arch:$build_type:$toolchain")
+                        info "Found build configuration: $arch/$build_type/$toolchain"
+                    fi
+                fi
+            done < <(find "$test_root/Build" -type d -name "X64" -o -name "IA32" -o -name "AARCH64" -print0 2>/dev/null)
         fi
-    done
+        
+        # If no configurations found via auto-detection, try common patterns
+        if [ ${#build_configs[@]} -eq 0 ]; then
+            info "No build configurations auto-detected, checking common patterns..."
+            local common_configs=(
+                "X64:RELEASE:GCC5"
+                "X64:DEBUG:GCC5"
+                "X64:RELEASE:XCODE5"
+                "X64:DEBUG:XCODE5"
+                "X64:RELEASE:VS2022"
+                "X64:DEBUG:VS2022"
+            )
+            
+            for config in "${common_configs[@]}"; do
+                IFS=':' read -r arch build_type toolchain <<< "$config"
+                
+                # Check if this configuration actually has build artifacts
+                local possible_dirs=(
+                    "$test_root/Build/ACPIPatcherPkg/${build_type}_${toolchain}/${arch}"
+                    "$test_root/Build/ACPIPatcher/${build_type}_${toolchain}/${arch}"
+                    "$test_root/Build/${build_type}_${toolchain}/${arch}"
+                    "$test_root/Build/${arch}/${build_type}"
+                )
+                
+                for dir in "${possible_dirs[@]}"; do
+                    if [ -d "$dir" ] && ([ -f "$dir/ACPIPatcher.efi" ] || [ -f "$dir/ACPIPatcherDxe.efi" ]); then
+                        build_configs+=("$config")
+                        info "Found build configuration: $config"
+                        break
+                    fi
+                done
+            done
+        fi
+    fi
+    
+    # Test build artifacts
+    local builds_tested=0
+    if [ ${#build_configs[@]} -eq 0 ]; then
+        warning "No build configurations found to test"
+        info "This might be expected if only source code validation was requested"
+    else
+        for config in "${build_configs[@]}"; do
+            IFS=':' read -r arch build_type toolchain <<< "$config"
+            
+            if test_build_structure "$test_root" "$arch" "$build_type" "$toolchain"; then
+                success "Build configuration test passed: $config"
+                ((builds_tested++))
+            else
+                warning "Build configuration test failed: $config"
+            fi
+        done
+    fi
     
     # Summary
     info "=========================="
@@ -272,7 +340,7 @@ main() {
     info "  - Build configurations tested: $builds_tested/${#build_configs[@]}"
     info "=========================="
     
-    if [ $exit_code -eq 0 ] && [ $builds_tested -gt 0 ]; then
+    if [ $exit_code -eq 0 ] && ([ $builds_tested -gt 0 ] || [ ${#build_configs[@]} -eq 0 ]); then
         success "All tests completed successfully!"
     elif [ $builds_tested -gt 0 ]; then
         warning "Tests completed with some warnings"

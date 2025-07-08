@@ -211,7 +211,7 @@ jobs:
         # Run comprehensive build validation
         if [ -f "../acpipatcher/.github/scripts/test-build-artifacts.sh" ]; then
           echo "Running comprehensive build artifact validation..."
-          bash ../acpipatcher/.github/scripts/test-build-artifacts.sh "$(pwd)" || {
+          bash ../acpipatcher/.github/scripts/test-build-artifacts.sh "$(pwd)" "${{ matrix.arch }}" "${{ matrix.build_type }}" "GCC5" || {
             echo "❌ Build artifact validation failed"
             exit 1
           }
@@ -420,7 +420,7 @@ jobs:
         # Run comprehensive build validation
         if [ -f "../acpipatcher/.github/scripts/test-build-artifacts.sh" ]; then
           echo "Running comprehensive build artifact validation..."
-          bash ../acpipatcher/.github/scripts/test-build-artifacts.sh "$(pwd)" || {
+          bash ../acpipatcher/.github/scripts/test-build-artifacts.sh "$(pwd)" "${{ matrix.arch }}" "${{ matrix.build_type }}" "XCODE5" || {
             echo "❌ Build artifact validation failed"
             exit 1
           }
@@ -637,8 +637,17 @@ jobs:
         REM CYGWIN_HOME is not needed for VS2022 builds, suppress warning
         set "CYGWIN_HOME="
         
-        REM CRITICAL FIX: Call edksetup.bat FIRST to set BASE_TOOLS_PATH
+        REM CRITICAL FIX: Set WORKSPACE and call edksetup.bat FIRST to set BASE_TOOLS_PATH
         echo Setting up EDK2 environment BEFORE BaseTools build...
+        
+        REM Ensure WORKSPACE is set (required for edksetup.bat)
+        if "%WORKSPACE%"=="" (
+          set "WORKSPACE=%CD%"
+          echo Set WORKSPACE to: %WORKSPACE%
+        ) else (
+          echo WORKSPACE is: %WORKSPACE%
+        )
+        
         call edksetup.bat
         
         REM Verify BASE_TOOLS_PATH is set

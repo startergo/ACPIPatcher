@@ -317,8 +317,17 @@ jobs:
         set "CYGWIN_HOME="
         echo Set CYGWIN_HOME to empty
         
-        REM CRITICAL FIX: Call edksetup.bat FIRST to set BASE_TOOLS_PATH
+        REM CRITICAL FIX: Set WORKSPACE and call edksetup.bat FIRST to set BASE_TOOLS_PATH
         echo Setting up EDK2 environment BEFORE BaseTools build...
+        
+        REM Ensure WORKSPACE is set (required for edksetup.bat)
+        if "%WORKSPACE%"=="" (
+          set "WORKSPACE=%CD%"
+          echo Set WORKSPACE to: %WORKSPACE%
+        ) else (
+          echo WORKSPACE is: %WORKSPACE%
+        )
+        
         call edksetup.bat
         
         REM Verify BASE_TOOLS_PATH is set
