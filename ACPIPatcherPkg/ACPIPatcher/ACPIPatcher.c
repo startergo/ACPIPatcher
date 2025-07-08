@@ -37,6 +37,15 @@
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 #endif
 
+// Safe pointer to integer conversion for debug output
+#ifdef MDE_CPU_IA32
+#define PTR_TO_INT(ptr) ((UINT32)(UINTN)(ptr))
+#define PTR_FMT L"0x%x"
+#else
+#define PTR_TO_INT(ptr) ((UINT64)(UINTN)(ptr))
+#define PTR_FMT L"0x%llx"
+#endif
+
 //
 // Global Variables
 //
@@ -67,7 +76,7 @@ VOID
 HexDump (
   IN VOID    *Data,
   IN UINTN   Size,
-  IN UINT64  Address
+  IN UINTN   Address
   );
 
 EFI_STATUS
@@ -139,9 +148,9 @@ PatchAcpi (
   
   if (Directory == NULL || gXsdt == NULL || gFacp == NULL) {
     AcpiDebugPrint(DEBUG_ERROR, L"Invalid parameters for ACPI patching\n");
-    AcpiDebugPrint(DEBUG_VERBOSE, L"  Directory: 0x%llx\n", (UINT64)Directory);
-    AcpiDebugPrint(DEBUG_VERBOSE, L"  gXsdt: 0x%llx\n", (UINT64)gXsdt);
-    AcpiDebugPrint(DEBUG_VERBOSE, L"  gFacp: 0x%llx\n", (UINT64)gFacp);
+    AcpiDebugPrint(DEBUG_VERBOSE, L"  Directory: " PTR_FMT L"\n", PTR_TO_INT(Directory));
+    AcpiDebugPrint(DEBUG_VERBOSE, L"  gXsdt: " PTR_FMT L"\n", PTR_TO_INT(gXsdt));
+    AcpiDebugPrint(DEBUG_VERBOSE, L"  gFacp: " PTR_FMT L"\n", PTR_TO_INT(gFacp));
     return EFI_INVALID_PARAMETER;
   }
 
@@ -153,7 +162,7 @@ PatchAcpi (
   AcpiDebugPrint(DEBUG_INFO, L"  Current entries: %u\n", CurrentEntries);
   AcpiDebugPrint(DEBUG_INFO, L"  Maximum entries allowed: %u\n", MaxEntries);
   AcpiDebugPrint(DEBUG_INFO, L"  Available slots: %u\n", MaxEntries - CurrentEntries);
-  AcpiDebugPrint(DEBUG_VERBOSE, L"  XSDT address: 0x%llx\n", (UINT64)gXsdt);
+  AcpiDebugPrint(DEBUG_VERBOSE, L"  XSDT address: " PTR_FMT L"\n", PTR_TO_INT(gXsdt));
   AcpiDebugPrint(DEBUG_VERBOSE, L"  XSDT end: 0x%llx\n", gXsdtEnd);
   
   BufferSize = sizeof(EFI_FILE_INFO) + sizeof(CHAR16) * FILE_NAME_BUFFER_SIZE;
@@ -163,8 +172,8 @@ PatchAcpi (
     return Status;
   }
   
-  AcpiDebugPrint(DEBUG_VERBOSE, L"Allocated FileInfo buffer: 0x%llx (%u bytes)\n", 
-             (UINT64)FileInfo, BufferSize);
+  AcpiDebugPrint(DEBUG_VERBOSE, L"Allocated FileInfo buffer: " PTR_FMT L" (%u bytes)\n", 
+             PTR_TO_INT(FileInfo), BufferSize);
 
   AcpiDebugPrint(DEBUG_INFO, L"Scanning ACPI directory for .aml files...\n");
 
@@ -215,7 +224,7 @@ PatchAcpi (
       continue; // Skip this file and continue with others
     }
 
-    AcpiDebugPrint(DEBUG_VERBOSE, L"  File read to buffer at 0x%llx\n", (UINT64)FileBuffer);
+    AcpiDebugPrint(DEBUG_VERBOSE, L"  File read to buffer at " PTR_FMT L"\n", PTR_TO_INT(FileBuffer));
 
     // Validate the ACPI table
     AcpiDebugPrint(DEBUG_VERBOSE, L"  Validating ACPI table...\n");
@@ -259,7 +268,7 @@ PatchAcpi (
     CurrentEntries++;
     AddedTables++;
     
-    AcpiDebugPrint(DEBUG_INFO, L"  Added table at address: 0x%llx\n", (UINT64)FileBuffer);
+    AcpiDebugPrint(DEBUG_INFO, L"  Added table at address: " PTR_FMT L"\n", PTR_TO_INT(FileBuffer));
     AcpiDebugPrint(DEBUG_VERBOSE, L"  New XSDT length: %u bytes\n", gXsdt->Length);
     AcpiDebugPrint(DEBUG_VERBOSE, L"  New XSDT end: 0x%llx\n", gXsdtEnd);
   }
@@ -322,7 +331,7 @@ FindFacp (
   EntryPtr = (UINT64 *)(gXsdt + 1);
   
   AcpiDebugPrint(DEBUG_VERBOSE, L"XSDT contains %u entries\n", EntryCount);
-  AcpiDebugPrint(DEBUG_VERBOSE, L"Scanning entries starting at 0x%llx\n", (UINT64)EntryPtr);
+  AcpiDebugPrint(DEBUG_VERBOSE, L"Scanning entries starting at " PTR_FMT L"\n", PTR_TO_INT(EntryPtr));
 
   for (Index = 0; Index < EntryCount; Index++, EntryPtr++) {
     if (*EntryPtr == 0) {
@@ -350,7 +359,7 @@ FindFacp (
 
     if (Entry->Signature == EFI_ACPI_6_4_FIXED_ACPI_DESCRIPTION_TABLE_SIGNATURE) {
       gFacp = (EFI_ACPI_6_4_FIXED_ACPI_DESCRIPTION_TABLE *)Entry;
-      AcpiDebugPrint(DEBUG_INFO, L"Found FADT at address: 0x%llx\n", (UINT64)gFacp);
+      AcpiDebugPrint(DEBUG_INFO, L"Found FADT at address: " PTR_FMT L"\n", PTR_TO_INT(gFacp));
       AcpiDebugPrint(DEBUG_VERBOSE, L"  FADT length: %u bytes\n", gFacp->Header.Length);
       AcpiDebugPrint(DEBUG_VERBOSE, L"  FADT revision: %u\n", gFacp->Header.Revision);
       AcpiDebugPrint(DEBUG_VERBOSE, L"  Current DSDT (32-bit): 0x%x\n", gFacp->Dsdt);
@@ -375,8 +384,8 @@ ValidateAcpiTable (
   UINT8               Checksum;
   CHAR8               SigStr[5];
 
-  AcpiDebugPrint(DEBUG_VERBOSE, L"Validating ACPI table at 0x%llx, size %u bytes\n", 
-             (UINT64)TableBuffer, BufferSize);
+  AcpiDebugPrint(DEBUG_VERBOSE, L"Validating ACPI table at " PTR_FMT L", size %u bytes\n", 
+             PTR_TO_INT(TableBuffer), BufferSize);
 
   if (TableBuffer == NULL || BufferSize < sizeof(EFI_ACPI_SDT_HEADER)) {
     AcpiDebugPrint(DEBUG_ERROR, L"Invalid parameters for table validation\n");
@@ -431,7 +440,7 @@ ValidateAcpiTable (
 
   // Show first few bytes of table data for debugging
   if (DEBUG_LEVEL >= DEBUG_VERBOSE) {
-    HexDump(TableBuffer, MIN(Header->Length, 64), (UINT64)TableBuffer);
+    HexDump(TableBuffer, MIN(Header->Length, 64), (UINTN)TableBuffer);
   }
 
   AcpiDebugPrint(DEBUG_VERBOSE, L"Table validation completed successfully\n");
@@ -474,8 +483,8 @@ AcpiPatcherEntryPoint (
 
   AcpiDebugPrint(DEBUG_INFO, L"=== ACPIPatcher v%u.%u Starting ===\n", 
              ACPI_PATCHER_VERSION_MAJOR, ACPI_PATCHER_VERSION_MINOR);
-  AcpiDebugPrint(DEBUG_INFO, L"ImageHandle: 0x%llx\n", (UINT64)ImageHandle);
-  AcpiDebugPrint(DEBUG_INFO, L"SystemTable: 0x%llx\n", (UINT64)SystemTable);
+  AcpiDebugPrint(DEBUG_INFO, L"ImageHandle: " PTR_FMT L"\n", PTR_TO_INT(ImageHandle));
+  AcpiDebugPrint(DEBUG_INFO, L"SystemTable: " PTR_FMT L"\n", PTR_TO_INT(SystemTable));
   AcpiDebugPrint(DEBUG_VERBOSE, L"Debug level: %u\n", DEBUG_LEVEL);
 
   // Get RSDP from system configuration table
@@ -486,7 +495,7 @@ AcpiPatcherEntryPoint (
     return EFI_NOT_FOUND;
   }
 
-  AcpiDebugPrint(DEBUG_INFO, L"Found RSDP at address: 0x%llx\n", (UINT64)gRsdp);
+  AcpiDebugPrint(DEBUG_INFO, L"Found RSDP at address: " PTR_FMT L"\n", PTR_TO_INT(gRsdp));
   AcpiDebugPrint(DEBUG_VERBOSE, L"RSDP details:\n");
   AcpiDebugPrint(DEBUG_VERBOSE, L"  Signature: 0x%llx\n", gRsdp->Signature);
   AcpiDebugPrint(DEBUG_VERBOSE, L"  Checksum: 0x%02x\n", gRsdp->Checksum);
@@ -503,13 +512,13 @@ AcpiPatcherEntryPoint (
 
   // Get XSDT
   AcpiDebugPrint(DEBUG_INFO, L"Locating XSDT...\n");
-  gXsdt = (EFI_ACPI_SDT_HEADER *)(gRsdp->XsdtAddress);
+  gXsdt = (EFI_ACPI_SDT_HEADER *)(UINTN)(gRsdp->XsdtAddress);
   if (gXsdt == NULL) {
     AcpiDebugPrint(DEBUG_ERROR, L"XSDT address is null (0x%llx)\n", gRsdp->XsdtAddress);
     return EFI_INVALID_PARAMETER;
   }
 
-  AcpiDebugPrint(DEBUG_INFO, L"Found XSDT at address: 0x%llx\n", (UINT64)gXsdt);
+  AcpiDebugPrint(DEBUG_INFO, L"Found XSDT at address: " PTR_FMT L"\n", PTR_TO_INT(gXsdt));
 
   // Validate XSDT
   if (gXsdt->Signature != EFI_ACPI_6_4_EXTENDED_SYSTEM_DESCRIPTION_TABLE_SIGNATURE) {
@@ -545,7 +554,7 @@ AcpiPatcherEntryPoint (
     return EFI_NOT_FOUND;
   }
   
-  AcpiDebugPrint(DEBUG_VERBOSE, L"Current directory located at: 0x%llx\n", (UINT64)SelfDir);
+  AcpiDebugPrint(DEBUG_VERBOSE, L"Current directory located at: " PTR_FMT L"\n", PTR_TO_INT(SelfDir));
   
   // Open ACPI folder
   AcpiDebugPrint(DEBUG_INFO, L"Opening ACPI folder...\n");
@@ -563,7 +572,7 @@ AcpiPatcherEntryPoint (
     goto Cleanup;
   }
   
-  AcpiDebugPrint(DEBUG_VERBOSE, L"ACPI folder opened successfully at: 0x%llx\n", (UINT64)AcpiFolder);
+  AcpiDebugPrint(DEBUG_VERBOSE, L"ACPI folder opened successfully at: " PTR_FMT L"\n", PTR_TO_INT(AcpiFolder));
   
   AcpiDebugPrint(DEBUG_INFO, L"=== Starting ACPI table patching ===\n");
   Status = PatchAcpi(AcpiFolder);
@@ -688,7 +697,7 @@ VOID
 HexDump (
   IN VOID   *Data,
   IN UINTN  Size,
-  IN UINT64 Address
+  IN UINTN  Address
   )
 {
 #ifndef DXE
@@ -699,10 +708,14 @@ HexDump (
     return;
   }
 
-  AcpiDebugPrint(DEBUG_VERBOSE, L"Memory dump at 0x%llx (%u bytes):\n", Address, Size);
+  AcpiDebugPrint(DEBUG_VERBOSE, L"Memory dump at " PTR_FMT L" (%u bytes):\n", Address, Size);
   
   for (i = 0; i < Size; i += 16) {
-    AcpiDebugPrint(DEBUG_VERBOSE, L"%08llx: ", Address + i);
+#ifdef MDE_CPU_IA32
+    AcpiDebugPrint(DEBUG_VERBOSE, L"%08x: ", (UINT32)(Address + i));
+#else
+    AcpiDebugPrint(DEBUG_VERBOSE, L"%08llx: ", (UINT64)(Address + i));
+#endif
     
     // Print hex bytes
     for (j = 0; j < 16 && (i + j) < Size; j++) {
