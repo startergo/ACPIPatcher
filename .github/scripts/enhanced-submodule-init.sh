@@ -3,7 +3,7 @@
 # Enhanced EDK2 Submodule Initialization Script
 # Handles authentication issues while ensuring essential submodules are initialized
 
-set -e
+# Note: NOT using 'set -e' to allow graceful error handling
 
 echo "=== Enhanced EDK2 Submodule Initialization ==="
 
@@ -40,6 +40,11 @@ is_problematic_submodule() {
     local problematic_patterns=(
         "UnitTestFrameworkPkg/Library/SubhookLib/subhook"
         "UnitTestFrameworkPkg/Test/GoogleTest/googletest"
+        "UnitTestFrameworkPkg/Library/GoogleTestLib/googletest"
+        "UnitTestFrameworkPkg/Library/CmockaLib/cmocka"
+        "RedfishPkg/Library/JsonLib/jansson"
+        "ArmPkg/Library/ArmSoftFloatLib/berkeley-softfloat-3"
+        "SecurityPkg/DeviceSecurity/SpdmLib/libspdm"
     )
     
     for pattern in "${problematic_patterns[@]}"; do
@@ -73,8 +78,17 @@ init_submodule() {
     
     echo "Initializing submodule: $submodule_name $([ "$is_essential" = true ] && echo "(essential)" || echo "(optional)")"
     
-    # Try to initialize the submodule
-    if timeout 60 git submodule update --init --recommend-shallow "$submodule_path" 2>/dev/null; then
+    # Try to initialize the submodule with timeout
+    local init_result=0
+    if command -v timeout >/dev/null 2>&1; then
+        # Use timeout if available (Linux)
+        timeout 60 git submodule update --init --recommend-shallow "$submodule_path" >/dev/null 2>&1 || init_result=$?
+    else
+        # No timeout available (macOS), just try direct
+        git submodule update --init --recommend-shallow "$submodule_path" >/dev/null 2>&1 || init_result=$?
+    fi
+    
+    if [ $init_result -eq 0 ]; then
         echo "✅ $submodule_name initialized successfully"
         return 0  # Success
     else
@@ -83,7 +97,10 @@ init_submodule() {
             echo "   This may cause build failures. Attempting alternative method..."
             
             # Try without timeout and depth restriction for essential modules
-            if git submodule update --init "$submodule_path" 2>/dev/null; then
+            init_result=0
+            git submodule update --init "$submodule_path" >/dev/null 2>&1 || init_result=$?
+            
+            if [ $init_result -eq 0 ]; then
                 echo "✅ $submodule_name initialized with alternative method"
                 return 0  # Success
             else
