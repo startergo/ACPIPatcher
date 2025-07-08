@@ -675,22 +675,11 @@ jobs:
         echo CLANG_BIN=%CLANG_BIN%
         echo CYGWIN_HOME=%CYGWIN_HOME%
         
-        REM Call edksetup.bat to initialize EDK2 environment
-        echo Calling edksetup.bat...
-        call edksetup.bat || (
-          echo ❌ edksetup.bat failed
-          exit /b 1
-        )
+        REM Set BASE_TOOLS_PATH before building
+        set "BASE_TOOLS_PATH=%WORKSPACE%\BaseTools"
+        echo Set BASE_TOOLS_PATH to: %BASE_TOOLS_PATH%
         
-        REM Verify BASE_TOOLS_PATH is set
-        if "%BASE_TOOLS_PATH%"=="" (
-          set "BASE_TOOLS_PATH=%WORKSPACE%\BaseTools"
-          echo Set BASE_TOOLS_PATH to: %BASE_TOOLS_PATH%
-        ) else (
-          echo BASE_TOOLS_PATH is: %BASE_TOOLS_PATH%
-        )
-        
-        REM Build BaseTools with warning suppression
+        REM Build BaseTools FIRST, before calling edksetup.bat
         echo Building BaseTools with warning suppression...
         cd BaseTools
         
@@ -724,19 +713,73 @@ jobs:
         REM Build BaseTools with nmake (don't use CFLAGS as it conflicts with nmake)
         nmake
         if errorlevel 1 (
-          echo ❌ BaseTools build failed, but continuing...
-          REM Create minimal placeholder tools for testing
-          if not exist "Bin\Win32\build.exe" (
-            echo This is a placeholder > "Bin\Win32\build.exe"
+          echo ❌ BaseTools build failed, trying without makefile patches...
+          
+          REM Reset makefiles and try again without patches
+          git checkout -- Makefiles\ms.common 2>nul || echo "No ms.common to reset"
+          git checkout -- Makefiles\makefile.common 2>nul || echo "No makefile.common to reset"
+          
+          REM Try build again with default settings
+          echo Retrying BaseTools build with default settings...
+          nmake /F Makefile
+          
+          if errorlevel 1 (
+            echo ❌ BaseTools build failed even without patches
+            echo This is critical - cannot proceed without GenFw and other tools
+            exit /b 1
+          ) else (
+            echo ✅ BaseTools build completed on retry
           )
         ) else (
-          echo ✅ BaseTools build completed
+          echo ✅ BaseTools build completed successfully
+        )
+        
+        REM Verify that essential tools were built
+        if not exist "Bin\Win32\GenFw.exe" (
+          echo ❌ Critical error: GenFw.exe not found after BaseTools build
+          echo BaseTools build may have been incomplete
+          exit /b 1
+        ) else (
+          echo ✅ GenFw.exe found at Bin\Win32\GenFw.exe
+        )
+        
+        if not exist "Bin\Win32\build.exe" (
+          echo ❌ Critical error: build.exe not found after BaseTools build
+          exit /b 1
+        ) else (
+          echo ✅ build.exe found at Bin\Win32\build.exe
         )
         
         REM Reset any environment variables for application build
         set MAKEFLAGS=
         
+        REM Ensure BaseTools are in PATH for the build
+        set "PATH=%BASE_TOOLS_PATH%\Bin\Win32;%PATH%"
+        echo Added BaseTools to PATH: %BASE_TOOLS_PATH%\Bin\Win32
+        
+        REM Verify GenFw is accessible from PATH
+        where GenFw >nul 2>&1
+        if %ERRORLEVEL%==0 (
+          echo ✓ GenFw accessible from PATH
+          GenFw --version 2>nul || echo "GenFw found but version check failed"
+        ) else (
+          echo ✗ GenFw not accessible from PATH - this will cause build failures
+          echo Available tools in BaseTools\Bin\Win32:
+          dir "%BASE_TOOLS_PATH%\Bin\Win32\*.exe" 2>nul
+        )
+        
         cd ..
+        
+        REM NOW call edksetup.bat after BaseTools are built
+        echo Calling edksetup.bat with BaseTools ready...
+        call edksetup.bat || (
+          echo ❌ edksetup.bat failed even with BaseTools built
+          exit /b 1
+        )
+        
+        REM Verify EDK_TOOLS_BIN is properly set
+        echo EDK_TOOLS_BIN=%EDK_TOOLS_BIN%
+        echo BASE_TOOLS_PATH=%BASE_TOOLS_PATH%
         
         REM Ensure VS2022 toolchain is available by sourcing again
         echo Setting up VS2022 toolchain for ACPIPatcher build...
