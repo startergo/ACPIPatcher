@@ -491,48 +491,55 @@ jobs:
       with:
         python-version: '3.9'
     
-    - name: Install NASM
+    - name: Setup MSYS2 and Build Tools
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MSYS
+        update: false
+        install: >-
+          nasm
+          make
+          mingw-w64-x86_64-clang
+          mingw-w64-x86_64-lld
+
+    - name: Make MSYS2 Tools Available for Windows Batch
+      shell: powershell
       run: |
-        choco install nasm -y
+        # Detect MSYS2 installation path
+        $msys2Root = if (Test-Path "C:\msys64") { "C:\msys64" } else { "D:\msys64" }
+        Write-Host "MSYS2 root detected: $msys2Root"
         
-        # Show where Chocolatey installed NASM
-        echo "Checking NASM installation locations..."
-        Get-ChildItem "C:\ProgramData\chocolatey\lib\nasm" -Recurse -Filter "nasm.exe" -ErrorAction SilentlyContinue | Select-Object FullName
+        # Add MSYS2 bin paths to Windows PATH for batch script access
+        $msys2BinPath = "$msys2Root\usr\bin"
+        $mingw64BinPath = "$msys2Root\mingw64\bin"
         
-        # Find and add NASM to PATH for this session
-        $possiblePaths = @(
-          "C:\ProgramData\chocolatey\lib\nasm\tools",
-          "C:\ProgramData\chocolatey\bin",
-          "C:\tools\nasm",
-          "C:\Program Files\NASM"
-        )
+        Write-Host "Adding to PATH: $msys2BinPath"
+        Write-Host "Adding to PATH: $mingw64BinPath"
         
-        $nasmFound = $false
-        foreach ($path in $possiblePaths) {
-          if (Test-Path "$path\nasm.exe") {
-            $env:PATH = "$path;$env:PATH"
-            echo "Found and added NASM to PATH: $path"
-            
-            # Set GitHub environment variable to persist across steps
-            echo "$path" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-            echo "Added to GITHUB_PATH: $path"
-            $nasmFound = $true
-            break
-          }
+        # Add to GITHUB_PATH for persistence across steps
+        Add-Content $env:GITHUB_PATH "$msys2BinPath"
+        Add-Content $env:GITHUB_PATH "$mingw64BinPath"
+        
+        # Verify tools are accessible
+        & "$msys2BinPath\nasm.exe" -v
+        if ($LASTEXITCODE -eq 0) {
+          Write-Host "✅ NASM is accessible from Windows"
+        } else {
+          Write-Host "⚠️ NASM verification failed"
         }
         
-        if (-not $nasmFound) {
-          echo "WARNING: NASM not found in standard locations"
-          echo "Searching entire system for nasm.exe..."
-          Get-ChildItem C:\ -Recurse -Filter "nasm.exe" -ErrorAction SilentlyContinue | Select-Object FullName
+        & "$msys2BinPath\make.exe" --version
+        if ($LASTEXITCODE -eq 0) {
+          Write-Host "✅ Make is accessible from Windows"
+        } else {
+          Write-Host "⚠️ Make verification failed"
         }
         
-        # Try to verify NASM installation
-        try {
-          nasm -v
-          echo "✅ NASM is accessible"
-        } catch {
-          echo "⚠️ NASM verification failed, but it may still work in build environment"
+        & "$mingw64BinPath\clang.exe" --version
+        if ($LASTEXITCODE -eq 0) {
+          Write-Host "✅ Clang is accessible from Windows"
+        } else {
+          Write-Host "⚠️ Clang verification failed"
         }
     
     - name: Setup Visual Studio Environment
@@ -578,512 +585,72 @@ jobs:
         cd edk2
         
         REM ====================================================================
-        REM CRITICAL: Set up NASM PATH before any EDK2 operations
+        REM Simplified setup using MSYS2 tools from msys2/setup-msys2 action
         REM ====================================================================
-        echo Setting up NASM environment...
+        echo Setting up EDK2 environment with MSYS2 tools...
         
-        REM Check multiple possible NASM installation locations
-        if exist "C:\ProgramData\chocolatey\lib\nasm\tools\nasm.exe" (
-          set "NASM_PREFIX=C:\ProgramData\chocolatey\lib\nasm\tools\"
-          set "PATH=C:\ProgramData\chocolatey\lib\nasm\tools;%PATH%"
-          echo ✅ Found NASM at C:\ProgramData\chocolatey\lib\nasm\tools\
-        ) else if exist "C:\ProgramData\chocolatey\bin\nasm.exe" (
-          set "NASM_PREFIX=C:\ProgramData\chocolatey\bin\"
-          set "PATH=C:\ProgramData\chocolatey\bin;%PATH%"
-          echo ✅ Found NASM at C:\ProgramData\chocolatey\bin\
-        ) else if exist "C:\tools\nasm\nasm.exe" (
-          set "NASM_PREFIX=C:\tools\nasm\"
-          set "PATH=C:\tools\nasm;%PATH%"
-          echo ✅ Found NASM at C:\tools\nasm\
-        ) else if exist "C:\Program Files\NASM\nasm.exe" (
-          set "NASM_PREFIX=C:\Program Files\NASM\"
-          set "PATH=C:\Program Files\NASM;%PATH%"
-          echo ✅ Found NASM at C:\Program Files\NASM\
-        ) else (
-          echo ⚠️ NASM not found in standard locations, setting default...
-          set "NASM_PREFIX=C:\ProgramData\chocolatey\lib\nasm\tools\"
-        )
-        
-        REM Verify NASM is accessible
+        REM Verify NASM is accessible (should be available via GITHUB_PATH)
         nasm -v >nul 2>&1
         if errorlevel 1 (
-          echo ❌ NASM verification failed - this may cause build issues
-          echo Searching for NASM in additional locations...
-          where nasm 2>nul || echo NASM not found in PATH
+          echo ❌ NASM not accessible - checking MSYS2 paths
+          if exist "C:\msys64\usr\bin\nasm.exe" (
+            set "PATH=C:\msys64\usr\bin;%PATH%"
+            echo ✅ Added MSYS2 NASM to PATH
+          ) else (
+            echo ❌ NASM not found in MSYS2
+            exit /b 1
+          )
         ) else (
-          echo ✅ NASM is accessible and ready
+          echo ✅ NASM is accessible
         )
         
-        REM CRITICAL FIX: Set WORKSPACE and call edksetup.bat FIRST to set BASE_TOOLS_PATH
-        echo Setting up EDK2 environment BEFORE BaseTools build...
-        
-        REM Visual Studio environment is already set up by ilammy/msvc-dev-cmd action
-        echo "Visual Studio environment already configured by GitHub Actions"
-        where cl && echo "✅ cl.exe is available in PATH" || echo "⚠️ cl.exe not found in PATH"
-        
-        REM Use for loop to capture current directory path reliably
-        cd %GITHUB_WORKSPACE%\edk2
-        for /f "tokens=*" %%i in ('cd') do set "WORKSPACE=%%i"
+        REM Set up workspace
+        set "WORKSPACE=%GITHUB_WORKSPACE%\edk2"
         echo Set WORKSPACE to: %WORKSPACE%
         
-        REM Alternative approach for GitHub Actions - should be more reliable
-        echo "Using GitHub Actions specific path..."
-        set "WORKSPACE=%GITHUB_WORKSPACE%\edk2"
-        echo Double-check WORKSPACE is: %WORKSPACE%
-        
-        REM Create the Bin\Win32 directory BEFORE calling edksetup.bat
-        if not exist "%WORKSPACE%\BaseTools\Bin\Win32" (
-          echo "Creating BaseTools\Bin\Win32 directory to satisfy edksetup.bat..."
-          mkdir "%WORKSPACE%\BaseTools\Bin\Win32" 2>nul
-        )
-        
-        REM Create placeholder build.exe in Bin\Win32 to satisfy edksetup.bat's check
-        if not exist "%WORKSPACE%\BaseTools\Bin\Win32\build.exe" (
-          echo This is a placeholder > "%WORKSPACE%\BaseTools\Bin\Win32\build.exe"
-          echo Created placeholder build.exe
-        )
-        
-        REM Call edksetup.bat with error handling
+        REM Call edksetup.bat to initialize EDK2 environment
         echo Calling edksetup.bat...
         call edksetup.bat || (
-          echo !!! ERROR !!! edksetup.bat failed, creating dummy files and continuing
-          if not exist "%WORKSPACE%\BaseTools\Bin\Win32" mkdir "%WORKSPACE%\BaseTools\Bin\Win32"
-          echo This is a placeholder > "%WORKSPACE%\BaseTools\Bin\Win32\build.exe"
+          echo ❌ edksetup.bat failed
+          exit /b 1
         )
         
         REM Verify BASE_TOOLS_PATH is set
-        echo Verifying BASE_TOOLS_PATH environment variable...
         if "%BASE_TOOLS_PATH%"=="" (
-          echo WARNING: BASE_TOOLS_PATH not set by edksetup, setting manually...
           set "BASE_TOOLS_PATH=%WORKSPACE%\BaseTools"
           echo Set BASE_TOOLS_PATH to: %BASE_TOOLS_PATH%
         ) else (
           echo BASE_TOOLS_PATH is: %BASE_TOOLS_PATH%
         )
         
-        REM Ensure Bin\Win32 directory exists BEFORE building BaseTools
-        echo Creating Bin\Win32 directory if it doesn't exist...
-        if not exist "BaseTools\Bin\Win32" (
-          mkdir "BaseTools\Bin\Win32" 2>nul
-          echo Created BaseTools\Bin\Win32 directory
-        )
-        
-        REM Ensure EDK_TOOLS_BIN is set
-        set "EDK_TOOLS_BIN=%WORKSPACE%\BaseTools\Bin\Win32"
-        echo Set EDK_TOOLS_BIN to: %EDK_TOOLS_BIN%
-        
-        REM Build BaseTools AFTER setting BASE_TOOLS_PATH
-        echo Building BaseTools for Windows...
+        REM Build BaseTools
+        echo Building BaseTools...
         cd BaseTools
-        python -m pip install --upgrade pip
         
-        REM First ensure proper Python environment for BaseTools
-        set "PYTHONPATH=%WORKSPACE%\BaseTools\Source\Python;%PYTHONPATH%"
-        echo Set PYTHONPATH to: %PYTHONPATH%
+        REM Ensure Win32 directory exists
+        if not exist "Bin\Win32" mkdir "Bin\Win32"
         
-        REM Patch Makefiles to disable warnings-as-errors BEFORE building
-        if exist "Makefiles\ms.common" (
-          echo Patching ms.common to disable warnings-as-errors...
-          powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/W4 /WX', '/W0 /WX-' | Set-Content 'Makefiles\ms.common'"
-          powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/WX', '/WX-' | Set-Content 'Makefiles\ms.common'"
-          echo ✓ Patched ms.common to disable warnings-as-errors
-        )
-        
-        REM Create a custom C4267.h header to suppress specific warnings
-        echo Creating custom warning suppression header...
-        
-        REM Create header in Source\C\Include (main location)
-        if not exist "Source\C\Include" mkdir "Source\C\Include" 2>nul
-        echo #pragma warning(disable:4267) > "Source\C\Include\C4267.h"
-        echo #pragma warning(disable:4311) >> "Source\C\Include\C4267.h"
-        echo #pragma warning(disable:4312) >> "Source\C\Include\C4267.h"
-        echo #pragma warning(disable:4819) >> "Source\C\Include\C4267.h"
-        
-        REM Create header in all compilation directories where it might be needed
-        if not exist "Source\C\Common\Include" mkdir "Source\C\Common\Include" 2>nul
-        copy "Source\C\Include\C4267.h" "Source\C\Common\Include\" >nul 2>&1
-        
-        if not exist "Source\C\VfrCompile\Include" mkdir "Source\C\VfrCompile\Include" 2>nul
-        copy "Source\C\Include\C4267.h" "Source\C\VfrCompile\Include\" >nul 2>&1
-        
-        if not exist "Source\C\GenFw\Include" mkdir "Source\C\GenFw\Include" 2>nul
-        copy "Source\C\Include\C4267.h" "Source\C\GenFw\Include\" >nul 2>&1
-        
-        REM Also try creating in relative path locations that the compiler might use
-        if not exist "Include" mkdir "Include" 2>nul
-        copy "Source\C\Include\C4267.h" "Include\" >nul 2>&1
-        
-        REM Set environment to completely disable warnings for BaseTools build
-        set CL=/W0 /WX- /wd4267 /wd4311 /wd4312 /wd4819 /FI"%WORKSPACE%\BaseTools\Source\C\Include\C4267.h"
-        set LINK=/IGNORE:4099
-        echo Building BaseTools with all warnings disabled...
-        
-        REM Try standard build first with warning suppression
-        echo Attempt 1: Building with warning suppression...
-        nmake 2>build_warnings.log
+        REM Build BaseTools with nmake
+        nmake
         if errorlevel 1 (
-          echo Standard BaseTools build failed, checking errors...
-          type build_warnings.log
-          echo.
-          
-          REM Clean and try with enhanced suppression
-          echo Attempt 2: Cleaning and trying with enhanced warning suppression...
-          nmake clean >nul 2>&1
-          
-          REM More aggressive approach: override CFLAGS completely
-          set CFLAGS=/nologo /Z7 /c /O2 /MT /W0 /WX- /wd4267 /wd4311 /wd4312 /wd4819 /FI"%WORKSPACE%\BaseTools\Source\C\Include\C4267.h" /D _CRT_SECURE_NO_DEPRECATE /D _CRT_NONSTDC_NO_DEPRECATE
-          set CL=/W0 /WX- /wd4267 /wd4311 /wd4312 /wd4819 /FI"%WORKSPACE%\BaseTools\Source\C\Include\C4267.h"
-          
-          echo Attempting BaseTools build with overridden CFLAGS...
-          nmake CFLAGS="%CFLAGS%" 2>build_warnings2.log
-          if errorlevel 1 (
-            echo Enhanced build failed, checking errors...
-            type build_warnings2.log
-            echo.
-            
-            echo Attempt 3: Directly patching CommonLib.c to fix size_t to UINT32 conversion...
-            if exist "Source\C\Common\CommonLib.c" (
-              echo Patching CommonLib.c to fix size_t to UINT32 conversion warnings...
-              powershell -Command "(Get-Content 'Source\C\Common\CommonLib.c') -replace '= AsciiStrLen', '= (UINT32)AsciiStrLen' | Set-Content 'Source\C\Common\CommonLib.c'"
-              powershell -Command "(Get-Content 'Source\C\Common\CommonLib.c') -replace '= StrLen', '= (UINT32)StrLen' | Set-Content 'Source\C\Common\CommonLib.c'"
-              echo ✓ Patched CommonLib.c
-            )
-            
-            echo Attempting build with patched source...
-            nmake 2>build_warnings3.log
-            if errorlevel 1 (
-              echo Build with patched source failed, falling back to Python method...
-              type build_warnings3.log
-              echo.
-              
-              echo Attempt 4: Using Python build approach...
-              REM Make sure Python can find the module files
-              set "PYTHONPATH=%WORKSPACE%\BaseTools\Source\Python;%PYTHONPATH%"
-              
-              REM Try Python build.py if available
-              if exist "Source\Python\build\build.py" (
-                echo Using build.py script...
-                python Source\Python\build\build.py 2>python_build.log
-                if errorlevel 1 (
-                  echo Python build.py failed, checking errors...
-                  type python_build.log
-                  echo "WARNING: All BaseTools build methods failed - will create placeholders"
-                )
-              ) else (
-                echo Python build script not found at expected location
-                echo "WARNING: All BaseTools build methods failed - will create placeholders"
-              )
-            )
-          )
-        
+          echo ❌ BaseTools build failed
+          exit /b 1
         )
-        
-        REM Enhanced post-build verification and tool location
-        echo Performing enhanced BaseTools verification...
-        
-        REM Create Win32 directory if it doesn't exist
-        if not exist "Bin\Win32" (
-          echo Creating missing Bin\Win32 directory...
-          mkdir "Bin\Win32" 2>nul
-        )
-        
-        REM Ensure Python module dirs are properly set up for build.py
-        if exist "Source\Python\build" (
-          echo Creating symbolic links for Python modules...
-          cd Source\Python
-          if not exist "AutoGen" mkdir AutoGen
-          if not exist "AutoGen\__init__.py" echo # > AutoGen\__init__.py
-          if not exist "AutoGen\BuildEngine.py" copy "build\BuildEngine.py" "AutoGen\"
-          cd ..\..
-        )
-        
-        REM Check if tools were built in alternative locations and copy them
-        echo Searching for built tools in alternative locations...
-        if exist "Bin\*.exe" (
-          echo Copying tools from Bin\ to Bin\Win32\...
-          copy "Bin\*.exe" "Bin\Win32\" >nul 2>&1 || echo "Warning: Could not copy tools from Bin\"
-        )
-        
-        REM Check for Win64 tools and copy them if Win32 is empty
-        if exist "Bin\Win64\*.exe" (
-          echo Found tools in Bin\Win64, copying to Win32...
-          copy "Bin\Win64\*.exe" "Bin\Win32\" >nul 2>&1 || echo "Warning: Could not copy tools from Win64"
-        )
-        
-        REM Create placeholder Python scripts for all key tools
-        echo Creating placeholder Python scripts...
-        echo import sys > "Bin\Win32\build.py"
-        echo print("Placeholder build tool running") >> "Bin\Win32\build.py"
-        echo sys.exit(0) >> "Bin\Win32\build.py"
-        
-        REM Create placeholder files to prevent build failures
-        echo Creating placeholder build tools if needed...
-        if not exist "Bin\Win32\build.exe" (
-          echo Creating placeholder build.exe...
-          echo This is a placeholder > "Bin\Win32\build.exe"
-        )
-        
-        REM Create Python script-based fallback
-        echo print("Placeholder build tool") > "Source\Python\build\build_placeholder.py"
-        
-        REM Return to the workspace root
-        cd %WORKSPACE%
-        
-        REM Some tools might be in the root BaseTools directory
-        if exist "*.exe" (
-          echo Copying tools from BaseTools root to Bin\Win32\...
-          copy "*.exe" "Bin\Win32\" >nul 2>&1
-        )
-        
-        REM Check Source\C subdirectories for built tools
-        for /d %%D in (Source\C\*) do (
-          if exist "%%D\*.exe" (
-            echo Copying tools from %%D\ to Bin\Win32\...
-            copy "%%D\*.exe" "Bin\Win32\" >nul 2>&1
-          )
-        )
-        
-        REM Check individual tool directories
-        if exist "Source\C\VfrCompile\*.exe" copy "Source\C\VfrCompile\*.exe" "Bin\Win32\" >nul 2>&1
-        if exist "Source\C\VolInfo\*.exe" copy "Source\C\VolInfo\*.exe" "Bin\Win32\" >nul 2>&1
-        if exist "Source\C\GenFv\*.exe" copy "Source\C\GenFv\*.exe" "Bin\Win32\" >nul 2>&1
-        if exist "Source\C\GenFfs\*.exe" copy "Source\C\GenFfs\*.exe" "Bin\Win32\" >nul 2>&1
-        if exist "Source\C\GenSec\*.exe" copy "Source\C\GenSec\*.exe" "Bin\Win32\" >nul 2>&1
-        
-        REM Verify that critical tools exist
-        echo Final verification of BaseTools...
-        if exist "Bin\Win32\build.exe" (
-          echo ✅ build.exe found in Bin\Win32
-        ) else (
-          echo ⚠️  build.exe not found in Bin\Win32, checking alternatives...
-          if exist "Source\Python\build\build.py" (
-            echo ✅ Found Python build script as alternative
-          ) else (
-            echo ❌ Neither build.exe nor build.py found - this may cause issues
-          )
-        )
-        
-        echo Listing contents of Bin\Win32:
-        dir "Bin\Win32" 2>nul || echo No files in Bin\Win32 directory
         
         echo ✅ BaseTools build completed
         cd ..
         
-        REM Re-establish environment variables before calling edksetup.bat
-        echo Re-establishing environment variables before EDK2 setup...
+        REM Build ACPIPatcher
+        echo Building ACPIPatcher...
+        build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t VS2022 ^
+              -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
+              -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
         
-        REM Re-detect and set NASM_PREFIX
-        where nasm >nul 2>&1
         if errorlevel 1 (
-          if exist "%ProgramData%\chocolatey\bin\nasm.exe" (
-            set "NASM_PREFIX=%ProgramData%\chocolatey\bin\"
-            set "PATH=%ProgramData%\chocolatey\bin;%PATH%"
-            echo Re-set NASM_PREFIX=%NASM_PREFIX%
-          ) else if exist "C:\tools\nasm\nasm.exe" (
-            set "NASM_PREFIX=C:\tools\nasm\"
-            set "PATH=C:\tools\nasm;%PATH%"
-            echo Re-set NASM_PREFIX=%NASM_PREFIX%
-          ) else if exist "C:\Program Files\NASM\nasm.exe" (
-            set "NASM_PREFIX=C:\Program Files\NASM\"
-            set "PATH=C:\Program Files\NASM;%PATH%"
-            echo Re-set NASM_PREFIX=%NASM_PREFIX%
-          ) else (
-            set "NASM_PREFIX=C:\tools\nasm\"
-            echo Set default NASM_PREFIX=%NASM_PREFIX%
-          )
+          echo ❌ ACPIPatcher build failed
+          exit /b 1
         ) else (
-          for /f "tokens=*" %%i in ('where nasm') do (
-            set "NASM_PATH=%%i"
-            goto :found_nasm2
-          )
-          :found_nasm2
-          for %%i in ("%NASM_PATH%") do set "NASM_PREFIX=%%~dpi"
-          echo Re-set NASM_PREFIX=%NASM_PREFIX%
-        )
-        
-        REM Re-set CLANG_BIN with fallback to MSYS2 locations
-        if exist "C:\Program Files\LLVM\bin\clang.exe" (
-          set "CLANG_BIN=C:\Program Files\LLVM\bin\"
-          echo Re-set CLANG_BIN=%CLANG_BIN%
-        ) else (
-          echo LLVM not found in standard location, checking MSYS2...
-          if exist "C:\msys64\mingw64\bin\clang.exe" (
-            set "CLANG_BIN=C:\msys64\mingw64\bin\"
-            echo Found clang in MSYS2 mingw64: %CLANG_BIN%
-            REM Add MSYS2 mingw64 to PATH if not already there
-            echo %PATH% | findstr /i "msys64\mingw64\bin" >nul || (
-              set "PATH=%PATH%;C:\msys64\mingw64\bin"
-              echo Added MSYS2 mingw64 to PATH
-            )
-          ) else if exist "C:\msys64\mingw32\bin\clang.exe" (
-            set "CLANG_BIN=C:\msys64\mingw32\bin\"
-            echo Found clang in MSYS2 mingw32: %CLANG_BIN%
-            REM Add MSYS2 mingw32 to PATH if not already there
-            echo %PATH% | findstr /i "msys64\mingw32\bin" >nul || (
-              set "PATH=%PATH%;C:\msys64\mingw32\bin"
-              echo Added MSYS2 mingw32 to PATH
-            )
-          ) else (
-            echo Warning: clang not found in standard or MSYS2 locations
-          )
-        )
-        
-        REM Re-set CYGWIN_HOME to empty to suppress warning
-        set "CYGWIN_HOME="
-        echo Set CYGWIN_HOME to empty to suppress warning
-        
-        REM Ensure the placeholder build.exe is still there
-        if not exist "%WORKSPACE%\BaseTools\Bin\Win32\build.exe" (
-          echo Recreating placeholder build.exe before second edksetup call...
-          echo This is a placeholder > "%WORKSPACE%\BaseTools\Bin\Win32\build.exe"
-        )
-        
-        REM Call edksetup.bat again after BaseTools build to refresh environment
-        echo Refreshing EDK2 environment after BaseTools build...
-        call edksetup.bat 2>edksetup_errors.log || (
-          echo Warning: edksetup.bat failed on second call, continuing anyway
-          type edksetup_errors.log
-        )
-        
-        REM Verify BASE_TOOLS_PATH is still set after refresh
-        echo Verifying BASE_TOOLS_PATH after refresh...
-        if "%BASE_TOOLS_PATH%"=="" (
-          echo WARNING: BASE_TOOLS_PATH lost after refresh, setting manually...
-          set "BASE_TOOLS_PATH=%WORKSPACE%\BaseTools"
-          echo Set BASE_TOOLS_PATH to: %BASE_TOOLS_PATH%
-        ) else (
-          echo BASE_TOOLS_PATH confirmed: %BASE_TOOLS_PATH%
-        )
-        
-        REM Verify EDK_TOOLS_BIN is set correctly after edksetup
-        echo Verifying EDK_TOOLS_BIN environment variable...
-        if "%EDK_TOOLS_BIN%"=="" (
-          echo EDK_TOOLS_BIN not set, looking for appropriate directory...
-          
-          REM Try Win64 first, then fall back to Win32
-          if exist "%WORKSPACE%\BaseTools\Bin\Win64" (
-            set "EDK_TOOLS_BIN=%WORKSPACE%\BaseTools\Bin\Win64"
-            echo Set EDK_TOOLS_BIN to Win64: %EDK_TOOLS_BIN%
-            
-            REM Copy Win64 tools to Win32 directory for compatibility
-            if not exist "%WORKSPACE%\BaseTools\Bin\Win32" (
-              mkdir "%WORKSPACE%\BaseTools\Bin\Win32" 2>nul
-            )
-            
-            echo Copying tools from Win64 to Win32 for compatibility...
-            copy "%WORKSPACE%\BaseTools\Bin\Win64\*.exe" "%WORKSPACE%\BaseTools\Bin\Win32\" >nul 2>&1 || echo "Warning: Could not copy Win64 tools"
-          ) else if exist "%WORKSPACE%\BaseTools\Bin\Win32" (
-            set "EDK_TOOLS_BIN=%WORKSPACE%\BaseTools\Bin\Win32"
-            echo Set EDK_TOOLS_BIN to Win32: %EDK_TOOLS_BIN%
-          ) else (
-            echo WARNING: No suitable Bin directory found, creating and setting EDK_TOOLS_BIN...
-            mkdir "%WORKSPACE%\BaseTools\Bin\Win32" 2>nul
-            set "EDK_TOOLS_BIN=%WORKSPACE%\BaseTools\Bin\Win32"
-            echo Created and set EDK_TOOLS_BIN to: %EDK_TOOLS_BIN%
-          )
-        ) else (
-          echo EDK_TOOLS_BIN is set to: %EDK_TOOLS_BIN%
-        )
-        
-        if "%EDK_TOOLS_BIN%"=="" (
-          echo EDK_TOOLS_BIN not set by edksetup, setting manually...
-          set "EDK_TOOLS_BIN=%WORKSPACE%\BaseTools\Bin\Win32"
-          echo Set EDK_TOOLS_BIN to: %EDK_TOOLS_BIN%
-        )
-        
-        REM Verify the path exists
-        if not exist "%EDK_TOOLS_BIN%" (
-          echo WARNING: EDK_TOOLS_BIN path does not exist: %EDK_TOOLS_BIN%
-          echo Attempting to find correct BaseTools path...
-          
-          if exist "%WORKSPACE%\BaseTools\Bin\Win32" (
-            set "EDK_TOOLS_BIN=%WORKSPACE%\BaseTools\Bin\Win32"
-            echo Corrected EDK_TOOLS_BIN to: %EDK_TOOLS_BIN%
-          ) else (
-            echo ERROR: Cannot find BaseTools directory
-            echo WORKSPACE is: %WORKSPACE%
-            dir "%WORKSPACE%\BaseTools" 2>nul || echo BaseTools directory not found
-            exit /b 1
-          )
-        ) else (
-          echo ✅ EDK_TOOLS_BIN path verified: %EDK_TOOLS_BIN%
-        )
-        
-        REM Final validation to ensure Win32 directory exists and has content
-        echo Performing final validation of EDK_TOOLS_BIN and Win32 directory...
-        if not exist "%EDK_TOOLS_BIN%" (
-          echo ERROR: EDK_TOOLS_BIN directory not found: %EDK_TOOLS_BIN%
-          echo Creating directory...
-          mkdir "%EDK_TOOLS_BIN%" 2>nul
-        )
-        
-        REM Check if Bin\Win64 exists and has tools we can copy
-        if exist "%WORKSPACE%\BaseTools\Bin\Win64" (
-          echo Found Win64 tools, copying to Win32 directory...
-          xcopy /E /Y "%WORKSPACE%\BaseTools\Bin\Win64\*.*" "%EDK_TOOLS_BIN%\" >nul 2>&1
-          echo Win64 tools copied to Win32 directory
-        ) else (
-          echo No Win64 tools found to copy
-        )
-        
-        REM List contents to verify
-        echo Contents of %EDK_TOOLS_BIN%:
-        dir "%EDK_TOOLS_BIN%" 2>nul || echo Directory is empty
-        
-        REM Create dummy tools if needed
-        if not exist "%EDK_TOOLS_BIN%\build.exe" (
-          echo WARNING: build.exe not found, creating placeholder for validation...
-          echo This is a placeholder > "%EDK_TOOLS_BIN%\build.exe"
-        )
-        
-        REM Reset CL for application build (we want warnings for our code)
-        set CL=
-        
-        REM Set warning level for our own code
-        echo Building ACPIPatcher with standard warnings...
-        
-        REM Final environment check before build:
-        echo Final environment check before build:
-        echo WORKSPACE=%WORKSPACE%
-        echo BASE_TOOLS_PATH=%BASE_TOOLS_PATH%
-        echo EDK_TOOLS_BIN=%EDK_TOOLS_BIN%
-        echo NASM_PREFIX=%NASM_PREFIX%
-        echo CLANG_BIN=%CLANG_BIN%
-        echo PYTHONPATH=%PYTHONPATH%
-        
-        REM Setup Python module paths for build.py
-        set "PYTHONPATH=%WORKSPACE%\BaseTools\Source\Python;%PYTHONPATH%"
-        
-        REM Two build approaches - try Python-based build first which is more reliable
-        if exist "%WORKSPACE%\BaseTools\Source\Python\build\build.py" (
-          echo "Trying Python-based build method first..."
-          cd %WORKSPACE%
-          python BaseTools\Source\Python\build\build.py -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t VS2022 ^
-                -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
-                -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
-          set BUILD_RESULT=%ERRORLEVEL%
-          
-          if "%BUILD_RESULT%" NEQ "0" (
-            echo "Python build approach failed, trying traditional build command..."
-            build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t VS2022 ^
-                  -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
-                  -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
-            set BUILD_RESULT=%ERRORLEVEL%
-          )
-        ) else (
-          echo "Python build script not found, using traditional build command..."
-          build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t VS2022 ^
-                -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
-                -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
-          set BUILD_RESULT=%ERRORLEVEL%
-        )
-        
-        REM Check build result
-        if "%BUILD_RESULT%" NEQ "0" (
-          echo ❌ Build failed with error code %BUILD_RESULT%
-          echo Attempting to continue despite build failure...
-        ) else (
-          echo ✅ Build completed successfully
+          echo ✅ ACPIPatcher build completed successfully
         )
     
     - name: Verify Build Output
