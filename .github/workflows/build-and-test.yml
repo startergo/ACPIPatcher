@@ -801,16 +801,33 @@ jobs:
         REM Check if tools_def.txt contains VS2022 definition
         if exist "%CONF_PATH%\tools_def.txt" (
           echo Checking tools_def.txt for VS2022...
+          echo Available toolchain families in tools_def.txt:
+          findstr /C:"_FAMILY" "%CONF_PATH%\tools_def.txt" | findstr "MSFT\|GCC" | head -5
+          echo.
+          
           findstr /C:"DEFINE VS2022" "%CONF_PATH%\tools_def.txt" >nul 2>&1
           if %ERRORLEVEL%==0 (
             echo ✓ VS2022 found in tools_def.txt
             
-            REM Verify that VS2022_BIN path exists in tools_def.txt
+            REM Check if VS2022_BIN path is properly defined in tools_def.txt
             findstr /C:"VS2022_BIN" "%CONF_PATH%\tools_def.txt" >nul 2>&1
             if %ERRORLEVEL%==0 (
               echo ✓ VS2022_BIN definition found in tools_def.txt
+              
+              REM Verify the path in tools_def.txt matches our detected path
+              findstr /C:"DEFINE VS2022_BIN" "%CONF_PATH%\tools_def.txt" | findstr /C:"%VS2022_BIN%" >nul 2>&1
+              if %ERRORLEVEL%==0 (
+                echo ✓ VS2022_BIN path matches detected path
+              ) else (
+                echo ✗ VS2022_BIN path mismatch, updating...
+                REM Update the existing definition
+                powershell -Command "(Get-Content '%CONF_PATH%\tools_def.txt') -replace 'DEFINE VS2022_BIN.*', 'DEFINE VS2022_BIN = %VS2022_BIN%' | Set-Content '%CONF_PATH%\tools_def.txt'"
+                powershell -Command "(Get-Content '%CONF_PATH%\tools_def.txt') -replace 'DEFINE VS2022_DLL.*', 'DEFINE VS2022_DLL = %VS2022_DLL%' | Set-Content '%CONF_PATH%\tools_def.txt'"
+                powershell -Command "(Get-Content '%CONF_PATH%\tools_def.txt') -replace 'DEFINE VS2022_BINX86.*', 'DEFINE VS2022_BINX86 = %VS2022_BINX86%' | Set-Content '%CONF_PATH%\tools_def.txt'"
+                powershell -Command "(Get-Content '%CONF_PATH%\tools_def.txt') -replace 'DEFINE VS2022_DLLX86.*', 'DEFINE VS2022_DLLX86 = %VS2022_DLLX86%' | Set-Content '%CONF_PATH%\tools_def.txt'"
+              )
             ) else (
-              echo ✗ VS2022_BIN definition missing, adding it...
+              echo ✗ VS2022_BIN definition missing, adding complete VS2022 toolchain...
               echo. >> "%CONF_PATH%\tools_def.txt"
               echo # Added by build script for VS2022 support >> "%CONF_PATH%\tools_def.txt"
               echo DEFINE VS2022_BIN = %VS2022_BIN% >> "%CONF_PATH%\tools_def.txt"
@@ -818,9 +835,32 @@ jobs:
               echo DEFINE VS2022_BINX86 = %VS2022_BINX86% >> "%CONF_PATH%\tools_def.txt"
               echo DEFINE VS2022_DLLX86 = %VS2022_DLLX86% >> "%CONF_PATH%\tools_def.txt"
             )
+            
+            REM Ensure VS2022 toolchain is properly defined by checking for _FAMILY definition
+            findstr /C:"VS2022.*_FAMILY" "%CONF_PATH%\tools_def.txt" >nul 2>&1
+            if %ERRORLEVEL%==0 (
+              echo ✓ VS2022 toolchain family found
+            ) else (
+              echo ✗ VS2022 toolchain family missing, this may be why build fails
+              echo Adding minimal VS2022 toolchain family definition...
+              echo # VS2022 toolchain family definition >> "%CONF_PATH%\tools_def.txt"
+              echo *_VS2022_*_*_FAMILY = MSFT >> "%CONF_PATH%\tools_def.txt"
+            )
           ) else (
-            echo ✗ VS2022 not found in tools_def.txt, checking available toolchains...
-            findstr /C:"DEFINE.*_" "%CONF_PATH%\tools_def.txt" | findstr "DEFINE" | head -10
+            echo ✗ VS2022 not found in tools_def.txt at all
+            echo This suggests EDK2 version may not support VS2022, trying to use VS2019...
+            
+            REM Check if VS2019 is available
+            findstr /C:"DEFINE VS2019" "%CONF_PATH%\tools_def.txt" >nul 2>&1
+            if %ERRORLEVEL%==0 (
+              echo ✓ VS2019 found in tools_def.txt, will use as fallback
+              set "USE_VS2019_FALLBACK=1"
+            ) else (
+              echo ✗ Neither VS2022 nor VS2019 found in tools_def.txt
+              echo Available toolchains:
+              findstr /C:"DEFINE.*_FAMILY" "%CONF_PATH%\tools_def.txt" | head -10
+              exit /b 1
+            )
           )
         )
         
@@ -845,38 +885,52 @@ jobs:
         echo Building for architecture: %BUILD_ARCH% (target: %TARGET_ARCH%)
         
         REM Try building with VS2022 first, fall back to VS2019 if needed
-        echo Attempting build with VS2022 toolchain...
-        build -a %BUILD_ARCH% -b ${{ matrix.build_type }} -t VS2022 ^
-              -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
-              -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
-        
-        if errorlevel 1 (
-          echo ❌ ACPIPatcher build with VS2022 failed, trying VS2019...
+        if "%USE_VS2019_FALLBACK%"=="1" (
+          echo Using VS2019 toolchain due to VS2022 unavailability...
+          build -a %BUILD_ARCH% -b ${{ matrix.build_type }} -t VS2019 ^
+                -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
+                -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
           
-          REM Check if VS2019 is available as fallback
-          findstr /C:"DEFINE VS2019" "%CONF_PATH%\tools_def.txt" >nul 2>&1
-          if %ERRORLEVEL%==0 (
-            echo Attempting build with VS2019 toolchain...
-            build -a %BUILD_ARCH% -b ${{ matrix.build_type }} -t VS2019 ^
-                  -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
-                  -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
-            
-            if errorlevel 1 (
-              echo ❌ ACPIPatcher build failed with both VS2022 and VS2019
-              
-              REM Show available toolchains for debugging
-              echo Available toolchains in tools_def.txt:
-              findstr /C:"DEFINE.*_FAMILY" "%CONF_PATH%\tools_def.txt"
-              exit /b 1
-            ) else (
-              echo ✅ ACPIPatcher build completed successfully with VS2019
-            )
-          ) else (
-            echo ❌ VS2019 toolchain not available either
+          if errorlevel 1 (
+            echo ❌ ACPIPatcher build failed with VS2019
             exit /b 1
+          ) else (
+            echo ✅ ACPIPatcher build completed successfully with VS2019
           )
         ) else (
-          echo ✅ ACPIPatcher build completed successfully with VS2022
+          echo Attempting build with VS2022 toolchain...
+          build -a %BUILD_ARCH% -b ${{ matrix.build_type }} -t VS2022 ^
+                -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
+                -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
+          
+          if errorlevel 1 (
+            echo ❌ ACPIPatcher build with VS2022 failed, trying VS2019...
+            
+            REM Check if VS2019 is available as fallback
+            findstr /C:"DEFINE VS2019" "%CONF_PATH%\tools_def.txt" >nul 2>&1
+            if %ERRORLEVEL%==0 (
+              echo Attempting build with VS2019 toolchain...
+              build -a %BUILD_ARCH% -b ${{ matrix.build_type }} -t VS2019 ^
+                    -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
+                    -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
+              
+              if errorlevel 1 (
+                echo ❌ ACPIPatcher build failed with both VS2022 and VS2019
+                
+                REM Show available toolchains for debugging
+                echo Available toolchains in tools_def.txt:
+                findstr /C:"DEFINE.*_FAMILY" "%CONF_PATH%\tools_def.txt"
+                exit /b 1
+              ) else (
+                echo ✅ ACPIPatcher build completed successfully with VS2019
+              )
+            ) else (
+              echo ❌ VS2019 toolchain not available either
+              exit /b 1
+            )
+          ) else (
+            echo ✅ ACPIPatcher build completed successfully with VS2022
+          )
         )
     
     - name: Verify Build Output
