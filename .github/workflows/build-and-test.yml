@@ -756,18 +756,32 @@ jobs:
         if exist "Makefiles\ms.common" (
           echo Patching ms.common to disable warnings-as-errors...
           REM More aggressive patching to override all warning flags
-          powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/W[0-4]', '/W0' | Set-Content 'Makefiles\ms.common'"
-          powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/WX', '/WX-' | Set-Content 'Makefiles\ms.common'"
-          powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/wd[0-9]+', '' | Set-Content 'Makefiles\ms.common'"
+          REM First backup the original file
+          copy "Makefiles\ms.common" "Makefiles\ms.common.backup" >nul 2>&1
+          
+          REM Remove all /WX flags and replace with /WX-
+          powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/WX\b', '/WX-' | Set-Content 'Makefiles\ms.common'"
+          REM Replace warning levels with /W0 (no warnings)
+          powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/W[0-4]\b', '/W0' | Set-Content 'Makefiles\ms.common'"
+          REM Remove specific warning disables as they're not needed with /W0
+          powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/wd[0-9]+\s*', '' | Set-Content 'Makefiles\ms.common'"
+          
           echo ✓ Patched ms.common to disable warnings-as-errors
+          echo Modified ms.common content (warning-related lines):
+          findstr "/W\|/wd" "Makefiles\ms.common" || echo "No warning flags found in patched file"
+        ) else (
+          echo ⚠️ ms.common not found - makefile patching skipped
         )
         
         REM Also patch makefile.common if it exists
         if exist "Makefiles\makefile.common" (
           echo Patching makefile.common...
-          powershell -Command "(Get-Content 'Makefiles\makefile.common') -replace '/W[0-4]', '/W0' | Set-Content 'Makefiles\makefile.common'"
-          powershell -Command "(Get-Content 'Makefiles\makefile.common') -replace '/WX', '/WX-' | Set-Content 'Makefiles\makefile.common'"
+          copy "Makefiles\makefile.common" "Makefiles\makefile.common.backup" >nul 2>&1
+          powershell -Command "(Get-Content 'Makefiles\makefile.common') -replace '/WX\b', '/WX-' | Set-Content 'Makefiles\makefile.common'"
+          powershell -Command "(Get-Content 'Makefiles\makefile.common') -replace '/W[0-4]\b', '/W0' | Set-Content 'Makefiles\makefile.common'"
           echo ✓ Patched makefile.common
+        ) else (
+          echo ⚠️ makefile.common not found
         )
         
         REM Set environment to disable warnings for BaseTools build
@@ -796,6 +810,12 @@ jobs:
         set "WORKSPACE=%SAVED_WORKSPACE%"
         set "CONF_PATH=%SAVED_CONF_PATH%"
         set "EDK_TOOLS_BIN=%SAVED_EDK_TOOLS_BIN%"
+        
+        REM Override warning flags via environment to suppress warnings-as-errors
+        set "BUILD_CFLAGS=/W0 /WX-"
+        set "CFLAGS=/W0 /WX-"
+        set "CC_FLAGS=/W0 /WX-"
+        echo Set warning suppression flags: BUILD_CFLAGS=%BUILD_CFLAGS%
         echo Cleared potentially problematic build flags and restored critical variables
         
         REM Build BaseTools with nmake (use clean environment but explicit PYTHON_COMMAND)
@@ -811,13 +831,24 @@ jobs:
         echo CONF_PATH=%CONF_PATH%
         echo EDK_TOOLS_BIN=%EDK_TOOLS_BIN%
         echo.
-        nmake PYTHON_COMMAND="%PYTHON_COMMAND%"
+        nmake PYTHON_COMMAND="%PYTHON_COMMAND%" BUILD_CFLAGS="/W0 /WX-" CC_FLAGS="/W0 /WX-"
         if errorlevel 1 (
           echo ❌ BaseTools build failed, trying without makefile patches...
           
           REM Reset makefiles and try again without patches
-          git checkout -- Makefiles\ms.common 2>nul || echo "No ms.common to reset"
-          git checkout -- Makefiles\makefile.common 2>nul || echo "No makefile.common to reset"
+          if exist "Makefiles\ms.common.backup" (
+            copy "Makefiles\ms.common.backup" "Makefiles\ms.common" >nul 2>&1
+            echo "Restored ms.common from backup"
+          ) else (
+            git checkout -- Makefiles\ms.common 2>nul || echo "No ms.common to reset"
+          )
+          
+          if exist "Makefiles\makefile.common.backup" (
+            copy "Makefiles\makefile.common.backup" "Makefiles\makefile.common" >nul 2>&1
+            echo "Restored makefile.common from backup"
+          ) else (
+            git checkout -- Makefiles\makefile.common 2>nul || echo "No makefile.common to reset"
+          )
           
           REM Try build again with default settings
           echo Retrying BaseTools build with default settings...
@@ -837,7 +868,7 @@ jobs:
           echo CONF_PATH=%CONF_PATH%
           echo EDK_TOOLS_BIN=%EDK_TOOLS_BIN%
           echo.
-          nmake PYTHON_COMMAND="%PYTHON_COMMAND%"
+          nmake PYTHON_COMMAND="%PYTHON_COMMAND%" BUILD_CFLAGS="/W0 /WX-" CC_FLAGS="/W0 /WX-"
           
           if errorlevel 1 (
             echo ❌ BaseTools build failed even without patches
