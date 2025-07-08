@@ -349,7 +349,13 @@ jobs:
     
     - name: Install NASM
       run: |
-        choco install nasm
+        choco install nasm -y
+        
+        # Verify NASM installation and show version
+        nasm -v || echo "NASM verification failed"
+        
+        # Show where NASM was installed
+        where nasm || echo "NASM not found in PATH"
     
     - name: Setup Visual Studio Environment
       uses: microsoft/setup-msbuild@v1.3
@@ -386,6 +392,39 @@ jobs:
       shell: cmd
       run: |
         cd edk2
+        
+        REM Set required environment variables to avoid warnings
+        REM NASM Detection - Chocolatey usually installs to C:\ProgramData\chocolatey\bin
+        where nasm >nul 2>&1
+        if errorlevel 1 (
+          REM If not in PATH, check common Chocolatey installation location first
+          if exist "%ProgramData%\chocolatey\bin\nasm.exe" (
+            set NASM_PREFIX=%ProgramData%\chocolatey\bin\
+            set PATH=%ProgramData%\chocolatey\bin;%PATH%
+            echo Found NASM at %ProgramData%\chocolatey\bin\
+          ) else if exist "C:\tools\nasm\nasm.exe" (
+            set NASM_PREFIX=C:\tools\nasm\
+            set PATH=C:\tools\nasm;%PATH%
+            echo Found NASM at C:\tools\nasm\
+          ) else if exist "C:\Program Files\NASM\nasm.exe" (
+            set NASM_PREFIX=C:\Program Files\NASM\
+            set PATH=C:\Program Files\NASM;%PATH%
+            echo Found NASM at C:\Program Files\NASM\
+          ) else (
+            echo Warning: NASM not found in standard locations
+          )
+        ) else (
+          echo NASM found in PATH
+        )
+        
+        REM Set CLANG_BIN if LLVM is available
+        if exist "C:\Program Files\LLVM\bin\clang.exe" (
+          set CLANG_BIN=C:\Program Files\LLVM\bin\
+        )
+        
+        REM CYGWIN_HOME is not needed for VS2022 builds, suppress warning
+        set CYGWIN_HOME=
+        
         call edksetup.bat
         
         REM Build BaseTools first with warnings completely disabled
@@ -394,6 +433,7 @@ jobs:
         python -m pip install --upgrade pip
         
         REM Set environment to completely disable warnings for BaseTools build
+        REM We need to override the hardcoded /W4 /WX flags in the nmake files
         set CL=/W0
         set LINK=/IGNORE:4099
         echo Building BaseTools with all warnings disabled...
@@ -408,14 +448,21 @@ jobs:
           REM Clean and try with enhanced suppression
           nmake clean >nul 2>&1
           
-          REM Set comprehensive warning suppression for MSVC
-          set CL=/W0 /wd4267 /wd4244 /wd4311 /wd4302 /wd4312 /wd4245 /wd4101 /wd4996
-          set CFLAGS=%CL%
+          REM More aggressive approach: modify CFLAGS directly to override hardcoded flags
+          set CFLAGS=/nologo /Z7 /c /O2 /MT /W0 /D _CRT_SECURE_NO_DEPRECATE /D _CRT_NONSTDC_NO_DEPRECATE
+          set CL=/W0
           
-          echo Attempting BaseTools build with comprehensive warning suppression...
-          nmake
+          echo Attempting BaseTools build with overridden CFLAGS...
+          nmake CFLAGS="%CFLAGS%"
           if errorlevel 1 (
-            echo Enhanced build failed, trying Python fallback...
+            echo Enhanced build failed, trying Python fallback with modified environment...
+            
+            REM Try to patch the nmake files to remove /WX
+            if exist "Makefiles\ms.common" (
+              echo Patching ms.common to remove /WX...
+              powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/W4 /WX', '/W0' | Set-Content 'Makefiles\ms.common'"
+            )
+            
             python Makefiles\NmakeSubdirs.py all
             if errorlevel 1 (
               echo All BaseTools build methods failed
