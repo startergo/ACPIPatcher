@@ -4,29 +4,43 @@
 
 ## 🔧 **Latest Critical Fixes Applied (July 8, 2025)**
 
-### **🚨 CRITICAL Windows BUILD_TOOLS_PATH Error Fixed:**
+### **🚨 Build Validation Logic Fixed:**
 
-#### **Issue**: `makefile(9) : fatal error U1050: "BASE_TOOLS_PATH is not set! Please run toolsetup.bat first!"`
-- **Root Cause**: BaseTools build was attempted BEFORE calling `edksetup.bat`
-- **Impact**: Complete Windows build failure across all workflows
-- **Solution**: Reordered steps to call `edksetup.bat` FIRST to set BASE_TOOLS_PATH
+#### **Issue**: Linux/macOS builds failing validation despite successful compilation
+- **Root Cause**: Validation script tested ALL configurations (X64/IA32, DEBUG/RELEASE) regardless of what was built
+- **Impact**: False failures when only one specific configuration was built (e.g., X64/DEBUG)
+- **Solution**: Enhanced validation script to auto-detect actual build configurations and accept specific targets
 
-#### **Issue**: Linux/macOS Documentation Copying Failures 
-- **Root Cause**: Hardcoded paths like `acpipatcher/README.md` don't account for workspace structure
-- **Impact**: Distribution packages missing documentation files
-- **Solution**: Dynamic path discovery with fallback mechanisms
+#### **Issue**: Windows WORKSPACE Environment Variable Missing  
+- **Root Cause**: `edksetup.bat` requires WORKSPACE to be set before execution
+- **Impact**: BASE_TOOLS_PATH still not set correctly even after calling edksetup.bat first
+- **Solution**: Ensure WORKSPACE is set before calling edksetup.bat in all Windows workflows
 
-### **🔄 Build Flow Fix:**
+### **🔄 Validation Logic Fix:**
 **BEFORE (Broken):**
-```batch
-1. Build BaseTools  ❌ BASE_TOOLS_PATH not set
-2. Call edksetup.bat
+```bash
+# Always test hardcoded configurations
+for config in X64:RELEASE:GCC5 X64:DEBUG:GCC5 IA32:RELEASE:GCC5 IA32:DEBUG:GCC5
+  test_build_structure $config  # ❌ Fails for non-built configs
 ```
 
-**AFTER (Fixed):**
+**AFTER (Smart):**
+```bash  
+# Auto-detect what was actually built
+find Build/ -name "*.efi" | detect_configurations
+# OR accept specific configuration: script.sh <root> <arch> <build_type> <toolchain>
+```
+
+### **🔧 Windows Environment Fix:**
+**BEFORE (Incomplete):**
 ```batch
-1. Call edksetup.bat ✅ Sets BASE_TOOLS_PATH
-2. Build BaseTools  ✅ Now works correctly
+call edksetup.bat          # ❌ WORKSPACE may not be set
+```
+
+**AFTER (Complete):**
+```batch  
+set "WORKSPACE=%CD%"       # ✅ Ensure WORKSPACE is set
+call edksetup.bat          # ✅ Now works properly
 ```
 
 ### **Files Modified:**
@@ -43,6 +57,8 @@
 
 | Issue Category | Status | Details |
 |---|---|---|
+| **🚨 Windows WORKSPACE Setup** | ✅ **FIXED** | Set WORKSPACE before calling edksetup.bat |
+| **🔍 Build Validation Logic** | ✅ **FIXED** | Smart configuration detection, no false failures |
 | **🚨 Windows BASE_TOOLS_PATH** | ✅ **FIXED** | Call edksetup.bat BEFORE BaseTools build |
 | **📁 Documentation Copying** | ✅ **FIXED** | Dynamic path discovery with fallbacks |
 | **Windows BaseTools** | ✅ **FIXED** | Multi-tier build with warning suppression |
