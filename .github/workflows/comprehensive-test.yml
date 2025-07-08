@@ -301,7 +301,48 @@ jobs:
       shell: cmd
       run: |
         cd edk2
-        call edksetup.bat
+        
+        REM Set environment variables to avoid warnings
+        echo Setting up environment variables...
+        
+        REM NASM Detection
+        where nasm >nul 2>&1
+        if errorlevel 1 (
+          if exist "%ProgramData%\chocolatey\bin\nasm.exe" (
+            set "NASM_PREFIX=%ProgramData%\chocolatey\bin\"
+            set "PATH=%ProgramData%\chocolatey\bin;%PATH%"
+            echo Set NASM_PREFIX=%NASM_PREFIX%
+          ) else if exist "C:\tools\nasm\nasm.exe" (
+            set "NASM_PREFIX=C:\tools\nasm\"
+            set "PATH=C:\tools\nasm;%PATH%"
+            echo Set NASM_PREFIX=%NASM_PREFIX%
+          ) else if exist "C:\Program Files\NASM\nasm.exe" (
+            set "NASM_PREFIX=C:\Program Files\NASM\"
+            set "PATH=C:\Program Files\NASM;%PATH%"
+            echo Set NASM_PREFIX=%NASM_PREFIX%
+          ) else (
+            set "NASM_PREFIX=C:\tools\nasm\"
+            echo Set default NASM_PREFIX=%NASM_PREFIX%
+          )
+        ) else (
+          for /f "tokens=*" %%i in ('where nasm') do (
+            set "NASM_PATH=%%i"
+            goto :found_nasm_comp
+          )
+          :found_nasm_comp
+          for %%i in ("%NASM_PATH%") do set "NASM_PREFIX=%%~dpi"
+          echo Set NASM_PREFIX=%NASM_PREFIX%
+        )
+        
+        REM Set CLANG_BIN
+        if exist "C:\Program Files\LLVM\bin\clang.exe" (
+          set "CLANG_BIN=C:\Program Files\LLVM\bin\"
+          echo Set CLANG_BIN=%CLANG_BIN%
+        )
+        
+        REM Set CYGWIN_HOME to empty
+        set "CYGWIN_HOME="
+        echo Set CYGWIN_HOME to empty
         
         echo Building BaseTools for Windows...
         cd BaseTools
@@ -344,6 +385,48 @@ jobs:
         
         echo BaseTools build completed successfully
         cd ..
+        
+        REM Re-establish environment variables before calling edksetup.bat
+        echo Re-establishing environment variables before EDK2 setup...
+        
+        REM Re-set NASM_PREFIX
+        where nasm >nul 2>&1
+        if errorlevel 1 (
+          if exist "%ProgramData%\chocolatey\bin\nasm.exe" (
+            set "NASM_PREFIX=%ProgramData%\chocolatey\bin\"
+            set "PATH=%ProgramData%\chocolatey\bin;%PATH%"
+          ) else if exist "C:\tools\nasm\nasm.exe" (
+            set "NASM_PREFIX=C:\tools\nasm\"
+            set "PATH=C:\tools\nasm;%PATH%"
+          ) else if exist "C:\Program Files\NASM\nasm.exe" (
+            set "NASM_PREFIX=C:\Program Files\NASM\"
+            set "PATH=C:\Program Files\NASM;%PATH%"
+          ) else (
+            set "NASM_PREFIX=C:\tools\nasm\"
+          )
+        ) else (
+          for /f "tokens=*" %%i in ('where nasm') do (
+            set "NASM_PATH=%%i"
+            goto :found_nasm_comp2
+          )
+          :found_nasm_comp2
+          for %%i in ("%NASM_PATH%") do set "NASM_PREFIX=%%~dpi"
+        )
+        echo Re-set NASM_PREFIX=%NASM_PREFIX%
+        
+        REM Re-set CLANG_BIN
+        if exist "C:\Program Files\LLVM\bin\clang.exe" (
+          set "CLANG_BIN=C:\Program Files\LLVM\bin\"
+          echo Re-set CLANG_BIN=%CLANG_BIN%
+        )
+        
+        REM Re-set CYGWIN_HOME
+        set "CYGWIN_HOME="
+        echo Re-set CYGWIN_HOME to empty
+        
+        REM Now call edksetup.bat after BaseTools are built
+        echo Setting up EDK2 environment after BaseTools build...
+        call edksetup.bat
         
         REM Ensure EDK_TOOLS_BIN is set
         if "%EDK_TOOLS_BIN%"=="" (

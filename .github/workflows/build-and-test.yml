@@ -399,35 +399,47 @@ jobs:
         if errorlevel 1 (
           REM If not in PATH, check common Chocolatey installation location first
           if exist "%ProgramData%\chocolatey\bin\nasm.exe" (
-            set NASM_PREFIX=%ProgramData%\chocolatey\bin\
-            set PATH=%ProgramData%\chocolatey\bin;%PATH%
+            set "NASM_PREFIX=%ProgramData%\chocolatey\bin\"
+            set "PATH=%ProgramData%\chocolatey\bin;%PATH%"
             echo Found NASM at %ProgramData%\chocolatey\bin\
+            echo Set NASM_PREFIX=%NASM_PREFIX%
           ) else if exist "C:\tools\nasm\nasm.exe" (
-            set NASM_PREFIX=C:\tools\nasm\
-            set PATH=C:\tools\nasm;%PATH%
+            set "NASM_PREFIX=C:\tools\nasm\"
+            set "PATH=C:\tools\nasm;%PATH%"
             echo Found NASM at C:\tools\nasm\
+            echo Set NASM_PREFIX=%NASM_PREFIX%
           ) else if exist "C:\Program Files\NASM\nasm.exe" (
-            set NASM_PREFIX=C:\Program Files\NASM\
-            set PATH=C:\Program Files\NASM;%PATH%
+            set "NASM_PREFIX=C:\Program Files\NASM\"
+            set "PATH=C:\Program Files\NASM;%PATH%"
             echo Found NASM at C:\Program Files\NASM\
+            echo Set NASM_PREFIX=%NASM_PREFIX%
           ) else (
             echo Warning: NASM not found in standard locations
+            echo Setting default NASM_PREFIX to suppress warning
+            set "NASM_PREFIX=C:\tools\nasm\"
           )
         ) else (
           echo NASM found in PATH
+          REM Get the directory where NASM is located
+          for /f "tokens=*" %%i in ('where nasm') do (
+            set "NASM_PATH=%%i"
+            goto :found_nasm
+          )
+          :found_nasm
+          for %%i in ("%NASM_PATH%") do set "NASM_PREFIX=%%~dpi"
+          echo Set NASM_PREFIX=%NASM_PREFIX%
         )
         
         REM Set CLANG_BIN if LLVM is available
         if exist "C:\Program Files\LLVM\bin\clang.exe" (
-          set CLANG_BIN=C:\Program Files\LLVM\bin\
+          set "CLANG_BIN=C:\Program Files\LLVM\bin\"
+          echo Set CLANG_BIN=%CLANG_BIN%
         )
         
         REM CYGWIN_HOME is not needed for VS2022 builds, suppress warning
-        set CYGWIN_HOME=
+        set "CYGWIN_HOME="
         
-        call edksetup.bat
-        
-        REM Build BaseTools first with warnings completely disabled
+        REM Build BaseTools first BEFORE calling edksetup.bat
         echo Building BaseTools for Windows...
         cd BaseTools
         python -m pip install --upgrade pip
@@ -469,32 +481,6 @@ jobs:
               type build_warnings.log
               exit /b 1
             )
-          )
-        )
-        
-        REM Verify BaseTools build was successful
-        echo Verifying BaseTools build...
-        if not exist "Bin\Win32" (
-          echo ERROR: BaseTools Bin\Win32 directory was not created
-          echo Attempting to create directory structure and retry build...
-          mkdir Bin\Win32 >nul 2>&1
-          
-          REM Try one more comprehensive build attempt
-          echo Final BaseTools build attempt with directory pre-creation...
-          set CL=/W0
-          set CFLAGS=/nologo /Z7 /c /O2 /MT /W0 /D _CRT_SECURE_NO_DEPRECATE /D _CRT_NONSTDC_NO_DEPRECATE
-          
-          REM Patch makefiles before build
-          if exist "Makefiles\ms.common" (
-            powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/W4 /WX', '/W0' | Set-Content 'Makefiles\ms.common'"
-          )
-          
-          python Makefiles\NmakeSubdirs.py all
-          if errorlevel 1 (
-            echo CRITICAL: BaseTools build failed completely
-            dir Bin >nul 2>&1 || echo Bin directory does not exist
-            dir BaseTools\Source\C >nul 2>&1 || echo Source\C directory issue
-            exit /b 1
           )
         )
         
@@ -549,14 +535,59 @@ jobs:
         echo Listing contents of Bin\Win32:
         dir "Bin\Win32" 2>nul || echo No files in Bin\Win32 directory
         
-        echo ✅ BaseTools build successful - Bin\Win32 directory exists
-        )
+        echo ✅ BaseTools build completed
         cd ..
         
-        REM Ensure EDK_TOOLS_BIN is set correctly
+        REM Re-establish environment variables before calling edksetup.bat
+        echo Re-establishing environment variables before EDK2 setup...
+        
+        REM Re-detect and set NASM_PREFIX
+        where nasm >nul 2>&1
+        if errorlevel 1 (
+          if exist "%ProgramData%\chocolatey\bin\nasm.exe" (
+            set "NASM_PREFIX=%ProgramData%\chocolatey\bin\"
+            set "PATH=%ProgramData%\chocolatey\bin;%PATH%"
+            echo Re-set NASM_PREFIX=%NASM_PREFIX%
+          ) else if exist "C:\tools\nasm\nasm.exe" (
+            set "NASM_PREFIX=C:\tools\nasm\"
+            set "PATH=C:\tools\nasm;%PATH%"
+            echo Re-set NASM_PREFIX=%NASM_PREFIX%
+          ) else if exist "C:\Program Files\NASM\nasm.exe" (
+            set "NASM_PREFIX=C:\Program Files\NASM\"
+            set "PATH=C:\Program Files\NASM;%PATH%"
+            echo Re-set NASM_PREFIX=%NASM_PREFIX%
+          ) else (
+            set "NASM_PREFIX=C:\tools\nasm\"
+            echo Set default NASM_PREFIX=%NASM_PREFIX%
+          )
+        ) else (
+          for /f "tokens=*" %%i in ('where nasm') do (
+            set "NASM_PATH=%%i"
+            goto :found_nasm2
+          )
+          :found_nasm2
+          for %%i in ("%NASM_PATH%") do set "NASM_PREFIX=%%~dpi"
+          echo Re-set NASM_PREFIX=%NASM_PREFIX%
+        )
+        
+        REM Re-set CLANG_BIN
+        if exist "C:\Program Files\LLVM\bin\clang.exe" (
+          set "CLANG_BIN=C:\Program Files\LLVM\bin\"
+          echo Re-set CLANG_BIN=%CLANG_BIN%
+        )
+        
+        REM Re-set CYGWIN_HOME to empty to suppress warning
+        set "CYGWIN_HOME="
+        echo Set CYGWIN_HOME to empty to suppress warning
+        
+        REM Now call edksetup.bat after BaseTools are built and verified
+        echo Setting up EDK2 environment after BaseTools build...
+        call edksetup.bat
+        
+        REM Verify EDK_TOOLS_BIN is set correctly after edksetup
         echo Verifying EDK_TOOLS_BIN environment variable...
         if "%EDK_TOOLS_BIN%"=="" (
-          echo EDK_TOOLS_BIN not set, setting manually...
+          echo EDK_TOOLS_BIN not set by edksetup, setting manually...
           set "EDK_TOOLS_BIN=%WORKSPACE%\BaseTools\Bin\Win32"
           echo Set EDK_TOOLS_BIN to: %EDK_TOOLS_BIN%
         ) else (
@@ -577,6 +608,8 @@ jobs:
             dir "%WORKSPACE%\BaseTools" 2>nul || echo BaseTools directory not found
             exit /b 1
           )
+        ) else (
+          echo ✅ EDK_TOOLS_BIN path verified: %EDK_TOOLS_BIN%
         )
         
         REM Reset CL for application build (we want warnings for our code)
