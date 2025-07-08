@@ -619,6 +619,21 @@ jobs:
         ) else (
           echo ✗ Clang not found at: %CLANG_BIN%clang.exe
         )
+        
+        REM Verify Visual Studio environment
+        echo.
+        echo === Verifying Visual Studio Environment ===
+        where cl >nul 2>&1
+        if %ERRORLEVEL%==0 (
+          echo ✓ Visual Studio compiler accessible
+          cl 2>&1 | findstr "Microsoft"
+        ) else (
+          echo ✗ Visual Studio compiler not accessible
+        )
+        
+        echo VSINSTALLDIR=%VSINSTALLDIR%
+        echo VCToolsInstallDir=%VCToolsInstallDir%
+        echo WindowsSdkDir=%WindowsSdkDir%
 
     - name: Setup EDK2 Environment and Build
       shell: cmd
@@ -685,14 +700,25 @@ jobs:
         REM Patch Makefiles to disable warnings-as-errors before building
         if exist "Makefiles\ms.common" (
           echo Patching ms.common to disable warnings-as-errors...
-          powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/W4 /WX', '/W0 /WX-' | Set-Content 'Makefiles\ms.common'"
+          REM More aggressive patching to override all warning flags
+          powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/W[0-4]', '/W0' | Set-Content 'Makefiles\ms.common'"
           powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/WX', '/WX-' | Set-Content 'Makefiles\ms.common'"
+          powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/wd[0-9]+', '' | Set-Content 'Makefiles\ms.common'"
           echo ✓ Patched ms.common to disable warnings-as-errors
         )
         
-        REM Set environment to disable warnings for BaseTools build
-        set CL=/W0 /WX- /wd4267 /wd4311 /wd4312 /wd4819
-        echo Building BaseTools with warnings disabled...
+        REM Also patch makefile.common if it exists
+        if exist "Makefiles\makefile.common" (
+          echo Patching makefile.common...
+          powershell -Command "(Get-Content 'Makefiles\makefile.common') -replace '/W[0-4]', '/W0' | Set-Content 'Makefiles\makefile.common'"
+          powershell -Command "(Get-Content 'Makefiles\makefile.common') -replace '/WX', '/WX-' | Set-Content 'Makefiles\makefile.common'"
+          echo ✓ Patched makefile.common
+        )
+        
+        REM Set environment to disable warnings for BaseTools build - use NMAKE flags
+        set MAKEFLAGS=/nologo
+        set CFLAGS=/W0 /WX- /wd4244 /wd4267 /wd4311 /wd4312 /wd4819 /wd2220
+        echo Building BaseTools with warnings disabled (CFLAGS=%CFLAGS%)...
         
         REM Build BaseTools with nmake
         nmake
@@ -706,22 +732,67 @@ jobs:
           echo ✅ BaseTools build completed
         )
         
-        REM Reset CL for application build
-        set CL=
+        REM Reset compiler flags for application build
+        set CFLAGS=
+        set MAKEFLAGS=
         
         cd ..
         
+        REM Ensure VS2022 toolchain is available by sourcing again
+        echo Setting up VS2022 toolchain for ACPIPatcher build...
+        call "%VSINSTALLDIR%Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
+        
+        REM Verify VS2022 tools are available
+        where cl >nul 2>&1
+        if %ERRORLEVEL%==0 (
+          echo ✓ Visual Studio compiler accessible
+          cl 2>&1 | findstr "Microsoft"
+        ) else (
+          echo ✗ Visual Studio compiler not accessible
+          exit /b 1
+        )
+        
         REM Build ACPIPatcher
         echo Building ACPIPatcher...
+        
+        REM Debug toolchain information
+        echo === Debugging Build Toolchain ===
+        echo WORKSPACE=%WORKSPACE%
+        echo EDK_TOOLS_PATH=%EDK_TOOLS_PATH%
+        echo CONF_PATH=%CONF_PATH%
+        echo.
+        
+        REM Check if tools_def.txt contains VS2022 definition
+        if exist "%CONF_PATH%\tools_def.txt" (
+          echo Checking tools_def.txt for VS2022...
+          findstr /C:"DEFINE VS2022" "%CONF_PATH%\tools_def.txt" >nul 2>&1
+          if %ERRORLEVEL%==0 (
+            echo ✓ VS2022 found in tools_def.txt
+          ) else (
+            echo ✗ VS2022 not found in tools_def.txt, checking available toolchains...
+            findstr /C:"DEFINE.*_" "%CONF_PATH%\tools_def.txt" | findstr "DEFINE" | head -10
+          )
+        )
+        
+        REM Try building with VS2022 first, fall back to VS2019 if needed
         build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t VS2022 ^
               -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
               -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
         
         if errorlevel 1 (
-          echo ❌ ACPIPatcher build failed
-          exit /b 1
+          echo ❌ ACPIPatcher build with VS2022 failed, trying VS2019...
+          build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t VS2019 ^
+                -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
+                -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
+          
+          if errorlevel 1 (
+            echo ❌ ACPIPatcher build failed with both VS2022 and VS2019
+            exit /b 1
+          ) else (
+            echo ✅ ACPIPatcher build completed successfully with VS2019
+          )
         ) else (
-          echo ✅ ACPIPatcher build completed successfully
+          echo ✅ ACPIPatcher build completed successfully with VS2022
         )
     
     - name: Verify Build Output
