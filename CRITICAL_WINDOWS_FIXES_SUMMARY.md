@@ -139,3 +139,35 @@ The comprehensive approach addresses the root causes of Windows build failures a
 ---
 
 **Status**: ✅ **READY FOR TESTING** - All critical Windows build issues addressed with comprehensive fallback strategies and environment management.
+
+## ✅ **LATEST UPDATE: NASM PATH and Compilation Fixes (July 8, 2025)**
+
+### **Recent Issues Resolved:**
+
+#### **NASM Installation and PATH Issues**
+- **Problem**: NASM installed via Chocolatey but not accessible in subsequent workflow steps
+- **Root Cause**: PowerShell PATH modifications don't persist to batch command environment
+- **Solution**: 
+  - Use `GITHUB_PATH` environment variable to persist NASM path across workflow steps
+  - Enhanced NASM detection with multiple fallback locations
+  - Improved error handling and verification
+
+#### **ACPIPatcher Compilation Errors**
+- **Problem**: 
+  ```
+  error: use of undeclared identifier 'gIsEfi1x'
+  error: call to undeclared function 'DetectEfiFirmwareVersion'
+  ```
+- **Root Cause**: Missing declarations for EFI 1.x compatibility features
+- **Solution**:
+  - Added `BOOLEAN gIsEfi1x = FALSE;` to global variables section
+  - Added `DetectEfiFirmwareVersion` function prototype declaration
+  - Removed duplicate `gIsEfi1x` declaration causing conflicts
+
+### **Current Status:**
+- ✅ **Windows NASM PATH**: Fixed via `GITHUB_PATH` environment variable
+- ✅ **Linux/macOS Compilation**: Fixed missing variable and function declarations
+- ✅ **All Workflows Updated**: build-and-test.yml, ci.yml, comprehensive-test.yml
+- 🔄 **Testing in Progress**: CI builds running to validate fixes
+
+---
