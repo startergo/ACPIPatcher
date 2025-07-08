@@ -32,7 +32,7 @@ on:
         type: boolean
 
 env:
-  EDK2_VERSION: edk2-stable202202
+  EDK2_VERSION: edk2-stable202405
   TEST_LEVEL: ${{ github.event.inputs.test_level || 'standard' }}
 
 jobs:
@@ -193,19 +193,19 @@ jobs:
             runner: windows-latest
             arch: X64
             build_type: RELEASE
-            toolchain: VS2019
+            toolchain: VS2022
             test_efi: true
           - platform: windows
             runner: windows-latest
             arch: X64
             build_type: DEBUG
-            toolchain: VS2019
+            toolchain: VS2022
             test_efi: true
           - platform: windows
             runner: windows-latest
             arch: IA32
             build_type: RELEASE
-            toolchain: VS2019
+            toolchain: VS2022
             test_efi: false
     
     steps:
@@ -219,6 +219,11 @@ jobs:
         if [ "${{ matrix.platform }}" = "linux" ]; then
           sudo apt-get update
           sudo apt-get install -y build-essential nasm uuid-dev gcc-multilib file
+          # Set compiler flags to work around EDK2 BaseTools issues
+          export CFLAGS="-Wno-error=use-after-free -Wno-error=stringop-truncation"
+          export CXXFLAGS="-Wno-error=use-after-free -Wno-error=stringop-truncation"
+          echo "CFLAGS=$CFLAGS" >> $GITHUB_ENV
+          echo "CXXFLAGS=$CXXFLAGS" >> $GITHUB_ENV
         elif [ "${{ matrix.platform }}" = "macos" ]; then
           brew install nasm mtoc
         fi
@@ -262,7 +267,17 @@ jobs:
       run: |
         cd edk2
         . edksetup.sh
-        make -C BaseTools
+        
+        # Build BaseTools with error workarounds for older EDK2 versions
+        echo "Building EDK2 BaseTools..."
+        if ! make -C BaseTools CFLAGS="-Wno-error=use-after-free -Wno-error=stringop-truncation" 2>/dev/null; then
+          echo "BaseTools build failed with strict flags, trying with relaxed flags..."
+          make -C BaseTools CFLAGS="-w" || {
+            echo "BaseTools build failed completely, trying alternative approach..."
+            export CC="gcc -Wno-error"
+            make -C BaseTools
+          }
+        fi
         
         echo "Building ACPIPatcher with ${{ matrix.toolchain }}..."
         build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t ${{ matrix.toolchain }} \
@@ -275,10 +290,15 @@ jobs:
       run: |
         cd edk2
         call edksetup.bat
-        build -t VS2019
         
-        echo Building ACPIPatcher with VS2019...
-        build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t VS2019 ^
+        echo Building BaseTools for Windows...
+        cd BaseTools
+        python -m pip install --upgrade pip
+        nmake
+        cd ..
+        
+        echo Building ACPIPatcher with VS2022...
+        build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t VS2022 ^
               -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
               -D DEBUG_LEVEL=3
     

@@ -20,7 +20,7 @@ on:
           - '4'
 
 env:
-  EDK2_VERSION: edk2-stable202202
+  EDK2_VERSION: edk2-stable202405
   DEBUG_LEVEL: ${{ github.event.inputs.debug_level || '3' }}
 
 jobs:
@@ -262,7 +262,7 @@ jobs:
         retention-days: 30
 
   build-windows:
-    name: Build on Windows (VS2019)
+    name: Build on Windows (VS2022)
     runs-on: windows-latest
     
     strategy:
@@ -284,6 +284,9 @@ jobs:
     - name: Install NASM
       run: |
         choco install nasm
+    
+    - name: Setup Visual Studio Environment
+      uses: microsoft/setup-msbuild@v1.3
     
     - name: Cache EDK2
       id: cache-edk2
@@ -309,11 +312,15 @@ jobs:
         cd edk2
         call edksetup.bat
         
-        REM Build BaseTools
-        build -t VS2019
+        REM Build BaseTools first
+        echo Building BaseTools for Windows...
+        cd BaseTools
+        python -m pip install --upgrade pip
+        nmake
+        cd ..
         
         REM Build ACPIPatcher with custom debug level
-        build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t VS2019 ^
+        build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t VS2022 ^
               -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
               -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
     
@@ -321,7 +328,7 @@ jobs:
       shell: powershell
       run: |
         cd edk2
-        $BUILD_DIR = "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2019\${{ matrix.arch }}"
+        $BUILD_DIR = "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2022\${{ matrix.arch }}"
         
         Write-Host "Build directory contents:"
         Get-ChildItem "$BUILD_DIR" -ErrorAction SilentlyContinue | Format-Table
@@ -347,7 +354,7 @@ jobs:
       shell: powershell
       run: |
         cd edk2
-        $BUILD_DIR = "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2019\${{ matrix.arch }}"
+        $BUILD_DIR = "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2022\${{ matrix.arch }}"
         $DIST_DIR = "ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-windows"
         
         New-Item -ItemType Directory -Path "$DIST_DIR" -Force
@@ -377,7 +384,7 @@ jobs:
         $buildInfo += "Architecture: ${{ matrix.arch }}`n"
         $buildInfo += "Build Type: ${{ matrix.build_type }}`n"
         $buildInfo += "Debug Level: ${{ env.DEBUG_LEVEL }}`n"
-        $buildInfo += "Toolchain: VS2019`n"
+        $buildInfo += "Toolchain: VS2022`n"
         $buildInfo += "Platform: Windows`n"
         
         $buildInfo | Out-File -FilePath "$DIST_DIR\BUILD_INFO.txt" -Encoding UTF8
@@ -507,7 +514,7 @@ jobs:
         echo "### Supported Platforms" >> release_notes.md
         echo "- ✅ **Linux (Ubuntu)** - GCC5 toolchain" >> release_notes.md
         echo "- ✅ **macOS** - Xcode5 toolchain" >> release_notes.md
-        echo "- ✅ **Windows** - VS2019 toolchain" >> release_notes.md
+        echo "- ✅ **Windows** - VS2022 toolchain" >> release_notes.md
         echo "" >> release_notes.md
         echo "### Available Architectures" >> release_notes.md
         echo "- **X64** - 64-bit Intel/AMD (Primary)" >> release_notes.md

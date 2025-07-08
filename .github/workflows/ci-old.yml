@@ -106,7 +106,11 @@ jobs:
     - name: Copy ACPIPatcher to EDK2
       shell: bash
       run: |
-        cp -r acpipatcher/ACPIPatcherPkg edk2/
+        if [ "${{ matrix.os }}" = "windows" ]; then
+          cp -r acpipatcher/ACPIPatcherPkg edk2/
+        else
+          cp -r acpipatcher/ACPIPatcherPkg edk2/
+        fi
     
     # Build steps - Linux/macOS
     - name: Build on Unix (Linux/macOS)
@@ -289,19 +293,19 @@ jobs:
         [ -d "../acpipatcher/Build/ACPI" ] && cp -r "../acpipatcher/Build/ACPI" "$DIST_DIR/" && echo "✅ Copied ACPI samples"
         
         # Create build info
-        {
-          echo "ACPIPatcher Build Information"
-          echo "============================"
-          echo "Version: $(git -C ../acpipatcher describe --tags --always 2>/dev/null || echo 'unknown')"
-          echo "Commit: $(git -C ../acpipatcher rev-parse HEAD 2>/dev/null || echo 'unknown')"
-          echo "Build Date: $(date -u)"
-          echo "Architecture: ${{ matrix.arch }}"
-          echo "Build Type: ${{ matrix.build_type }}"
-          echo "Toolchain: ${{ matrix.toolchain }}"
-          echo "Platform: ${{ matrix.os }}"
-          echo "Runner: ${{ matrix.runner }}"
-          echo "Build Directory: $BUILD_DIR"
-        } > "$DIST_DIR/BUILD_INFO.txt"
+        cat > "$DIST_DIR/BUILD_INFO.txt" << 'EOF'
+ACPIPatcher Build Information
+============================
+EOF
+        echo "Version: $(git -C ../acpipatcher describe --tags --always 2>/dev/null || echo 'unknown')" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Commit: $(git -C ../acpipatcher rev-parse HEAD 2>/dev/null || echo 'unknown')" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Build Date: $(date -u)" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Architecture: ${{ matrix.arch }}" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Build Type: ${{ matrix.build_type }}" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Toolchain: ${{ matrix.toolchain }}" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Platform: ${{ matrix.os }}" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Runner: ${{ matrix.runner }}" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "Build Directory: $BUILD_DIR" >> "$DIST_DIR/BUILD_INFO.txt"
         
         echo "✅ Created BUILD_INFO.txt"
         
