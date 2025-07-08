@@ -98,6 +98,7 @@ jobs:
     
     - name: Checkout EDK2
       if: steps.cache-edk2.outputs.cache-hit != 'true'
+      shell: bash
       run: |
         git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
         cd edk2
@@ -106,21 +107,28 @@ jobs:
         git config --global url."https://github.com/".insteadOf "git@github.com:"
         git config --global advice.detachedHead false
         
-        # Patch .gitmodules to disable problematic submodules
-        if [ -f "../acpipatcher/.github/scripts/patch-edk2-gitmodules.sh" ]; then
-          echo "Patching .gitmodules to disable problematic submodules..."
-          bash ../acpipatcher/.github/scripts/patch-edk2-gitmodules.sh
-        fi
-        
-        # Now initialize submodules (problematic ones should be disabled)
-        echo "Initializing EDK2 submodules..."
-        if git submodule update --init --recommend-shallow; then
-          echo "✅ Submodule initialization successful"
+        # Use enhanced submodule initialization script
+        if [ -f "../acpipatcher/.github/scripts/enhanced-submodule-init.sh" ]; then
+          echo "Using enhanced submodule initialization..."
+          bash ../acpipatcher/.github/scripts/enhanced-submodule-init.sh
         else
-          echo "⚠️ Some submodules failed to initialize, but continuing..."
+          echo "Enhanced script not found, falling back to basic initialization..."
+          # Patch .gitmodules to disable problematic submodules (cross-platform)
+          if [ -f "../acpipatcher/.github/scripts/patch-edk2-gitmodules.sh" ]; then
+            echo "Patching .gitmodules to disable problematic submodules..."
+            bash ../acpipatcher/.github/scripts/patch-edk2-gitmodules.sh
+          fi
+          
+          # Now initialize submodules (problematic ones should be disabled)
+          echo "Initializing EDK2 submodules..."
+          if git submodule update --init --recommend-shallow; then
+            echo "✅ Submodule initialization successful"
+          else
+            echo "⚠️ Some submodules failed to initialize, but continuing..."
+          fi
+          
+          git submodule status | head -10 || echo "Submodule status check completed"
         fi
-        
-        git submodule status | head -10 || echo "Submodule status check completed"
     
     - name: Copy ACPIPatcher to EDK2
       shell: bash
@@ -186,25 +194,73 @@ jobs:
       run: |
         cd edk2
         
-        REM Setup environment
-        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" 2>nul || call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvars64.bat" 2>nul || echo "Warning: Could not find VS environment setup"
-        call edksetup.bat
+        REM Setup Visual Studio environment with multiple fallbacks
+        echo Setting up Visual Studio environment...
+        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" 2>nul && (
+          echo ✅ VS2022 Enterprise environment loaded
+          goto :build_setup
+        )
+        call "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat" 2>nul && (
+          echo ✅ VS2022 Professional environment loaded
+          goto :build_setup
+        )
+        call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" 2>nul && (
+          echo ✅ VS2022 Community environment loaded
+          goto :build_setup
+        )
+        echo ⚠️ Warning: Could not find VS2022 environment, attempting to continue...
         
-        REM Build BaseTools first
+        :build_setup
+        REM Initialize EDK2 environment
+        call edksetup.bat
+        if errorlevel 1 (
+          echo ❌ EDK2 setup failed
+          exit /b 1
+        )
+        
+        REM Build BaseTools with multiple strategies
         echo Building BaseTools for Windows...
         cd BaseTools
-        python -m pip install --upgrade pip
+        python -m pip install --upgrade pip >nul 2>&1
         
-        REM Try nmake first, then fallback to python-based build
-        nmake || (
-          echo BaseTools nmake failed, trying python build...
-          python -c "import os; os.system('python build.py')"
+        REM Strategy 1: Try nmake
+        echo Attempting BaseTools build with nmake...
+        nmake >nul 2>&1
+        if not errorlevel 1 (
+          echo ✅ BaseTools built successfully with nmake
+          goto :build_acpi
         )
+        
+        REM Strategy 2: Try python build
+        echo nmake failed, trying python build...
+        python build.py >nul 2>&1
+        if not errorlevel 1 (
+          echo ✅ BaseTools built successfully with python
+          goto :build_acpi
+        )
+        
+        REM Strategy 3: Force nmake without error suppression
+        echo Python build failed, trying forced nmake...
+        nmake
+        if not errorlevel 1 (
+          echo ✅ BaseTools built successfully with forced nmake
+          goto :build_acpi
+        )
+        
+        echo ❌ All BaseTools build strategies failed
+        exit /b 1
+        
+        :build_acpi
         cd ..
         
         REM Build ACPIPatcher
         echo Building ACPIPatcher...
         build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t ${{ matrix.toolchain }} -p ACPIPatcherPkg\ACPIPatcherPkg.dsc
+        if errorlevel 1 (
+          echo ❌ ACPIPatcher build failed
+          exit /b 1
+        )
+        echo ✅ ACPIPatcher build completed successfully
     
     # Verification and packaging
     - name: Verify Build Output

@@ -18,6 +18,8 @@ echo "=== Patching EDK2 .gitmodules to disable problematic submodules ==="
 cp "$GITMODULES_FILE" "${GITMODULES_FILE}.backup"
 
 # List of problematic submodule paths to disable
+# Only disable submodules that cause authentication issues
+# Keep essential ones like Brotli that are needed for builds
 PROBLEMATIC_SUBMODULES=(
     "UnitTestFrameworkPkg/Library/SubhookLib/subhook"
     "UnitTestFrameworkPkg/Test/GoogleTest/googletest"

@@ -61,7 +61,17 @@ jobs:
       run: |
         git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
         cd edk2
-        git config --global url."https://github.com/".insteadOf "git@github.com:" && (git submodule update --init --recommend-shallow || echo "Warning: Some submodules failed to initialize")
+        git config --global url."https://github.com/".insteadOf "git@github.com:"
+        git config --global advice.detachedHead false
+        
+        # Use enhanced submodule initialization script
+        if [ -f "../acpipatcher/.github/scripts/enhanced-submodule-init.sh" ]; then
+          echo "Using enhanced submodule initialization..."
+          bash ../acpipatcher/.github/scripts/enhanced-submodule-init.sh
+        else
+          echo "Enhanced script not found, falling back to basic initialization..."
+          git submodule update --init --recommend-shallow || echo "Warning: Some submodules failed to initialize"
+        fi
     
     - name: Copy ACPIPatcher to EDK2
       run: |
@@ -179,7 +189,17 @@ jobs:
       run: |
         git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
         cd edk2
-        git config --global url."https://github.com/".insteadOf "git@github.com:" && (git submodule update --init --recommend-shallow || echo "Warning: Some submodules failed to initialize")
+        git config --global url."https://github.com/".insteadOf "git@github.com:"
+        git config --global advice.detachedHead false
+        
+        # Use enhanced submodule initialization script
+        if [ -f "../acpipatcher/.github/scripts/enhanced-submodule-init.sh" ]; then
+          echo "Using enhanced submodule initialization..."
+          bash ../acpipatcher/.github/scripts/enhanced-submodule-init.sh
+        else
+          echo "Enhanced script not found, falling back to basic initialization..."
+          git submodule update --init --recommend-shallow || echo "Warning: Some submodules failed to initialize"
+        fi
     
     - name: Copy ACPIPatcher to EDK2
       run: |
@@ -300,7 +320,17 @@ jobs:
       run: |
         git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
         cd edk2
-        git config --global url."https://github.com/".insteadOf "git@github.com:" && (git submodule update --init --recommend-shallow || echo "Warning: Some submodules failed to initialize")
+        git config --global url."https://github.com/".insteadOf "git@github.com:"
+        git config --global advice.detachedHead false
+        
+        # Use enhanced submodule initialization script
+        if [ -f "../acpipatcher/.github/scripts/enhanced-submodule-init.sh" ]; then
+          echo "Using enhanced submodule initialization..."
+          bash ../acpipatcher/.github/scripts/enhanced-submodule-init.sh
+        else
+          echo "Enhanced script not found, falling back to basic initialization..."
+          git submodule update --init --recommend-shallow || echo "Warning: Some submodules failed to initialize"
+        fi
     
     - name: Copy ACPIPatcher to EDK2
       run: |

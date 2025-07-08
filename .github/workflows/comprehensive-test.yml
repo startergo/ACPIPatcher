@@ -251,16 +251,28 @@ jobs:
       run: |
         git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
         cd edk2
-        git config --global url."https://github.com/".insteadOf "git@github.com:" && (git submodule update --init --recommend-shallow || echo "Warning: Some submodules failed to initialize")
-    
-    - name: Copy ACPIPatcher to EDK2
-      run: |
-        if [ "${{ matrix.platform }}" = "windows" ]; then
-          xcopy /E /I acpipatcher\\ACPIPatcherPkg edk2\\ACPIPatcherPkg
+        git config --global url."https://github.com/".insteadOf "git@github.com:"
+        git config --global advice.detachedHead false
+        
+        # Use enhanced submodule initialization script
+        if [ -f "../acpipatcher/.github/scripts/enhanced-submodule-init.sh" ]; then
+          echo "Using enhanced submodule initialization..."
+          bash ../acpipatcher/.github/scripts/enhanced-submodule-init.sh
         else
-          cp -r acpipatcher/ACPIPatcherPkg edk2/
+          echo "Enhanced script not found, falling back to basic initialization..."
+          git submodule update --init --recommend-shallow || echo "Warning: Some submodules failed to initialize"
         fi
+    
+    - name: Copy ACPIPatcher to EDK2 (Unix)
+      if: matrix.platform != 'windows'
+      run: |
+        cp -r acpipatcher/ACPIPatcherPkg edk2/
       shell: bash
+    
+    - name: Copy ACPIPatcher to EDK2 (Windows)
+      if: matrix.platform == 'windows'
+      run: |
+        xcopy /E /I acpipatcher\ACPIPatcherPkg edk2\ACPIPatcherPkg
     
     - name: Build ACPIPatcher (Unix)
       if: matrix.platform != 'windows'
@@ -302,56 +314,61 @@ jobs:
               -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
               -D DEBUG_LEVEL=3
     
-    - name: Verify Build and Test EFI Files
+    - name: Verify Build and Test EFI Files (Unix)
+      if: matrix.platform != 'windows'
       run: |
         cd edk2
-        
-        if [ "${{ matrix.platform }}" = "windows" ]; then
-          BUILD_DIR="Build\\ACPIPatcherPkg\\${{ matrix.build_type }}_${{ matrix.toolchain }}\\${{ matrix.arch }}"
-        else
-          BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_${{ matrix.toolchain }}/${{ matrix.arch }}"
-        fi
+        BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_${{ matrix.toolchain }}/${{ matrix.arch }}"
         
         echo "=== Build Verification ==="
         echo "Build directory: $BUILD_DIR"
         
         # Check if binaries exist and get their info
-        if [ "${{ matrix.platform }}" = "windows" ]; then
-          if [ -f "$BUILD_DIR\\ACPIPatcher.efi" ]; then
-            echo "✅ ACPIPatcher.efi exists"
-            ls -la "$BUILD_DIR\\ACPIPatcher.efi" 2>/dev/null || dir "$BUILD_DIR\\ACPIPatcher.efi" 2>/dev/null || true
-          else
-            echo "❌ ACPIPatcher.efi missing"
-            exit 1
-          fi
-          
-          if [ -f "$BUILD_DIR\\ACPIPatcherDxe.efi" ]; then
-            echo "✅ ACPIPatcherDxe.efi exists"
-            ls -la "$BUILD_DIR\\ACPIPatcherDxe.efi" 2>/dev/null || dir "$BUILD_DIR\\ACPIPatcherDxe.efi" 2>/dev/null || true
-          else
-            echo "❌ ACPIPatcherDxe.efi missing"
-            exit 1
-          fi
+        if [ -f "$BUILD_DIR/ACPIPatcher.efi" ]; then
+          echo "✅ ACPIPatcher.efi exists"
+          ls -la "$BUILD_DIR/ACPIPatcher.efi"
+          file "$BUILD_DIR/ACPIPatcher.efi" || true
         else
-          if [ -f "$BUILD_DIR/ACPIPatcher.efi" ]; then
-            echo "✅ ACPIPatcher.efi exists"
-            ls -la "$BUILD_DIR/ACPIPatcher.efi"
-            file "$BUILD_DIR/ACPIPatcher.efi" || true
-          else
-            echo "❌ ACPIPatcher.efi missing"
-            exit 1
-          fi
-          
-          if [ -f "$BUILD_DIR/ACPIPatcherDxe.efi" ]; then
-            echo "✅ ACPIPatcherDxe.efi exists"
-            ls -la "$BUILD_DIR/ACPIPatcherDxe.efi"
-            file "$BUILD_DIR/ACPIPatcherDxe.efi" || true
-          else
-            echo "❌ ACPIPatcherDxe.efi missing"
-            exit 1
-          fi
+          echo "❌ ACPIPatcher.efi missing"
+          exit 1
+        fi
+        
+        if [ -f "$BUILD_DIR/ACPIPatcherDxe.efi" ]; then
+          echo "✅ ACPIPatcherDxe.efi exists"
+          ls -la "$BUILD_DIR/ACPIPatcherDxe.efi"
+          file "$BUILD_DIR/ACPIPatcherDxe.efi" || true
+        else
+          echo "❌ ACPIPatcherDxe.efi missing"
+          exit 1
         fi
       shell: bash
+    
+    - name: Verify Build and Test EFI Files (Windows)
+      if: matrix.platform == 'windows'
+      shell: powershell
+      run: |
+        cd edk2
+        $BUILD_DIR = "Build\ACPIPatcherPkg\${{ matrix.build_type }}_${{ matrix.toolchain }}\${{ matrix.arch }}"
+        
+        Write-Host "=== Build Verification ==="
+        Write-Host "Build directory: $BUILD_DIR"
+        
+        # Check if binaries exist and get their info
+        if (Test-Path "$BUILD_DIR\ACPIPatcher.efi") {
+          Write-Host "✅ ACPIPatcher.efi exists"
+          Get-ItemProperty "$BUILD_DIR\ACPIPatcher.efi" | Select-Object Name, Length, LastWriteTime
+        } else {
+          Write-Host "❌ ACPIPatcher.efi missing"
+          exit 1
+        }
+        
+        if (Test-Path "$BUILD_DIR\ACPIPatcherDxe.efi") {
+          Write-Host "✅ ACPIPatcherDxe.efi exists"
+          Get-ItemProperty "$BUILD_DIR\ACPIPatcherDxe.efi" | Select-Object Name, Length, LastWriteTime
+        } else {
+          Write-Host "❌ ACPIPatcherDxe.efi missing"
+          exit 1
+        }
     
     - name: Extended EFI Testing
       if: matrix.test_efi && matrix.platform != 'windows'
@@ -383,43 +400,53 @@ jobs:
           echo "⚠️ EFI file size seems unusual"
         fi
     
-    - name: Create Test Package
+    - name: Create Test Package (Unix)
+      if: matrix.platform != 'windows'
       run: |
         cd edk2
+        BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_${{ matrix.toolchain }}/${{ matrix.arch }}"
+        PACKAGE_NAME="ACPIPatcher-Test-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.build_type }}"
         
-        if [ "${{ matrix.platform }}" = "windows" ]; then
-          BUILD_DIR="Build\\ACPIPatcherPkg\\${{ matrix.build_type }}_${{ matrix.toolchain }}\\${{ matrix.arch }}"
-          PACKAGE_NAME="ACPIPatcher-Test-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.build_type }}"
-          
-          mkdir "$PACKAGE_NAME"
-          cp "$BUILD_DIR\\ACPIPatcher.efi" "$PACKAGE_NAME\\" 2>/dev/null || true
-          cp "$BUILD_DIR\\ACPIPatcherDxe.efi" "$PACKAGE_NAME\\" 2>/dev/null || true
-          
-          # Create test report
-          echo "Test Build Report" > "$PACKAGE_NAME\\TEST_REPORT.txt"
-          echo "Platform: ${{ matrix.platform }}" >> "$PACKAGE_NAME\\TEST_REPORT.txt"
-          echo "Architecture: ${{ matrix.arch }}" >> "$PACKAGE_NAME\\TEST_REPORT.txt"
-          echo "Build Type: ${{ matrix.build_type }}" >> "$PACKAGE_NAME\\TEST_REPORT.txt"
-          echo "Toolchain: ${{ matrix.toolchain }}" >> "$PACKAGE_NAME\\TEST_REPORT.txt"
-          echo "Test Date: $(date)" >> "$PACKAGE_NAME\\TEST_REPORT.txt"
-        else
-          BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_${{ matrix.toolchain }}/${{ matrix.arch }}"
-          PACKAGE_NAME="ACPIPatcher-Test-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.build_type }}"
-          
-          mkdir "$PACKAGE_NAME"
-          cp "$BUILD_DIR/ACPIPatcher.efi" "$PACKAGE_NAME/" 2>/dev/null || true
-          cp "$BUILD_DIR/ACPIPatcherDxe.efi" "$PACKAGE_NAME/" 2>/dev/null || true
-          
-          # Create test report
-          echo "Test Build Report" > "$PACKAGE_NAME/TEST_REPORT.txt"
-          echo "Platform: ${{ matrix.platform }}" >> "$PACKAGE_NAME/TEST_REPORT.txt"
-          echo "Architecture: ${{ matrix.arch }}" >> "$PACKAGE_NAME/TEST_REPORT.txt"
-          echo "Build Type: ${{ matrix.build_type }}" >> "$PACKAGE_NAME/TEST_REPORT.txt"
-          echo "Toolchain: ${{ matrix.toolchain }}" >> "$PACKAGE_NAME/TEST_REPORT.txt"
-          echo "Test Date: $(date)" >> "$PACKAGE_NAME/TEST_REPORT.txt"
-          echo "Test Level: ${{ env.TEST_LEVEL }}" >> "$PACKAGE_NAME/TEST_REPORT.txt"
-        fi
+        mkdir "$PACKAGE_NAME"
+        cp "$BUILD_DIR/ACPIPatcher.efi" "$PACKAGE_NAME/" 2>/dev/null || true
+        cp "$BUILD_DIR/ACPIPatcherDxe.efi" "$PACKAGE_NAME/" 2>/dev/null || true
+        
+        # Create test report
+        echo "Test Build Report" > "$PACKAGE_NAME/TEST_REPORT.txt"
+        echo "Platform: ${{ matrix.platform }}" >> "$PACKAGE_NAME/TEST_REPORT.txt"
+        echo "Architecture: ${{ matrix.arch }}" >> "$PACKAGE_NAME/TEST_REPORT.txt"
+        echo "Build Type: ${{ matrix.build_type }}" >> "$PACKAGE_NAME/TEST_REPORT.txt"
+        echo "Toolchain: ${{ matrix.toolchain }}" >> "$PACKAGE_NAME/TEST_REPORT.txt"
+        echo "Test Date: $(date)" >> "$PACKAGE_NAME/TEST_REPORT.txt"
+        echo "Test Level: ${{ env.TEST_LEVEL }}" >> "$PACKAGE_NAME/TEST_REPORT.txt"
       shell: bash
+    
+    - name: Create Test Package (Windows)
+      if: matrix.platform == 'windows'
+      shell: powershell
+      run: |
+        cd edk2
+        $BUILD_DIR = "Build\ACPIPatcherPkg\${{ matrix.build_type }}_${{ matrix.toolchain }}\${{ matrix.arch }}"
+        $PACKAGE_NAME = "ACPIPatcher-Test-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.build_type }}"
+        
+        New-Item -ItemType Directory -Path "$PACKAGE_NAME" -Force
+        if (Test-Path "$BUILD_DIR\ACPIPatcher.efi") {
+          Copy-Item "$BUILD_DIR\ACPIPatcher.efi" "$PACKAGE_NAME\"
+        }
+        if (Test-Path "$BUILD_DIR\ACPIPatcherDxe.efi") {
+          Copy-Item "$BUILD_DIR\ACPIPatcherDxe.efi" "$PACKAGE_NAME\"
+        }
+        
+        # Create test report
+        $testReport = "Test Build Report`n"
+        $testReport += "Platform: ${{ matrix.platform }}`n"
+        $testReport += "Architecture: ${{ matrix.arch }}`n"
+        $testReport += "Build Type: ${{ matrix.build_type }}`n"
+        $testReport += "Toolchain: ${{ matrix.toolchain }}`n"
+        $testReport += "Test Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')`n"
+        $testReport += "Test Level: ${{ env.TEST_LEVEL }}`n"
+        
+        $testReport | Out-File -FilePath "$PACKAGE_NAME\TEST_REPORT.txt" -Encoding UTF8
     
     - name: Upload Test Artifacts
       uses: actions/upload-artifact@v4
