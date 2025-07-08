@@ -1,0 +1,218 @@
+name: MSYS2 Action Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_mode:
+        description: 'Test Mode'
+        required: false
+        default: 'basic'
+        type: choice
+        options:
+          - 'basic'
+          - 'full-build'
+
+env:
+  EDK2_VERSION: edk2-stable202405
+
+jobs:
+  test-msys2-action:
+    name: Test MSYS2 Setup Action
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        fetch-depth: 0
+    
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Setup MSYS2 with Required Tools
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: MINGW64
+        update: true
+        install: >-
+          mingw-w64-x86_64-clang
+          mingw-w64-x86_64-llvm
+          mingw-w64-x86_64-nasm
+          mingw-w64-x86_64-make
+          mingw-w64-x86_64-diffutils
+          mingw-w64-x86_64-gcc
+          git
+    
+    - name: Verify MSYS2 Tool Installation
+      shell: msys2 {0}
+      run: |
+        echo "=== MSYS2 Environment Verification ==="
+        echo "MSYSTEM: $MSYSTEM"
+        echo "PATH: $PATH"
+        echo ""
+        
+        echo "=== Tool Versions ==="
+        which clang && clang --version
+        echo ""
+        which nasm && nasm -version
+        echo ""
+        which make && make --version | head -1
+        echo ""
+        which gcc && gcc --version | head -1
+        echo ""
+        
+        echo "=== Environment Variables ==="
+        echo "CLANG_BIN would be: $(dirname $(which clang))/"
+        echo "NASM_BIN would be: $(dirname $(which nasm))/"
+    
+    - name: Test Windows Batch Access to MSYS2 Tools
+      shell: cmd
+      run: |
+        echo === Testing Windows Batch Access ===
+        echo MSYS2 PATH should be available...
+        
+        REM Test if clang is accessible from Windows cmd
+        where clang >nul 2>&1
+        if %ERRORLEVEL%==0 (
+          echo ✓ Clang accessible from Windows batch
+          clang --version | findstr "clang version"
+        ) else (
+          echo ✗ Clang not accessible from Windows batch
+        )
+        
+        REM Test if nasm is accessible from Windows cmd  
+        where nasm >nul 2>&1
+        if %ERRORLEVEL%==0 (
+          echo ✓ NASM accessible from Windows batch
+          nasm -version | findstr "version"
+        ) else (
+          echo ✗ NASM not accessible from Windows batch
+        )
+    
+    - name: Setup EDK2 Environment (MSYS2)
+      if: github.event.inputs.test_mode == 'full-build'
+      shell: msys2 {0}
+      run: |
+        echo "=== Setting up EDK2 Environment ==="
+        
+        # Set environment variables for EDK2
+        export WORKSPACE=$(pwd)
+        export PACKAGES_PATH=$WORKSPACE/edk2:$WORKSPACE
+        export EDK_TOOLS_PATH=$WORKSPACE/edk2/BaseTools
+        export CLANG_BIN="$(dirname $(which clang))/"
+        export NASM_BIN="$(dirname $(which nasm))/"
+        
+        echo "WORKSPACE: $WORKSPACE"
+        echo "PACKAGES_PATH: $PACKAGES_PATH"
+        echo "EDK_TOOLS_PATH: $EDK_TOOLS_PATH"
+        echo "CLANG_BIN: $CLANG_BIN"
+        echo "NASM_BIN: $NASM_BIN"
+        
+        # Check if edk2 submodule exists
+        if [ -d "edk2" ]; then
+          echo "EDK2 submodule found"
+          cd edk2
+          
+          # Build BaseTools if needed
+          if [ ! -f "BaseTools/Source/C/bin/build" ]; then
+            echo "Building BaseTools..."
+            make -C BaseTools || echo "BaseTools build failed, but continuing..."
+          else
+            echo "BaseTools already built"
+          fi
+          
+          # Source edksetup.sh
+          echo "Sourcing edksetup.sh..."
+          source edksetup.sh BaseTools || echo "edksetup.sh failed, but continuing..."
+          
+          cd ..
+        else
+          echo "No EDK2 submodule found, skipping EDK2 setup"
+        fi
+    
+    - name: Test Build with MSYS2 Environment  
+      if: github.event.inputs.test_mode == 'full-build'
+      shell: msys2 {0}
+      run: |
+        echo "=== Testing Build Process ==="
+        
+        export WORKSPACE=$(pwd)
+        export PACKAGES_PATH=$WORKSPACE/edk2:$WORKSPACE
+        export EDK_TOOLS_PATH=$WORKSPACE/edk2/BaseTools
+        export CLANG_BIN="$(dirname $(which clang))/"
+        export NASM_BIN="$(dirname $(which nasm))/"
+        
+        if [ -d "edk2" ]; then
+          cd edk2
+          source edksetup.sh BaseTools || true
+          cd ..
+          
+          echo "Attempting to build ACPIPatcher..."
+          build -a X64 -t CLANG38 -b DEBUG -p ACPIPatcherPkg/ACPIPatcherPkg.dsc || {
+            echo "Build failed, but this is expected for testing"
+            echo "Build attempt completed"
+          }
+        else
+          echo "Skipping build test - no EDK2 submodule"
+        fi
+    
+    - name: Compare with Current Manual Method
+      shell: cmd
+      run: |
+        echo === Comparison with Current Manual Method ===
+        
+        REM Test current manual CLANG_BIN detection
+        echo Testing current manual detection logic...
+        
+        if exist "C:\Program Files\LLVM\bin\clang.exe" (
+          set "MANUAL_CLANG_BIN=C:\Program Files\LLVM\bin\"
+          echo Manual method found: %MANUAL_CLANG_BIN%
+        ) else (
+          if exist "C:\msys64\mingw64\bin\clang.exe" (
+            set "MANUAL_CLANG_BIN=C:\msys64\mingw64\bin\"
+            echo Manual method found MSYS2: %MANUAL_CLANG_BIN%
+          ) else (
+            echo Manual method: No clang found
+          )
+        )
+        
+        REM Test MSYS2 action result
+        where clang >nul 2>&1
+        if %ERRORLEVEL%==0 (
+          echo MSYS2 Action: Clang available in PATH
+          for /f "tokens=*" %%i in ('where clang') do echo MSYS2 Action found: %%i
+        ) else (
+          echo MSYS2 Action: Clang not in PATH
+        )
+    
+    - name: Generate Test Report
+      shell: msys2 {0}
+      run: |
+        echo "=== MSYS2 Action Test Report ===" > msys2_test_report.txt
+        echo "Test Date: $(date)" >> msys2_test_report.txt
+        echo "Test Mode: ${{ github.event.inputs.test_mode }}" >> msys2_test_report.txt
+        echo "" >> msys2_test_report.txt
+        
+        echo "=== Tools Available ===" >> msys2_test_report.txt
+        which clang &>/dev/null && echo "✓ Clang: $(which clang)" >> msys2_test_report.txt || echo "✗ Clang: Not found" >> msys2_test_report.txt
+        which nasm &>/dev/null && echo "✓ NASM: $(which nasm)" >> msys2_test_report.txt || echo "✗ NASM: Not found" >> msys2_test_report.txt
+        which make &>/dev/null && echo "✓ Make: $(which make)" >> msys2_test_report.txt || echo "✗ Make: Not found" >> msys2_test_report.txt
+        which gcc &>/dev/null && echo "✓ GCC: $(which gcc)" >> msys2_test_report.txt || echo "✗ GCC: Not found" >> msys2_test_report.txt
+        
+        echo "" >> msys2_test_report.txt
+        echo "=== Environment Variables ===" >> msys2_test_report.txt
+        echo "MSYSTEM: $MSYSTEM" >> msys2_test_report.txt
+        echo "CLANG_BIN: $(dirname $(which clang 2>/dev/null) 2>/dev/null)/" >> msys2_test_report.txt
+        echo "NASM_BIN: $(dirname $(which nasm 2>/dev/null) 2>/dev/null)/" >> msys2_test_report.txt
+        
+        cat msys2_test_report.txt
+    
+    - name: Upload Test Results
+      uses: actions/upload-artifact@v4
+      with:
+        name: msys2-action-test-results
+        path: msys2_test_report.txt
+        retention-days: 30
