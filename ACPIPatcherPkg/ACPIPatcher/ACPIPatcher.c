@@ -241,8 +241,8 @@ PatchAcpi (
       AcpiDebugPrint(DEBUG_VERBOSE, L"  Old DSDT address (32-bit): 0x%x\n", gFacp->Dsdt);
       AcpiDebugPrint(DEBUG_VERBOSE, L"  Old DSDT address (64-bit): 0x%llx\n", gFacp->XDsdt);
       
-      gFacp->Dsdt = (UINT32)(UINTN)FileBuffer;
-      gFacp->XDsdt = (UINT64)FileBuffer;
+      gFacp->Dsdt = (UINT32)PTR_TO_INT(FileBuffer);
+      gFacp->XDsdt = (UINT64)PTR_TO_INT(FileBuffer);
       
       AcpiDebugPrint(DEBUG_INFO, L"  Updated DSDT address: 0x%llx\n", gFacp->XDsdt);
       AcpiDebugPrint(DEBUG_VERBOSE, L"  DSDT replacement completed\n");
@@ -262,7 +262,7 @@ PatchAcpi (
     AcpiDebugPrint(DEBUG_VERBOSE, L"  Adding table to XSDT entry %u\n", CurrentEntries);
     AcpiDebugPrint(DEBUG_VERBOSE, L"  XSDT entry address: 0x%llx\n", gXsdtEnd);
     
-    ((UINT64 *)gXsdtEnd)[0] = (UINT64)FileBuffer;
+    ((UINT64 *)(UINTN)gXsdtEnd)[0] = (UINT64)PTR_TO_INT(FileBuffer);
     gXsdt->Length += sizeof(UINT64);
     gXsdtEnd = gRsdp->XsdtAddress + gXsdt->Length;
     CurrentEntries++;

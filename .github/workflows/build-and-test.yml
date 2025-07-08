@@ -388,25 +388,46 @@ jobs:
         cd edk2
         call edksetup.bat
         
-        REM Build BaseTools first with warnings as errors disabled
+        REM Build BaseTools first with warnings completely disabled
         echo Building BaseTools for Windows...
         cd BaseTools
         python -m pip install --upgrade pip
         
-        REM Temporarily disable warnings as errors for BaseTools build
-        set CL=/W3
+        REM Set environment to completely disable warnings for BaseTools build
+        set CL=/W0
         set LINK=/IGNORE:4099
-        echo Building BaseTools with relaxed warning settings...
-        nmake 2>build_warnings.log || (
-          echo BaseTools build failed, checking for pointer truncation warnings...
+        echo Building BaseTools with all warnings disabled...
+        
+        REM Try standard build first
+        nmake 2>build_warnings.log
+        if errorlevel 1 (
+          echo Standard BaseTools build failed, trying with enhanced warning suppression...
           type build_warnings.log
           echo.
-          echo Attempting BaseTools build with disabled pointer warnings...
-          set CL=/W3 /wd4267 /wd4244 /wd4311 /wd4302
+          
+          REM Clean and try with enhanced suppression
           nmake clean >nul 2>&1
+          
+          REM Set comprehensive warning suppression for MSVC
+          set CL=/W0 /wd4267 /wd4244 /wd4311 /wd4302 /wd4312 /wd4245 /wd4101 /wd4996
+          set CFLAGS=%CL%
+          
+          echo Attempting BaseTools build with comprehensive warning suppression...
           nmake
+          if errorlevel 1 (
+            echo Enhanced build failed, trying Python fallback...
+            python Makefiles\NmakeSubdirs.py all
+            if errorlevel 1 (
+              echo All BaseTools build methods failed
+              type build_warnings.log
+              exit /b 1
+            )
+          )
         )
         cd ..
+        
+        REM Reset CL for application build (we want warnings for our code)
+        set CL=
         
         REM Build ACPIPatcher with custom debug level
         build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t VS2022 ^
