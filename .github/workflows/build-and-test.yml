@@ -715,12 +715,13 @@ jobs:
           echo ✓ Patched makefile.common
         )
         
-        REM Set environment to disable warnings for BaseTools build - use NMAKE flags
+        REM Set environment to disable warnings for BaseTools build
         set MAKEFLAGS=/nologo
-        set CFLAGS=/W0 /WX- /wd4244 /wd4267 /wd4311 /wd4312 /wd4819 /wd2220
-        echo Building BaseTools with warnings disabled (CFLAGS=%CFLAGS%)...
+        echo Building BaseTools with nmake (warnings suppressed via makefile patches)...
+        echo Current directory: %CD%
+        echo MAKEFLAGS: %MAKEFLAGS%
         
-        REM Build BaseTools with nmake
+        REM Build BaseTools with nmake (don't use CFLAGS as it conflicts with nmake)
         nmake
         if errorlevel 1 (
           echo ❌ BaseTools build failed, but continuing...
@@ -732,8 +733,7 @@ jobs:
           echo ✅ BaseTools build completed
         )
         
-        REM Reset compiler flags for application build
-        set CFLAGS=
+        REM Reset any environment variables for application build
         set MAKEFLAGS=
         
         cd ..
@@ -768,10 +768,13 @@ jobs:
         
         REM Explicitly set VS2022 environment variables for EDK2
         set "VS2022_PREFIX=%VS_INSTALL_PATH%\VC\Tools\MSVC\"
-        for /f "delims=" %%i in ('dir /b "%VS2022_PREFIX%" 2^>nul ^| findstr /r "^[0-9]" ^| sort /r') do set "MSVC_VERSION=%%i" & goto :found_msvc
-        :found_msvc
+        
+        REM Find the latest MSVC version using PowerShell for reliable sorting
+        for /f "delims=" %%i in ('powershell -Command "Get-ChildItem '%VS2022_PREFIX%' -Directory | Where-Object { $_.Name -match '^[0-9]' } | Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty Name"') do set "MSVC_VERSION=%%i"
         if "%MSVC_VERSION%"=="" (
           echo ✗ Could not find MSVC version directory
+          echo Available directories in %VS2022_PREFIX%:
+          dir "%VS2022_PREFIX%" 2>nul
           exit /b 1
         )
         echo Found MSVC version: %MSVC_VERSION%
