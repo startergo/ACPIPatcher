@@ -9,7 +9,9 @@ An EFI application and driver to add SSDTs and/or patch in your own DSDT
 
 > **✨ Recently Enhanced**: This project has been significantly improved with better error handling, memory management, comprehensive CI/CD automation, and extensive documentation. See [IMPROVEMENTS.md](IMPROVEMENTS.md) and [CI_CD_FIXES.md](CI_CD_FIXES.md) for details.
 
-I made this tool because I wanted a way to use [RehabMans ACPI Debug tool](https://github.com/RehabMan/OS-X-ACPI-Debug) on my MacBook Pro without using Clover.  Although I made this with macOS in mind it will work with any OS along with any bootloader (provided your bootloader does not do its own ACPI patching).
+I made this tool because I wanted a way to use [RehabMans ACPI Debug tool](https://github.com/RehabMan/OS-X-ACPI-Debug) on my MacBook Pro without using Clover's built-in ACPI patching. Although I made this with macOS in mind, it will work with any OS along with any UEFI-compatible bootloader.
+
+**Important Note on Bootloader Compatibility**: While ACPIPatcher can technically run with any bootloader, **OpenCore and Clover have their own sophisticated ACPI patching systems** that are generally preferred for production use. ACPIPatcher is most useful with bootloaders like **RefindPlus** or **rEFInd** that don't provide extensive ACPI modification capabilities, or for development/debugging scenarios where you need direct control over ACPI table injection.
 
 ## Features
 - **DSDT Replacement**: Replace the system DSDT with a custom one
@@ -35,12 +37,15 @@ I made this tool because I wanted a way to use [RehabMans ACPI Debug tool](https
 - **Operating Systems**: Windows, macOS, Linux (OS-agnostic)
 
 ### Bootloader Compatibility
-- ✅ **OpenCore**: Full support with driver integration
-- ✅ **Clover**: Compatible with driver folder placement
-- ✅ **rEFInd**: Works with driver directory
+- ✅ **RefindPlus**: Recommended - excellent compatibility with ACPIPatcher
+- ✅ **rEFInd**: Full support with driver directory
+- ⚠️ **OpenCore**: Compatible but has built-in ACPI patching (see note below)
+- ⚠️ **Clover**: Compatible but has built-in ACPI patching (see note below)
 - ✅ **GRUB**: Compatible via EFI shell execution
 - ✅ **Direct UEFI**: Native EFI shell execution
 - ❌ **Legacy BIOS**: Not supported (UEFI only)
+
+**Note on OpenCore/Clover**: While ACPIPatcher can run alongside these bootloaders, they provide their own comprehensive ACPI patching systems through their configuration files. For production use with these bootloaders, their built-in ACPI features are generally preferred. ACPIPatcher is most useful with these bootloaders for development, debugging, or specific edge cases not covered by their built-in patching.
 
 ### File System Support
 - **FAT32**: Primary file system for EFI System Partition
@@ -72,6 +77,8 @@ Using this is fairly straightforward. Just place a folder titled `ACPI` in the s
 #### Driver Mode (Persistent patching)
 However, if you would like your patches to survive reboots you can use the driver version of this software. To do this simply place `ACPIPatcherDxe.efi` in your bootloader's driver folder along with the `ACPI` folder mentioned above.
 
+**Important**: For OpenCore and Clover users, consider using their built-in ACPI patching features first, as they provide more comprehensive and tested solutions. Use ACPIPatcher with these bootloaders only for specific development needs or edge cases not covered by their native ACPI support.
+
 **For OpenCore users:**
 1. Place `ACPIPatcherDxe.efi` in `EFI/OC/Drivers/`
 2. Place `ACPI` folder in `EFI/OC/` (same level as `Drivers` folder)
@@ -93,7 +100,7 @@ However, if you would like your patches to survive reboots you can use the drive
 1. Place `ACPIPatcherDxe.efi` in `EFI/CLOVER/drivers/UEFI/`
 2. Place `ACPI` folder in `EFI/CLOVER/`
 
-**For rEFInd users:**
+**For RefindPlus/rEFInd users (Recommended):**
 1. Place `ACPIPatcherDxe.efi` in `EFI/refind/drivers_x64/`
 2. Place `ACPI` folder in `EFI/refind/`
 
