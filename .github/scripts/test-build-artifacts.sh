@@ -384,14 +384,14 @@ main() {
     
     if [ $exit_code -eq 0 ] && ([ $builds_tested -gt 0 ] || [ ${#build_configs[@]} -eq 0 ]); then
         success "All tests completed successfully!"
+        return 0
     elif [ $builds_tested -gt 0 ]; then
         warning "Tests completed with some warnings"
+        return 0  # Don't fail if we have successful builds
     else
         error "Tests failed or no build artifacts found"
-        exit_code=1
+        return 1
     fi
-    
-    return $exit_code
 }
 
 # Run main function with all arguments

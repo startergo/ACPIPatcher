@@ -322,12 +322,16 @@ jobs:
         
         REM Ensure WORKSPACE is set (required for edksetup.bat)
         if "%WORKSPACE%"=="" (
-          for /f "tokens=*" %%i in ('cd') do set "WORKSPACE=%%i"
+          set "WORKSPACE=%GITHUB_WORKSPACE%\edk2"
           echo Set WORKSPACE to: %WORKSPACE%
         ) else (
           echo WORKSPACE is: %WORKSPACE%
         )
-        
+        REM Ensure placeholder BaseTools Bin\Win32 directory to satisfy edksetup.bat precondition
+        if not exist "%WORKSPACE%\BaseTools\Bin\Win32" (
+          mkdir "%WORKSPACE%\BaseTools\Bin\Win32"
+          echo Created placeholder BaseTools Bin\Win32 directory
+        )
         call edksetup.bat
         
         REM Verify BASE_TOOLS_PATH is set
@@ -394,20 +398,27 @@ jobs:
         if not exist "Bin\Win32" (
           echo Creating missing Bin\Win32 directory...
           mkdir "Bin\Win32" 2>nul
-          
-          REM Check if tools were built in alternative locations and copy them
-          echo Searching for built tools in alternative locations...
-          if exist "Bin\*.exe" copy "Bin\*.exe" "Bin\Win32\" >nul 2>&1
-          if exist "*.exe" copy "*.exe" "Bin\Win32\" >nul 2>&1
-          
-          REM Check Source\C subdirectories for built tools
-          for /d %%D in (Source\C\*) do (
-            if exist "%%D\*.exe" copy "%%D\*.exe" "Bin\Win32\" >nul 2>&1
-          )
         )
-        
-        echo Listing contents of Bin\Win32:
-        dir "Bin\Win32" 2>nul || echo No files in Bin\Win32 directory
+        REM If tools were built for x64, copy from Bin\Win64
+        if exist "Bin\Win64\" (
+          echo Detected Bin\Win64, copying tools to Bin\Win32...
+          xcopy "Bin\Win64\*" "Bin\Win32\" /Y /E >nul
+        )
+        REM Check for executables in BaseTools output and copy to Bin\Win32
+        echo Searching for built tools in alternative locations...
+        if exist "Bin\*.exe" (
+          copy "Bin\*.exe" "Bin\Win32\" >nul 2>&1
+        )
+        if exist "*.exe" (
+          copy "*.exe" "Bin\Win32\" >nul 2>&1
+        )
+        REM Check Source\C subdirectories for built tools
+        for /d %%D in (Source\C\*) do (
+          if exist "%%D\*.exe" copy "%%D\*.exe" "Bin\Win32\" >nul 2>&1
+        )
+
+         echo Listing contents of Bin\Win32:
+         dir "Bin\Win32" 2>nul || echo No files in Bin\Win32 directory
         
         cd ..
         
