@@ -58,15 +58,51 @@
   - Added fallback to basic initialization if enhanced script unavailable
   - Ensures consistent submodule handling across all platforms
 
-### 6. **Missing Brotli Submodule Causing BaseTools Failures** ❌➡️✅
-**Problem**: BaseTools compilation failing with "fatal error: './brotli/c/common/constants.h' file not found".
+### 6. **Windows EDK2 BaseTools Pointer Truncation Warnings** ❌➡️✅
+**Problem**: EDK2 BaseTools on Windows failing due to pointer truncation warnings being treated as errors with MSVC.
 
 **Solutions Applied**:
-- ✅ Identified Brotli as critical dependency for EDK2 BaseTools
-- ✅ Enhanced submodule initialization to prioritize essential submodules
-- ✅ Added specific handling for Brotli compression library
-- ✅ Implemented robust retry mechanisms for submodule failures
-- ✅ Added verification of essential submodules before BaseTools compilation
+- ✅ Disabled warnings-as-errors for BaseTools build specifically
+- ✅ Added specific MSVC warning suppressions for pointer truncation (`/wd4267`, `/wd4244`, `/wd4311`, `/wd4302`)
+- ✅ Implemented fallback build strategy with progressive warning suppression
+- ✅ Enhanced error logging to capture and analyze BaseTools build warnings
+- ✅ Separated BaseTools build issues from application code quality standards
+
+**Technical Details**:
+```cmd
+REM Primary approach: Relax warning level
+set CL=/W3
+set LINK=/IGNORE:4099
+
+REM Fallback: Suppress specific pointer warnings
+set CL=/W3 /wd4267 /wd4244 /wd4311 /wd4302
+```
+
+### 7. **Cross-Platform Pointer Casting Issues** ❌➡️✅
+**Problem**: Inconsistent pointer casting and size mismatches between 32-bit (IA32) and 64-bit (X64) builds, causing compilation failures and potential runtime issues.
+
+**Solutions Applied**:
+- ✅ Introduced `PTR_TO_INT` and `PTR_FMT` macros for safe cross-platform pointer handling
+- ✅ Fixed all pointer-to-integer casts in ACPIPatcher.c using UINTN instead of UINT64
+- ✅ Updated HexDump and debug output functions to use architecture-appropriate formatting
+- ✅ Separated EDK2 BaseTools pointer warnings (infrastructure) from application code quality
+- ✅ Enhanced static analysis to catch pointer casting issues early
+
+**Technical Implementation**:
+```c
+// Safe pointer-to-integer conversion
+#define PTR_TO_INT(ptr) ((UINTN)(ptr))
+
+// Architecture-appropriate pointer formatting
+#ifdef MDE_CPU_IA32
+#define PTR_FMT "0x%08X"
+#else
+#define PTR_FMT "0x%016lX"
+#endif
+
+// Example usage in debug output
+AcpiDebugPrint("Processing table at " PTR_FMT "\n", PTR_TO_INT(Table));
+```
 
 ## Updated Workflow Files
 

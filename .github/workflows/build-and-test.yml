@@ -146,6 +146,29 @@ jobs:
         
         tar -czf "$DIST_DIR.tar.gz" "$DIST_DIR"
     
+    - name: Validate Build Artifacts
+      run: |
+        cd edk2
+        
+        # Run comprehensive build validation
+        if [ -f "../acpipatcher/.github/scripts/test-build-artifacts.sh" ]; then
+          echo "Running comprehensive build artifact validation..."
+          bash ../acpipatcher/.github/scripts/test-build-artifacts.sh "$(pwd)" || {
+            echo "❌ Build artifact validation failed"
+            exit 1
+          }
+        else
+          echo "Validation script not found, running basic checks..."
+          BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_GCC5/${{ matrix.arch }}"
+          
+          if [ -f "$BUILD_DIR/ACPIPatcher.efi" ] && [ -f "$BUILD_DIR/ACPIPatcherDxe.efi" ]; then
+            echo "✅ Basic validation passed - required EFI files present"
+          else
+            echo "❌ Basic validation failed - required EFI files missing"
+            exit 1
+          fi
+        fi
+    
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -274,6 +297,29 @@ jobs:
         
         tar -czf "$DIST_DIR.tar.gz" "$DIST_DIR"
     
+    - name: Validate Build Artifacts
+      run: |
+        cd edk2
+        
+        # Run comprehensive build validation
+        if [ -f "../acpipatcher/.github/scripts/test-build-artifacts.sh" ]; then
+          echo "Running comprehensive build artifact validation..."
+          bash ../acpipatcher/.github/scripts/test-build-artifacts.sh "$(pwd)" || {
+            echo "❌ Build artifact validation failed"
+            exit 1
+          }
+        else
+          echo "Validation script not found, running basic checks..."
+          BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_XCODE5/${{ matrix.arch }}"
+          
+          if [ -f "$BUILD_DIR/ACPIPatcher.efi" ] && [ -f "$BUILD_DIR/ACPIPatcherDxe.efi" ]; then
+            echo "✅ Basic validation passed - required EFI files present"
+          else
+            echo "❌ Basic validation failed - required EFI files missing"
+            exit 1
+          fi
+        fi
+    
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -342,11 +388,24 @@ jobs:
         cd edk2
         call edksetup.bat
         
-        REM Build BaseTools first
+        REM Build BaseTools first with warnings as errors disabled
         echo Building BaseTools for Windows...
         cd BaseTools
         python -m pip install --upgrade pip
-        nmake
+        
+        REM Temporarily disable warnings as errors for BaseTools build
+        set CL=/W3
+        set LINK=/IGNORE:4099
+        echo Building BaseTools with relaxed warning settings...
+        nmake 2>build_warnings.log || (
+          echo BaseTools build failed, checking for pointer truncation warnings...
+          type build_warnings.log
+          echo.
+          echo Attempting BaseTools build with disabled pointer warnings...
+          set CL=/W3 /wd4267 /wd4244 /wd4311 /wd4302
+          nmake clean >nul 2>&1
+          nmake
+        )
         cd ..
         
         REM Build ACPIPatcher with custom debug level
@@ -420,6 +479,43 @@ jobs:
         $buildInfo | Out-File -FilePath "$DIST_DIR\BUILD_INFO.txt" -Encoding UTF8
         
         Compress-Archive -Path "$DIST_DIR" -DestinationPath "$DIST_DIR.zip"
+    
+    - name: Validate Build Artifacts
+      shell: powershell
+      run: |
+        cd edk2
+        $BUILD_DIR = "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2022\${{ matrix.arch }}"
+        
+        Write-Host "Running build artifact validation..."
+        
+        # Check if required EFI files exist and have reasonable sizes
+        $requiredFiles = @("ACPIPatcher.efi", "ACPIPatcherDxe.efi")
+        $allValid = $true
+        
+        foreach ($file in $requiredFiles) {
+          $filePath = Join-Path $BUILD_DIR $file
+          if (Test-Path $filePath) {
+            $fileInfo = Get-ItemProperty $filePath
+            $fileSize = $fileInfo.Length
+            
+            if ($fileSize -gt 1024 -and $fileSize -lt 10485760) {  # Between 1KB and 10MB
+              Write-Host "✅ Valid EFI file: $file ($fileSize bytes)"
+            } else {
+              Write-Host "❌ Invalid EFI file size: $file ($fileSize bytes)"
+              $allValid = $false
+            }
+          } else {
+            Write-Host "❌ Missing EFI file: $file"
+            $allValid = $false
+          }
+        }
+        
+        if (-not $allValid) {
+          Write-Host "❌ Build artifact validation failed"
+          exit 1
+        }
+        
+        Write-Host "✅ Build artifact validation passed"
     
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
