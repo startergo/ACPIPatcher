@@ -640,13 +640,9 @@ jobs:
         REM CRITICAL FIX: Set WORKSPACE and call edksetup.bat FIRST to set BASE_TOOLS_PATH
         echo Setting up EDK2 environment BEFORE BaseTools build...
         
-        REM Ensure WORKSPACE is set (required for edksetup.bat)
-        if "%WORKSPACE%"=="" (
-          for /f "tokens=*" %%i in ('cd') do set "WORKSPACE=%%i"
-          echo Set WORKSPACE to: %WORKSPACE%
-        ) else (
-          echo WORKSPACE is: %WORKSPACE%
-        )
+        REM Use GitHub-provided workspace path for EDK2
+        set "WORKSPACE=%GITHUB_WORKSPACE%\edk2"
+        echo Set WORKSPACE to: %WORKSPACE%
         
         call edksetup.bat
         
