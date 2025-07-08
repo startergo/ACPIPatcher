@@ -48,18 +48,25 @@
 **Solutions Applied**:
 - ✅ Created custom `.gitmodules` patching script to disable problematic submodules
 - ✅ Added git URL rewriting configuration for GitHub authentication
-- ✅ Implemented fallback strategies for submodule initialization failures
-- ✅ Specifically disabled `UnitTestFrameworkPkg/Library/SubhookLib/subhook` that causes auth failures
-- ✅ Added comprehensive error handling and warning messages
+- ✅ **NEW**: Implemented enhanced submodule initialization script (`enhanced-submodule-init.sh`)
+  - Automatically patches `.gitmodules` to disable problematic submodules
+  - Ensures Brotli and other essential submodules are always initialized
+  - Provides fallback mechanisms for authentication failures
+  - Includes detailed logging and error recovery
+- ✅ **NEW**: Integrated enhanced script across all workflows
+  - Updated `ci.yml`, `comprehensive-test.yml`, and `build-and-test.yml`
+  - Added fallback to basic initialization if enhanced script unavailable
+  - Ensures consistent submodule handling across all platforms
 
-### 6. **Cross-Platform Compatibility** ❌➡️✅
-**Problem**: Platform-specific build issues and inconsistent toolchain usage.
+### 6. **Missing Brotli Submodule Causing BaseTools Failures** ❌➡️✅
+**Problem**: BaseTools compilation failing with "fatal error: './brotli/c/common/constants.h' file not found".
 
 **Solutions Applied**:
-- ✅ Unified toolchain versions across all platforms
-- ✅ Platform-specific dependency installation and setup
-- ✅ Consistent artifact naming and packaging strategies
-- ✅ Proper shell selection (bash vs cmd) for each platform
+- ✅ Identified Brotli as critical dependency for EDK2 BaseTools
+- ✅ Enhanced submodule initialization to prioritize essential submodules
+- ✅ Added specific handling for Brotli compression library
+- ✅ Implemented robust retry mechanisms for submodule failures
+- ✅ Added verification of essential submodules before BaseTools compilation
 
 ## Updated Workflow Files
 
@@ -72,6 +79,12 @@
 - **Robust submodule initialization** with comprehensive error handling
 - **Skip known problematic submodules** that cause authentication issues
 - **Fallback strategies** for partial submodule initialization success
+
+### 📄 `.github/scripts/enhanced-submodule-init.sh`
+- **Enhanced submodule initialization** script
+- **Automatically patches** `.gitmodules` to disable problematic submodules
+- **Ensures essential submodules** like Brotli are always initialized
+- **Provides detailed logging** and error recovery
 
 ### 📄 `.github/workflows/ci.yml`
 - **Primary CI workflow** with comprehensive build matrix
@@ -162,6 +175,29 @@ done
   run: |
     call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
     build -t VS2022 -p ACPIPatcherPkg\ACPIPatcherPkg.dsc
+```
+
+### 🔧 **Enhanced Submodule Management**
+```bash
+#!/bin/bash
+# Enhanced submodule initialization with fallback mechanisms
+
+# Patch problematic submodules
+sed -i.bak 's|\[submodule ".*RedfishPkg/Library/JsonLib/jansson"\]|#&|g' .gitmodules
+sed -i.bak 's|\[submodule ".*UnitTestFrameworkPkg/Library/CmockaLib/cmocka"\]|#&|g' .gitmodules
+
+# Initialize essential submodules first
+ESSENTIAL_SUBMODULES=(
+    "BaseTools/Source/C/BrotliCompress/brotli"
+    "MdeModulePkg/Library/BrotliCustomDecompressLib/brotli"
+    "MdeModulePkg/Universal/RegularExpressionDxe/oniguruma"
+)
+
+for submodule in "${ESSENTIAL_SUBMODULES[@]}"; do
+    if ! git submodule update --init --depth 1 "$submodule"; then
+        echo "⚠️ Essential submodule $submodule failed to initialize"
+    fi
+done
 ```
 
 ## Expected Outcomes
