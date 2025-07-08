@@ -83,9 +83,20 @@ jobs:
       run: |
         brew install nasm mtoc
     
+    - name: Setup Visual Studio Environment (Windows)
+      if: matrix.os == 'windows'
+      uses: microsoft/setup-msbuild@v1.3
+      
+    - name: Setup Windows Build Environment
+      if: matrix.os == 'windows'
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+        
     - name: Install Windows Dependencies
       if: matrix.os == 'windows'
       run: |
+        # Install NASM
         choco install nasm -y
         
         # Show where Chocolatey installed NASM
@@ -120,12 +131,19 @@ jobs:
           Get-ChildItem C:\ -Recurse -Filter "nasm.exe" -ErrorAction SilentlyContinue | Select-Object FullName
         }
         
-        # Try to verify NASM installation
+        # Try to verify installations
         try {
           nasm -v
           echo "✅ NASM is accessible"
         } catch {
           echo "⚠️ NASM verification failed, but it may still work in build environment"
+        }
+        
+        try {
+          nmake /? > $null 2>&1
+          echo "✅ nmake is accessible"
+        } catch {
+          echo "⚠️ nmake verification failed"
         }
     
     # EDK2 setup with caching
@@ -234,23 +252,21 @@ jobs:
       run: |
         cd edk2
         
-        REM Setup Visual Studio environment with multiple fallbacks
-        echo Setting up Visual Studio environment...
-        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" 2>nul && (
-          echo ✅ VS2022 Enterprise environment loaded
-          goto :build_setup
-        )
-        call "C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat" 2>nul && (
-          echo ✅ VS2022 Professional environment loaded
-          goto :build_setup
-        )
-        call "C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat" 2>nul && (
-          echo ✅ VS2022 Community environment loaded
-          goto :build_setup
-        )
-        echo ⚠️ Warning: Could not find VS2022 environment, attempting to continue...
+        echo ====================================================================
+        echo Building ACPIPatcher on Windows
+        echo ====================================================================
         
-        :build_setup
+        REM Verify build tools are available
+        echo Verifying build environment...
+        nmake /? >nul 2>&1
+        if errorlevel 1 (
+          echo ❌ ERROR: nmake is not available
+          where nmake 2>nul || echo nmake not found in PATH
+          echo Current PATH: %PATH%
+          exit /b 1
+        ) else (
+          echo ✅ nmake is available
+        )
         REM ====================================================================
         REM CRITICAL: Set up NASM PATH before any EDK2 operations
         REM ====================================================================
@@ -525,11 +541,47 @@ jobs:
           echo "⚠️ ACPIPatcherDxe.efi not found"
         fi
         
-        # Copy documentation if it exists
-        [ -f "../acpipatcher/README.md" ] && cp "../acpipatcher/README.md" "$DIST_DIR/" && echo "✅ Copied README.md"
-        [ -f "../acpipatcher/DEBUG_GUIDE.md" ] && cp "../acpipatcher/DEBUG_GUIDE.md" "$DIST_DIR/" && echo "✅ Copied DEBUG_GUIDE.md"
-        [ -f "../acpipatcher/IMPROVEMENTS.md" ] && cp "../acpipatcher/IMPROVEMENTS.md" "$DIST_DIR/" && echo "✅ Copied IMPROVEMENTS.md"
-        [ -d "../acpipatcher/Build/ACPI" ] && cp -r "../acpipatcher/Build/ACPI" "$DIST_DIR/" && echo "✅ Copied ACPI samples"
+        # Copy documentation using correct paths
+        echo "=== Copying Documentation and Samples ==="
+        
+        # Find and copy documentation files from parent acpipatcher directory
+        echo "Checking for documentation files..."
+        echo "Current directory: $(pwd)"
+        echo "Parent directory contents:"
+        ls -la ../ || echo "Cannot list parent directory"
+        
+        # Try multiple possible paths for the acpipatcher source
+        SOURCE_PATHS=("../acpipatcher" "../ACPIPatcher" "../../acpipatcher" "../../ACPIPatcher")
+        
+        FOUND_SOURCE=""
+        for path in "${SOURCE_PATHS[@]}"; do
+          if [ -f "$path/README.md" ]; then
+            FOUND_SOURCE="$path"
+            echo "✅ Found source directory: $path"
+            break
+          fi
+        done
+        
+        if [ -n "$FOUND_SOURCE" ]; then
+          # Copy documentation files
+          [ -f "$FOUND_SOURCE/README.md" ] && cp "$FOUND_SOURCE/README.md" "$DIST_DIR/" && echo "✅ Copied README.md"
+          [ -f "$FOUND_SOURCE/DEBUG_GUIDE.md" ] && cp "$FOUND_SOURCE/DEBUG_GUIDE.md" "$DIST_DIR/" && echo "✅ Copied DEBUG_GUIDE.md"
+          [ -f "$FOUND_SOURCE/IMPROVEMENTS.md" ] && cp "$FOUND_SOURCE/IMPROVEMENTS.md" "$DIST_DIR/" && echo "✅ Copied IMPROVEMENTS.md"
+          [ -f "$FOUND_SOURCE/EFI_1X_COMPATIBILITY.md" ] && cp "$FOUND_SOURCE/EFI_1X_COMPATIBILITY.md" "$DIST_DIR/" && echo "✅ Copied EFI_1X_COMPATIBILITY.md"
+          
+          # Copy ACPI samples if they exist
+          if [ -d "$FOUND_SOURCE/Build/ACPI" ]; then
+            cp -r "$FOUND_SOURCE/Build/ACPI" "$DIST_DIR/" && echo "✅ Copied ACPI samples"
+          else
+            echo "⚠️ No ACPI samples found in $FOUND_SOURCE/Build/ACPI"
+          fi
+        else
+          echo "⚠️ Could not find source directory with documentation"
+          echo "Searched paths: ${SOURCE_PATHS[*]}"
+        fi
+          echo "Looking for ACPI directory..."
+          find ../acpipatcher -name "ACPI" -type d 2>/dev/null || echo "No ACPI directory found"
+        fi
         
         # Create build info
         {
@@ -543,7 +595,9 @@ jobs:
           echo "Toolchain: ${{ matrix.toolchain }}"
           echo "Platform: ${{ matrix.os }}"
           echo "Runner: ${{ matrix.runner }}"
-          echo "Build Directory: $BUILD_DIR"
+          echo "Artifacts Used:"
+          echo "  EFI: $EFI_PATH"
+          echo "  DXE: $DXE_PATH"
         } > "$DIST_DIR/BUILD_INFO.txt"
         
         echo "✅ Created BUILD_INFO.txt"
