@@ -456,6 +456,11 @@ jobs:
     
     - name: Setup Visual Studio Environment
       uses: microsoft/setup-msbuild@v1.3
+      
+    - name: Setup Windows Build Environment
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
     
     - name: Cache EDK2
       id: cache-edk2
