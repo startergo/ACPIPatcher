@@ -1,4 +1,4 @@
-name: Build ACPIPatcher
+name: Quick CI
 
 on:
   push:
