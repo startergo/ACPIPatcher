@@ -1,11 +1,13 @@
 # ACPIPatcher
 An EFI application and driver to add SSDTs and/or patch in your own DSDT
 
-[![Build and Test](https://github.com/USERNAME/ACPIPatcher/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/USERNAME/ACPIPatcher/actions/workflows/build-and-test.yml)
-[![Quick CI](https://github.com/USERNAME/ACPIPatcher/actions/workflows/ci.yml/badge.svg)](https://github.com/USERNAME/ACPIPatcher/actions/workflows/ci.yml)
-[![Comprehensive Testing](https://github.com/USERNAME/ACPIPatcher/actions/workflows/comprehensive-test.yml/badge.svg)](https://github.com/USERNAME/ACPIPatcher/actions/workflows/comprehensive-test.yml)
-[![GitHub release](https://img.shields.io/github/v/release/USERNAME/ACPIPatcher)](https://github.com/USERNAME/ACPIPatcher/releases)
-[![License](https://img.shields.io/github/license/USERNAME/ACPIPatcher)](LICENSE)
+[![Build and Test](https://github.com/startergo/ACPIPatcher/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/startergo/ACPIPatcher/actions/workflows/build-and-test.yml)
+[![Quick CI](https://github.com/startergo/ACPIPatcher/actions/workflows/ci.yml/badge.svg)](https://github.com/startergo/ACPIPatcher/actions/workflows/ci.yml)
+[![Comprehensive Testing](https://github.com/startergo/ACPIPatcher/actions/workflows/comprehensive-test.yml/badge.svg)](https://github.com/startergo/ACPIPatcher/actions/workflows/comprehensive-test.yml)
+[![GitHub release](https://img.shields.io/github/v/release/startergo/ACPIPatcher)](https://github.com/startergo/ACPIPatcher/releases)
+[![License](https://img.shields.io/github/license/startergo/ACPIPatcher)](LICENSE)
+
+> **✨ Recently Enhanced**: This project has been significantly improved with better error handling, memory management, comprehensive CI/CD automation, and extensive documentation. See [IMPROVEMENTS.md](IMPROVEMENTS.md) and [CI_CD_FIXES.md](CI_CD_FIXES.md) for details.
 
 I made this tool because I wanted a way to use [RehabMans ACPI Debug tool](https://github.com/RehabMan/OS-X-ACPI-Debug) on my MacBook Pro without using Clover.  Although I made this with macOS in mind it will work with any OS along with any bootloader (provided your bootloader does not do its own ACPI patching).
 
