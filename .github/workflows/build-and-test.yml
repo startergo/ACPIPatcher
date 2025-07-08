@@ -351,11 +351,45 @@ jobs:
       run: |
         choco install nasm -y
         
-        # Verify NASM installation and show version
-        nasm -v || echo "NASM verification failed"
+        # Show where Chocolatey installed NASM
+        echo "Checking NASM installation locations..."
+        Get-ChildItem "C:\ProgramData\chocolatey\lib\nasm" -Recurse -Filter "nasm.exe" -ErrorAction SilentlyContinue | Select-Object FullName
         
-        # Show where NASM was installed
-        where nasm || echo "NASM not found in PATH"
+        # Find and add NASM to PATH for this session
+        $possiblePaths = @(
+          "C:\ProgramData\chocolatey\lib\nasm\tools",
+          "C:\ProgramData\chocolatey\bin",
+          "C:\tools\nasm",
+          "C:\Program Files\NASM"
+        )
+        
+        $nasmFound = $false
+        foreach ($path in $possiblePaths) {
+          if (Test-Path "$path\nasm.exe") {
+            $env:PATH = "$path;$env:PATH"
+            echo "Found and added NASM to PATH: $path"
+            
+            # Set GitHub environment variable to persist across steps
+            echo "$path" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            echo "Added to GITHUB_PATH: $path"
+            $nasmFound = $true
+            break
+          }
+        }
+        
+        if (-not $nasmFound) {
+          echo "WARNING: NASM not found in standard locations"
+          echo "Searching entire system for nasm.exe..."
+          Get-ChildItem C:\ -Recurse -Filter "nasm.exe" -ErrorAction SilentlyContinue | Select-Object FullName
+        }
+        
+        # Try to verify NASM installation
+        try {
+          nasm -v
+          echo "✅ NASM is accessible"
+        } catch {
+          echo "⚠️ NASM verification failed, but it may still work in build environment"
+        }
     
     - name: Setup Visual Studio Environment
       uses: microsoft/setup-msbuild@v1.3
@@ -392,6 +426,43 @@ jobs:
       shell: cmd
       run: |
         cd edk2
+        
+        REM ====================================================================
+        REM CRITICAL: Set up NASM PATH before any EDK2 operations
+        REM ====================================================================
+        echo Setting up NASM environment...
+        
+        REM Check multiple possible NASM installation locations
+        if exist "C:\ProgramData\chocolatey\lib\nasm\tools\nasm.exe" (
+          set "NASM_PREFIX=C:\ProgramData\chocolatey\lib\nasm\tools\"
+          set "PATH=C:\ProgramData\chocolatey\lib\nasm\tools;%PATH%"
+          echo ✅ Found NASM at C:\ProgramData\chocolatey\lib\nasm\tools\
+        ) else if exist "C:\ProgramData\chocolatey\bin\nasm.exe" (
+          set "NASM_PREFIX=C:\ProgramData\chocolatey\bin\"
+          set "PATH=C:\ProgramData\chocolatey\bin;%PATH%"
+          echo ✅ Found NASM at C:\ProgramData\chocolatey\bin\
+        ) else if exist "C:\tools\nasm\nasm.exe" (
+          set "NASM_PREFIX=C:\tools\nasm\"
+          set "PATH=C:\tools\nasm;%PATH%"
+          echo ✅ Found NASM at C:\tools\nasm\
+        ) else if exist "C:\Program Files\NASM\nasm.exe" (
+          set "NASM_PREFIX=C:\Program Files\NASM\"
+          set "PATH=C:\Program Files\NASM;%PATH%"
+          echo ✅ Found NASM at C:\Program Files\NASM\
+        ) else (
+          echo ⚠️ NASM not found in standard locations, setting default...
+          set "NASM_PREFIX=C:\ProgramData\chocolatey\lib\nasm\tools\"
+        )
+        
+        REM Verify NASM is accessible
+        nasm -v >nul 2>&1
+        if errorlevel 1 (
+          echo ❌ NASM verification failed - this may cause build issues
+          echo Searching for NASM in additional locations...
+          where nasm 2>nul || echo NASM not found in PATH
+        ) else (
+          echo ✅ NASM is accessible and ready
+        )
         
         REM Set required environment variables to avoid warnings
         REM NASM Detection - Chocolatey usually installs to C:\ProgramData\chocolatey\bin

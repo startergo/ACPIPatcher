@@ -86,7 +86,47 @@ jobs:
     - name: Install Windows Dependencies
       if: matrix.os == 'windows'
       run: |
-        choco install nasm
+        choco install nasm -y
+        
+        # Show where Chocolatey installed NASM
+        echo "Checking NASM installation locations..."
+        Get-ChildItem "C:\ProgramData\chocolatey\lib\nasm" -Recurse -Filter "nasm.exe" -ErrorAction SilentlyContinue | Select-Object FullName
+        
+        # Find and add NASM to PATH for this session
+        $possiblePaths = @(
+          "C:\ProgramData\chocolatey\lib\nasm\tools",
+          "C:\ProgramData\chocolatey\bin",
+          "C:\tools\nasm",
+          "C:\Program Files\NASM"
+        )
+        
+        $nasmFound = $false
+        foreach ($path in $possiblePaths) {
+          if (Test-Path "$path\nasm.exe") {
+            $env:PATH = "$path;$env:PATH"
+            echo "Found and added NASM to PATH: $path"
+            
+            # Set GitHub environment variable to persist across steps
+            echo "$path" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            echo "Added to GITHUB_PATH: $path"
+            $nasmFound = $true
+            break
+          }
+        }
+        
+        if (-not $nasmFound) {
+          echo "WARNING: NASM not found in standard locations"
+          echo "Searching entire system for nasm.exe..."
+          Get-ChildItem C:\ -Recurse -Filter "nasm.exe" -ErrorAction SilentlyContinue | Select-Object FullName
+        }
+        
+        # Try to verify NASM installation
+        try {
+          nasm -v
+          echo "✅ NASM is accessible"
+        } catch {
+          echo "⚠️ NASM verification failed, but it may still work in build environment"
+        }
     
     # EDK2 setup with caching
     - name: Cache EDK2
@@ -211,37 +251,45 @@ jobs:
         echo ⚠️ Warning: Could not find VS2022 environment, attempting to continue...
         
         :build_setup
+        REM ====================================================================
+        REM CRITICAL: Set up NASM PATH before any EDK2 operations
+        REM ====================================================================
+        echo Setting up NASM environment...
+        
+        REM Check multiple possible NASM installation locations
+        if exist "C:\ProgramData\chocolatey\lib\nasm\tools\nasm.exe" (
+          set "NASM_PREFIX=C:\ProgramData\chocolatey\lib\nasm\tools\"
+          set "PATH=C:\ProgramData\chocolatey\lib\nasm\tools;%PATH%"
+          echo ✅ Found NASM at C:\ProgramData\chocolatey\lib\nasm\tools\
+        ) else if exist "C:\ProgramData\chocolatey\bin\nasm.exe" (
+          set "NASM_PREFIX=C:\ProgramData\chocolatey\bin\"
+          set "PATH=C:\ProgramData\chocolatey\bin;%PATH%"
+          echo ✅ Found NASM at C:\ProgramData\chocolatey\bin\
+        ) else if exist "C:\tools\nasm\nasm.exe" (
+          set "NASM_PREFIX=C:\tools\nasm\"
+          set "PATH=C:\tools\nasm;%PATH%"
+          echo ✅ Found NASM at C:\tools\nasm\
+        ) else if exist "C:\Program Files\NASM\nasm.exe" (
+          set "NASM_PREFIX=C:\Program Files\NASM\"
+          set "PATH=C:\Program Files\NASM;%PATH%"
+          echo ✅ Found NASM at C:\Program Files\NASM\
+        ) else (
+          echo ⚠️ NASM not found in standard locations, setting default...
+          set "NASM_PREFIX=C:\ProgramData\chocolatey\lib\nasm\tools\"
+        )
+        
+        REM Verify NASM is accessible
+        nasm -v >nul 2>&1
+        if errorlevel 1 (
+          echo ❌ NASM verification failed - this may cause build issues
+          echo Searching for NASM in additional locations...
+          where nasm 2>nul || echo NASM not found in PATH
+        ) else (
+          echo ✅ NASM is accessible and ready
+        )
+        
         REM Set environment variables to avoid warnings
         echo Setting up environment variables...
-        
-        REM NASM Detection
-        where nasm >nul 2>&1
-        if errorlevel 1 (
-          if exist "%ProgramData%\chocolatey\bin\nasm.exe" (
-            set "NASM_PREFIX=%ProgramData%\chocolatey\bin\"
-            set "PATH=%ProgramData%\chocolatey\bin;%PATH%"
-            echo Set NASM_PREFIX=%NASM_PREFIX%
-          ) else if exist "C:\tools\nasm\nasm.exe" (
-            set "NASM_PREFIX=C:\tools\nasm\"
-            set "PATH=C:\tools\nasm;%PATH%"
-            echo Set NASM_PREFIX=%NASM_PREFIX%
-          ) else if exist "C:\Program Files\NASM\nasm.exe" (
-            set "NASM_PREFIX=C:\Program Files\NASM\"
-            set "PATH=C:\Program Files\NASM;%PATH%"
-            echo Set NASM_PREFIX=%NASM_PREFIX%
-          ) else (
-            set "NASM_PREFIX=C:\tools\nasm\"
-            echo Set default NASM_PREFIX=%NASM_PREFIX%
-          )
-        ) else (
-          for /f "tokens=*" %%i in ('where nasm') do (
-            set "NASM_PATH=%%i"
-            goto :found_nasm_ci
-          )
-          :found_nasm_ci
-          for %%i in ("%NASM_PATH%") do set "NASM_PREFIX=%%~dpi"
-          echo Set NASM_PREFIX=%NASM_PREFIX%
-        )
         
         REM Set CLANG_BIN
         if exist "C:\Program Files\LLVM\bin\clang.exe" (

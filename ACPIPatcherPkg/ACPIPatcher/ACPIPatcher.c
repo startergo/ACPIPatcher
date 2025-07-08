@@ -49,13 +49,11 @@
 //
 // Global Variables
 //
-//
-// Global Variables
-//
 EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER        *gRsdp      = NULL;
 EFI_ACPI_SDT_HEADER                                 *gXsdt      = NULL;
 EFI_ACPI_6_4_FIXED_ACPI_DESCRIPTION_TABLE           *gFacp      = NULL;
 UINT64                                              gXsdtEnd    = 0;
+BOOLEAN                                             gIsEfi1x    = FALSE;
 
 #ifndef DXE
 #include <Library/PrintLib.h>
@@ -83,6 +81,11 @@ EFI_STATUS
 ValidateAcpiTable (
   IN VOID    *TableBuffer,
   IN UINTN   BufferSize
+  );
+
+BOOLEAN
+DetectEfiFirmwareVersion (
+  IN EFI_SYSTEM_TABLE *SystemTable
   );
 
 /**
@@ -768,7 +771,6 @@ HexDump (
 ///
 // EFI version detection for compatibility
 //
-BOOLEAN gIsEfi1x = FALSE;
 
 /**
   Detect if running on EFI 1.x firmware (like MacPro5,1) and optimize accordingly.
