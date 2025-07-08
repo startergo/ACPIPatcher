@@ -156,7 +156,15 @@ PatchAcpi (
 
   // Calculate current and maximum entries in XSDT
   CurrentEntries = (gXsdt->Length - sizeof(EFI_ACPI_SDT_HEADER)) / sizeof(UINT64);
-  MaxEntries = CurrentEntries + MAX_ADDITIONAL_TABLES;
+  
+  // Apply EFI 1.x specific limitations if detected
+  if (gIsEfi1x) {
+    MaxEntries = CurrentEntries + MIN(MAX_ADDITIONAL_TABLES, 8);  // Limit to 8 additional tables for EFI 1.x
+    AcpiDebugPrint(DEBUG_INFO, L"EFI 1.x detected: Limiting additional tables to %u\n", 
+                   MIN(MAX_ADDITIONAL_TABLES, 8));
+  } else {
+    MaxEntries = CurrentEntries + MAX_ADDITIONAL_TABLES;
+  }
   
   AcpiDebugPrint(DEBUG_INFO, L"XSDT analysis:\n");
   AcpiDebugPrint(DEBUG_INFO, L"  Current entries: %u\n", CurrentEntries);
@@ -225,6 +233,13 @@ PatchAcpi (
     }
 
     AcpiDebugPrint(DEBUG_VERBOSE, L"  File read to buffer at " PTR_FMT L"\n", PTR_TO_INT(FileBuffer));
+
+    // Apply EFI 1.x file size limitations
+    if (gIsEfi1x && FileInfo->FileSize > (64 * 1024)) {
+      AcpiDebugPrint(DEBUG_WARN, L"File %s is %u bytes (>64KB) - may have issues on EFI 1.x firmware\n", 
+                     FileInfo->FileName, (UINT32)FileInfo->FileSize);
+      AcpiDebugPrint(DEBUG_WARN, L"Consider reducing ACPI table size for better EFI 1.x compatibility\n");
+    }
 
     // Validate the ACPI table
     AcpiDebugPrint(DEBUG_VERBOSE, L"  Validating ACPI table...\n");
@@ -487,6 +502,12 @@ AcpiPatcherEntryPoint (
   AcpiDebugPrint(DEBUG_INFO, L"SystemTable: " PTR_FMT L"\n", PTR_TO_INT(SystemTable));
   AcpiDebugPrint(DEBUG_VERBOSE, L"Debug level: %u\n", DEBUG_LEVEL);
 
+  // Detect EFI firmware version for compatibility optimizations
+  gIsEfi1x = DetectEfiFirmwareVersion(SystemTable);
+
+  // Detect EFI firmware version
+  gIsEfi1x = DetectEfiFirmwareVersion(SystemTable);
+
   // Get RSDP from system configuration table
   AcpiDebugPrint(DEBUG_INFO, L"Locating RSDP...\n");
   Status = EfiGetSystemConfigurationTable(&gEfiAcpi20TableGuid, (VOID **)&gRsdp);
@@ -742,4 +763,39 @@ HexDump (
     AcpiDebugPrint(DEBUG_VERBOSE, L"|\n");
   }
 #endif
+}
+
+///
+// EFI version detection for compatibility
+//
+BOOLEAN gIsEfi1x = FALSE;
+
+/**
+  Detect if running on EFI 1.x firmware (like MacPro5,1) and optimize accordingly.
+  
+  @param[in] SystemTable    Pointer to the EFI/UEFI System Table
+  
+  @retval TRUE     Running on EFI 1.x firmware
+  @retval FALSE    Running on UEFI 2.x+ firmware
+**/
+BOOLEAN
+DetectEfiFirmwareVersion (
+  IN EFI_SYSTEM_TABLE  *SystemTable
+  )
+{
+  if (SystemTable == NULL) {
+    return FALSE;
+  }
+  
+  // EFI 1.x firmware typically has firmware revision < 2.0
+  if (SystemTable->FirmwareRevision < 0x00020000) {
+    AcpiDebugPrint(DEBUG_INFO, L"Detected EFI 1.x firmware (revision: 0x%x)\n", 
+                   SystemTable->FirmwareRevision);
+    AcpiDebugPrint(DEBUG_INFO, L"Applying EFI 1.x compatibility optimizations...\n");
+    return TRUE;
+  }
+  
+  AcpiDebugPrint(DEBUG_VERBOSE, L"Detected UEFI 2.x+ firmware (revision: 0x%x)\n", 
+                 SystemTable->FirmwareRevision);
+  return FALSE;
 }

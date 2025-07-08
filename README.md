@@ -9,7 +9,7 @@ An EFI application and driver to add SSDTs and/or patch in your own DSDT
 
 > **✨ Recently Enhanced**: This project has been significantly improved with better error handling, memory management, comprehensive CI/CD automation, and extensive documentation. See [IMPROVEMENTS.md](IMPROVEMENTS.md) and [CI_CD_FIXES.md](CI_CD_FIXES.md) for details.
 
-I made this tool because I wanted a way to use [RehabMans ACPI Debug tool](https://github.com/RehabMan/OS-X-ACPI-Debug) on my MacBook Pro without using Clover's built-in ACPI patching. Although I made this with macOS in mind, it will work with any OS along with any UEFI-compatible bootloader.
+I made this tool because I wanted a way to use [RehabMans ACPI Debug tool](https://github.com/RehabMan/OS-X-ACPI-Debug) on my MacBook Pro without using Clover's built-in ACPI patching. Although I made this with macOS in mind, it will work with any OS along with any EFI/UEFI-compatible bootloader. This tool is particularly useful for older Mac hardware (like MacPro5,1) that uses EFI 1.x firmware.
 
 **Important Note on Bootloader Compatibility**: While ACPIPatcher can technically run with any bootloader, **OpenCore and Clover have their own sophisticated ACPI patching systems** that are generally preferred for production use. ACPIPatcher is most useful with bootloaders like **RefindPlus** or **rEFInd** that don't provide extensive ACPI modification capabilities, or for development/debugging scenarios where you need direct control over ACPI table injection.
 
@@ -25,15 +25,18 @@ I made this tool because I wanted a way to use [RehabMans ACPI Debug tool](https
 ## System Requirements
 
 ### Minimum Requirements
-- **UEFI Firmware**: ACPI 2.0+ compatible UEFI firmware
+- **Firmware**: ACPI 2.0+ compatible EFI or UEFI firmware
 - **Architecture**: x64 (Intel/AMD 64-bit) or IA32 (32-bit x86)
 - **Memory**: At least 2MB available EFI memory
 - **Storage**: Access to EFI System Partition for file placement
 
 ### Supported Platforms
-- **Intel-based systems**: Core 2 Duo and newer
+- **Intel-based systems**: Core 2 Duo and newer (including older EFI Macs)
 - **AMD-based systems**: Athlon 64 and newer
-- **UEFI firmware**: Most modern UEFI implementations (2010+)
+- **Firmware Compatibility**: 
+  - **Modern UEFI**: Most systems 2012+ with full UEFI 2.x support
+  - **Legacy EFI**: Older Mac systems (2006-2012) with EFI 1.x firmware
+  - **Note**: MacPro5,1 and similar older Macs use EFI 1.x, not UEFI 2.x
 - **Operating Systems**: Windows, macOS, Linux (OS-agnostic)
 
 ### Bootloader Compatibility
@@ -42,15 +45,22 @@ I made this tool because I wanted a way to use [RehabMans ACPI Debug tool](https
 - ⚠️ **OpenCore**: Compatible but has built-in ACPI patching (see note below)
 - ⚠️ **Clover**: Compatible but has built-in ACPI patching (see note below)
 - ✅ **GRUB**: Compatible via EFI shell execution
-- ✅ **Direct UEFI**: Native EFI shell execution
-- ❌ **Legacy BIOS**: Not supported (UEFI only)
+- ✅ **Direct EFI/UEFI**: Native EFI shell execution
+- ❌ **Legacy BIOS**: Not supported (EFI/UEFI only)
 
 **Note on OpenCore/Clover**: While ACPIPatcher can run alongside these bootloaders, they provide their own comprehensive ACPI patching systems through their configuration files. For production use with these bootloaders, their built-in ACPI features are generally preferred. ACPIPatcher is most useful with these bootloaders for development, debugging, or specific edge cases not covered by their built-in patching.
+
+**Note on Older Mac Hardware**: Systems like MacPro5,1 (2010/2012) use EFI 1.x firmware rather than modern UEFI 2.x. ACPIPatcher is compatible with both EFI 1.x and UEFI 2.x firmware implementations.
 
 ### File System Support
 - **FAT32**: Primary file system for EFI System Partition
 - **FAT16**: Compatible for smaller partitions
 - **NTFS/ext4**: Not supported for EFI execution (use FAT32)
+
+**Special Notes for Older Mac Hardware**:
+- **MacPro5,1 and similar**: These systems use EFI 1.x firmware and may require specific bootloader configurations
+- **EFI Shell Access**: On older Macs, accessing EFI shell may require holding Option during boot and selecting "EFI Boot" options
+- **Firmware Limitations**: Some older EFI implementations may have stricter memory or file size limitations
 
 ## How to use:
 
@@ -160,6 +170,12 @@ I have also provided a test SSDT in `Build/ACPI` for validation purposes.
 - **No effect:** Check file permissions and naming conventions
 - **Errors:** Enable debugging and check DEBUG_GUIDE.md
 
+**Older Mac Hardware (MacPro5,1, etc.):**
+- **EFI Shell Access:** Use Option key during boot, look for "EFI Boot" options
+- **Memory Limitations:** Keep ACPI files small (<64KB each) for EFI 1.x compatibility
+- **Bootloader Requirements:** RefindPlus or rEFInd work best with older EFI firmware
+- **File Path Issues:** Ensure short path names and avoid deep directory structures
+
 ## Debugging
 
 ACPIPatcher now includes comprehensive debugging capabilities to help troubleshoot ACPI patching issues. See [DEBUG_GUIDE.md](DEBUG_GUIDE.md) for detailed information.
@@ -189,6 +205,7 @@ If you encounter issues, increase the debug level by modifying `DEBUG_LEVEL` in 
 ## Documentation
 - [IMPROVEMENTS.md](IMPROVEMENTS.md) - Details about code improvements and security enhancements
 - [DEBUG_GUIDE.md](DEBUG_GUIDE.md) - Comprehensive debugging and troubleshooting guide
+- [EFI_1X_COMPATIBILITY.md](EFI_1X_COMPATIBILITY.md) - Detailed guide for MacPro5,1 and other EFI 1.x systems
 
 ## How to Build:
 
