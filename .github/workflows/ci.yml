@@ -322,7 +322,7 @@ jobs:
         
         REM Ensure WORKSPACE is set (required for edksetup.bat)
         if "%WORKSPACE%"=="" (
-          set "WORKSPACE=%CD%"
+          for /f "tokens=*" %%i in ('cd') do set "WORKSPACE=%%i"
           echo Set WORKSPACE to: %WORKSPACE%
         ) else (
           echo WORKSPACE is: %WORKSPACE%

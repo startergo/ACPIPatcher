@@ -87,8 +87,9 @@ test_build_structure() {
     
     info "Testing build structure for $arch/$build_type/$toolchain"
     
-    # Common build directory patterns
+    # Common build directory patterns - check actual build structure first
     local possible_dirs=(
+        "$build_root/Build/ACPIPatcher/${build_type}_${toolchain}/${arch}"
         "$build_root/Build/ACPIPatcherPkg/${build_type}_${toolchain}/${arch}"
         "$build_root/Build/${build_type}_${toolchain}/${arch}"
         "$build_root/Build/${arch}/${build_type}"
@@ -113,16 +114,37 @@ test_build_structure() {
     
     success "Found build directory: $build_dir"
     
-    # Test required EFI files
+    # Test required EFI files - check multiple possible locations
     local required_files=("ACPIPatcher.efi" "ACPIPatcherDxe.efi")
     local all_found=true
     
     for efi_file in "${required_files[@]}"; do
-        local full_path="$build_dir/$efi_file"
-        if test_efi_file "$full_path" "$arch"; then
-            success "Required file found and valid: $efi_file"
-        else
+        local file_found=false
+        local possible_paths=(
+            "$build_dir/$efi_file"
+            "$build_dir/ACPIPatcherPkg/ACPIPatcher/ACPIPatcher/OUTPUT/$efi_file"
+            "$build_dir/ACPIPatcherPkg/ACPIPatcher/ACPIPatcher/DEBUG/$efi_file"
+            "$build_dir/ACPIPatcherPkg/ACPIPatcher/ACPIPatcherDxe/OUTPUT/$efi_file"
+            "$build_dir/ACPIPatcherPkg/ACPIPatcher/ACPIPatcherDxe/DEBUG/$efi_file"
+            # Additional common EDK2 build paths
+            "$build_dir/ACPIPatcher/$efi_file"
+            "$build_dir/ACPIPatcherDxe/$efi_file"
+        )
+        
+        for path in "${possible_paths[@]}"; do
+            if test_efi_file "$path" "$arch"; then
+                success "Required file found and valid: $efi_file at $path"
+                file_found=true
+                break
+            fi
+        done
+        
+        if [ "$file_found" = false ]; then
             error "Required file missing or invalid: $efi_file"
+            info "Searched paths:"
+            for path in "${possible_paths[@]}"; do
+                info "  - $path"
+            done
             all_found=false
         fi
     done
@@ -272,8 +294,28 @@ main() {
                     local build_type="${BASH_REMATCH[1]}"
                     local toolchain="${BASH_REMATCH[2]}"
                     
-                    # Check if this directory actually contains EFI files
-                    if [ -f "$build_dir/ACPIPatcher.efi" ] || [ -f "$build_dir/ACPIPatcherDxe.efi" ]; then
+                    # Check if this directory actually contains EFI files (check multiple locations)
+                    local has_efi_files=false
+                    local efi_search_paths=(
+                        "$build_dir/ACPIPatcher.efi"
+                        "$build_dir/ACPIPatcherDxe.efi"
+                        "$build_dir/ACPIPatcherPkg/ACPIPatcher/ACPIPatcher/OUTPUT/ACPIPatcher.efi"
+                        "$build_dir/ACPIPatcherPkg/ACPIPatcher/ACPIPatcher/DEBUG/ACPIPatcher.efi"
+                        "$build_dir/ACPIPatcherPkg/ACPIPatcher/ACPIPatcherDxe/OUTPUT/ACPIPatcherDxe.efi"
+                        "$build_dir/ACPIPatcherPkg/ACPIPatcher/ACPIPatcherDxe/DEBUG/ACPIPatcherDxe.efi"
+                        # Additional search paths for common EDK2 structures
+                        "$build_dir/ACPIPatcher/ACPIPatcher.efi"
+                        "$build_dir/ACPIPatcherDxe/ACPIPatcherDxe.efi"
+                    )
+                    
+                    for efi_path in "${efi_search_paths[@]}"; do
+                        if [ -f "$efi_path" ]; then
+                            has_efi_files=true
+                            break
+                        fi
+                    done
+                    
+                    if [ "$has_efi_files" = true ]; then
                         build_configs+=("$arch:$build_type:$toolchain")
                         info "Found build configuration: $arch/$build_type/$toolchain"
                     fi
@@ -298,8 +340,8 @@ main() {
                 
                 # Check if this configuration actually has build artifacts
                 local possible_dirs=(
-                    "$test_root/Build/ACPIPatcherPkg/${build_type}_${toolchain}/${arch}"
                     "$test_root/Build/ACPIPatcher/${build_type}_${toolchain}/${arch}"
+                    "$test_root/Build/ACPIPatcherPkg/${build_type}_${toolchain}/${arch}"
                     "$test_root/Build/${build_type}_${toolchain}/${arch}"
                     "$test_root/Build/${arch}/${build_type}"
                 )
