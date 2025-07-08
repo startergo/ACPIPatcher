@@ -293,10 +293,9 @@ jobs:
         [ -d "../acpipatcher/Build/ACPI" ] && cp -r "../acpipatcher/Build/ACPI" "$DIST_DIR/" && echo "✅ Copied ACPI samples"
         
         # Create build info
-        cat > "$DIST_DIR/BUILD_INFO.txt" << 'EOF'
-ACPIPatcher Build Information
-============================
-EOF
+        echo "ACPIPatcher Build Information" > "$DIST_DIR/BUILD_INFO.txt"
+        echo "============================" >> "$DIST_DIR/BUILD_INFO.txt"
+        echo "" >> "$DIST_DIR/BUILD_INFO.txt"
         echo "Version: $(git -C ../acpipatcher describe --tags --always 2>/dev/null || echo 'unknown')" >> "$DIST_DIR/BUILD_INFO.txt"
         echo "Commit: $(git -C ../acpipatcher rev-parse HEAD 2>/dev/null || echo 'unknown')" >> "$DIST_DIR/BUILD_INFO.txt"
         echo "Build Date: $(date -u)" >> "$DIST_DIR/BUILD_INFO.txt"
