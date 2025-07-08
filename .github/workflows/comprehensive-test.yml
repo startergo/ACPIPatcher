@@ -667,27 +667,33 @@ jobs:
       shell: powershell
       run: |
         cd edk2
-        $BUILD_DIR = "Build\ACPIPatcherPkg\${{ matrix.build_type }}_${{ matrix.toolchain }}\${{ matrix.arch }}"
+        # Dynamic discovery of EFI artifacts
+        $EFI_PATH = (Get-ChildItem -Path "Build" -Recurse -Filter "ACPIPatcher.efi" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+        $DXE_PATH = (Get-ChildItem -Path "Build" -Recurse -Filter "ACPIPatcherDxe.efi" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
         $PACKAGE_NAME = "ACPIPatcher-Test-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.build_type }}"
-        
+         
         New-Item -ItemType Directory -Path "$PACKAGE_NAME" -Force
-        if (Test-Path "$BUILD_DIR\ACPIPatcher.efi") {
-          Copy-Item "$BUILD_DIR\ACPIPatcher.efi" "$PACKAGE_NAME\"
+        if (Test-Path $EFI_PATH) {
+          Copy-Item $EFI_PATH "$PACKAGE_NAME\"
+        } else {
+          Write-Warning "ACPIPatcher.efi not found"
         }
-        if (Test-Path "$BUILD_DIR\ACPIPatcherDxe.efi") {
-          Copy-Item "$BUILD_DIR\ACPIPatcherDxe.efi" "$PACKAGE_NAME\"
+        if (Test-Path $DXE_PATH) {
+          Copy-Item $DXE_PATH "$PACKAGE_NAME\"
+        } else {
+          Write-Warning "ACPIPatcherDxe.efi not found"
         }
-        
-        # Create test report
-        $testReport = "Test Build Report`n"
-        $testReport += "Platform: ${{ matrix.platform }}`n"
-        $testReport += "Architecture: ${{ matrix.arch }}`n"
-        $testReport += "Build Type: ${{ matrix.build_type }}`n"
-        $testReport += "Toolchain: ${{ matrix.toolchain }}`n"
-        $testReport += "Test Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')`n"
-        $testReport += "Test Level: ${{ env.TEST_LEVEL }}`n"
-        
-        $testReport | Out-File -FilePath "$PACKAGE_NAME\TEST_REPORT.txt" -Encoding UTF8
+
+          # Create test report
+          $testReport = "Test Build Report`n"
+          $testReport += "Platform: ${{ matrix.platform }}`n"
+          $testReport += "Architecture: ${{ matrix.arch }}`n"
+          $testReport += "Build Type: ${{ matrix.build_type }}`n"
+          $testReport += "Toolchain: ${{ matrix.toolchain }}`n"
+          $testReport += "Test Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')`n"
+          $testReport += "Test Level: ${{ env.TEST_LEVEL }}`n"
+          
+          $testReport | Out-File -FilePath "$PACKAGE_NAME\TEST_REPORT.txt" -Encoding UTF8
     
     - name: Upload Test Artifacts
       uses: actions/upload-artifact@v4
@@ -847,9 +853,4 @@ jobs:
         
         # Function complexity (approximate)
         echo "=== Function Analysis ==="
-        grep -r "^[A-Za-z_][A-Za-z0-9_]* *(" ACPIPatcherPkg/ --include="*.c" | wc -l | xargs echo "Approximate function count:"
-        
-        # Check for large functions (potential complexity issues)
-        echo "=== Large Function Detection ==="
-        find ACPIPatcherPkg -name "*.c" | while read file; do
-          awk '/^[A-Za-z_][A-Za
+        grep -r "^[A-Za-z_][A-Za

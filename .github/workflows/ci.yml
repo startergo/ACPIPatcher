@@ -344,6 +344,10 @@ jobs:
           echo BASE_TOOLS_PATH is: %BASE_TOOLS_PATH%
         )
         
+        REM Force 64-bit host environment for BaseTools
+        echo Setting up 64-bit VS environment for BaseTools build...
+        call "%VSINSTALLDIR%\VC\Auxiliary\Build\vcvarsall.bat" amd64
+        
         REM Build BaseTools AFTER setting BASE_TOOLS_PATH
         echo Building BaseTools for Windows...
         cd BaseTools
@@ -351,7 +355,7 @@ jobs:
         
         REM Strategy 1: Try nmake with warning suppression
         echo Attempting BaseTools build with nmake...
-        set CL=/W0
+        set CL=/W0 /WX- /wd4311 /wd4312
         set LINK=/IGNORE:4099
         nmake >nul 2>&1
         if not errorlevel 1 (
