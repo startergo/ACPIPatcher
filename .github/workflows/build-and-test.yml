@@ -683,6 +683,35 @@ jobs:
         set "BASE_TOOLS_PATH=%WORKSPACE%\BaseTools"
         echo Set BASE_TOOLS_PATH to: %BASE_TOOLS_PATH%
         
+        REM Set EDK_TOOLS_PATH for BaseTools build (required by makefiles)
+        set "EDK_TOOLS_PATH=%WORKSPACE%\BaseTools"
+        echo Set EDK_TOOLS_PATH to: %EDK_TOOLS_PATH%
+        
+        REM Set other required EDK2 environment variables for BaseTools build
+        set "CONF_PATH=%WORKSPACE%\Conf"
+        set "EDK_TOOLS_BIN=%BASE_TOOLS_PATH%\Bin\Win32"
+        echo Set CONF_PATH to: %CONF_PATH%
+        echo Set EDK_TOOLS_BIN to: %EDK_TOOLS_BIN%
+        
+        REM Ensure required directories exist
+        if not exist "%CONF_PATH%" mkdir "%CONF_PATH%"
+        if not exist "%EDK_TOOLS_BIN%" mkdir "%EDK_TOOLS_BIN%"
+        echo Created required directories if they didn't exist
+        
+        REM Set EDK_TOOLS_PATH required by BaseTools makefiles
+        set "EDK_TOOLS_PATH=%BASE_TOOLS_PATH%"
+        echo Set EDK_TOOLS_PATH to: %EDK_TOOLS_PATH%
+        
+        REM Set other required EDK2 environment variables for BaseTools build
+        set "CONF_PATH=%WORKSPACE%\Conf"
+        set "EDK_TOOLS_BIN=%BASE_TOOLS_PATH%\Bin\Win32"
+        echo Set CONF_PATH to: %CONF_PATH%
+        echo Set EDK_TOOLS_BIN to: %EDK_TOOLS_BIN%
+        
+        REM Ensure required directories exist
+        if not exist "%CONF_PATH%" mkdir "%CONF_PATH%"
+        if not exist "%EDK_TOOLS_BIN%" mkdir "%EDK_TOOLS_BIN%"
+        
         REM Set PYTHON_COMMAND to avoid '\python.exe' error in BaseTools
         where python >nul 2>&1
         if %ERRORLEVEL%==0 (
@@ -751,6 +780,8 @@ jobs:
         set "SAVED_BASE_TOOLS_PATH=%BASE_TOOLS_PATH%"
         set "SAVED_EDK_TOOLS_PATH=%EDK_TOOLS_PATH%"
         set "SAVED_WORKSPACE=%WORKSPACE%"
+        set "SAVED_CONF_PATH=%CONF_PATH%"
+        set "SAVED_EDK_TOOLS_BIN=%EDK_TOOLS_BIN%"
         
         set MAKEFLAGS=
         set CFLAGS=
@@ -763,10 +794,23 @@ jobs:
         set "BASE_TOOLS_PATH=%SAVED_BASE_TOOLS_PATH%"
         set "EDK_TOOLS_PATH=%SAVED_EDK_TOOLS_PATH%"
         set "WORKSPACE=%SAVED_WORKSPACE%"
+        set "CONF_PATH=%SAVED_CONF_PATH%"
+        set "EDK_TOOLS_BIN=%SAVED_EDK_TOOLS_BIN%"
         echo Cleared potentially problematic build flags and restored critical variables
         
         REM Build BaseTools with nmake (use clean environment but explicit PYTHON_COMMAND)
         echo Running nmake with PYTHON_COMMAND: %PYTHON_COMMAND%
+        echo Verifying EDK2 environment variables for BaseTools build:
+        echo WORKSPACE=%WORKSPACE%
+        echo BASE_TOOLS_PATH=%BASE_TOOLS_PATH%
+        echo EDK_TOOLS_PATH=%EDK_TOOLS_PATH%
+        echo CONF_PATH=%CONF_PATH%
+        echo EDK_TOOLS_BIN=%EDK_TOOLS_BIN%
+        echo.
+        echo EDK_TOOLS_PATH=%EDK_TOOLS_PATH%
+        echo CONF_PATH=%CONF_PATH%
+        echo EDK_TOOLS_BIN=%EDK_TOOLS_BIN%
+        echo.
         nmake PYTHON_COMMAND="%PYTHON_COMMAND%"
         if errorlevel 1 (
           echo ❌ BaseTools build failed, trying without makefile patches...
@@ -786,6 +830,13 @@ jobs:
           set MFLAGS=
           
           echo Retry nmake with PYTHON_COMMAND: %PYTHON_COMMAND%
+          echo Verifying EDK2 environment variables for retry build:
+          echo WORKSPACE=%WORKSPACE%
+          echo BASE_TOOLS_PATH=%BASE_TOOLS_PATH%
+          echo EDK_TOOLS_PATH=%EDK_TOOLS_PATH%
+          echo CONF_PATH=%CONF_PATH%
+          echo EDK_TOOLS_BIN=%EDK_TOOLS_BIN%
+          echo.
           nmake PYTHON_COMMAND="%PYTHON_COMMAND%"
           
           if errorlevel 1 (
