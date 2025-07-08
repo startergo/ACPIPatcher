@@ -44,16 +44,20 @@ Building BaseTools with warnings disabled (CFLAGS=/W0 /WX- /wd4244 ...)
 
 ### 5. VS2022 Toolchain Setup (Before ACPIPatcher build)
 ```
-Setting up VS2022 toolchain for ACPIPatcher build...
-✓ Visual Studio compiler accessible
+Found Visual Studio at: C:\Program Files\Microsoft Visual Studio\2022\Enterprise
+Found MSVC version: 14.44.33712
+Set VS2022_BIN=C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.44.33712\bin\Hostx64\x64
 ✓ VS2022 found in tools_def.txt
+✓ VS2022_BIN definition found in tools_def.txt
+✓ cl.exe found at [VS2022_BIN path]
+Building for architecture: X64 (target: x64)
 ```
 
-**Expected Result**: ✅ VS2022 toolchain accessible and recognized
+**Expected Result**: ✅ VS2022 toolchain properly detected, configured, and accessible
 
 ### 6. ACPIPatcher Build Success
 ```
-Building ACPIPatcher...
+Attempting build with VS2022 toolchain...
 ✅ ACPIPatcher build completed successfully with VS2022
 ```
 
@@ -91,9 +95,12 @@ MemoryFile.c(144): error C2220: the following warning is treated as an error
 ### Scenario 3: VS2022 Toolchain Not Found (FIXED)
 **Previous Failure**:
 ```
-build: error 7000: Failed to execute command: Tool chain ['VS2022'] is not defined
+build: : warning: Tool chain [VS2022] is not defined
+build.py...
+ : error 4000: Not available
+	[VS2022] not defined. No toolchain available for build!
 ```
-**Fix Applied**: Re-source VsDevCmd.bat + fallback to VS2019
+**Fix Applied**: Enhanced VS2022 detection using vswhere.exe + dynamic MSVC version discovery + automatic tools_def.txt updates
 
 ### Scenario 4: Tool Access from Windows Batch (FIXED)
 **Previous Failure**:
