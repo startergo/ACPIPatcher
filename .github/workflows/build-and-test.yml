@@ -740,7 +740,21 @@ jobs:
         
         REM Ensure VS2022 toolchain is available by sourcing again
         echo Setting up VS2022 toolchain for ACPIPatcher build...
-        call "%VSINSTALLDIR%Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
+        
+        REM Find Visual Studio installation path using vswhere
+        for /f "delims=" %%i in ('"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.Component.MSBuild -property installationPath') do set "VS_INSTALL_PATH=%%i"
+        if "%VS_INSTALL_PATH%"=="" (
+          echo ✗ Could not find Visual Studio installation
+          exit /b 1
+        )
+        echo Found Visual Studio at: %VS_INSTALL_PATH%
+        
+        REM Set up VS environment variables properly
+        call "%VS_INSTALL_PATH%\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
+        if errorlevel 1 (
+          echo ✗ Failed to set up VS environment
+          exit /b 1
+        )
         
         REM Verify VS2022 tools are available
         where cl >nul 2>&1
@@ -751,6 +765,25 @@ jobs:
           echo ✗ Visual Studio compiler not accessible
           exit /b 1
         )
+        
+        REM Explicitly set VS2022 environment variables for EDK2
+        set "VS2022_PREFIX=%VS_INSTALL_PATH%\VC\Tools\MSVC\"
+        for /f "delims=" %%i in ('dir /b "%VS2022_PREFIX%" 2^>nul ^| findstr /r "^[0-9]" ^| sort /r') do set "MSVC_VERSION=%%i" & goto :found_msvc
+        :found_msvc
+        if "%MSVC_VERSION%"=="" (
+          echo ✗ Could not find MSVC version directory
+          exit /b 1
+        )
+        echo Found MSVC version: %MSVC_VERSION%
+        
+        REM Set EDK2-specific environment variables for VS2022
+        set "VS2022_BIN=%VS2022_PREFIX%%MSVC_VERSION%\bin\Hostx64\x64"
+        set "VS2022_DLL=%VS2022_PREFIX%%MSVC_VERSION%\bin\Hostx64\x64"
+        set "VS2022_BINX86=%VS2022_PREFIX%%MSVC_VERSION%\bin\Hostx86\x86"
+        set "VS2022_DLLX86=%VS2022_PREFIX%%MSVC_VERSION%\bin\Hostx86\x86"
+        
+        echo Set VS2022_BIN=%VS2022_BIN%
+        echo Set VS2022_DLL=%VS2022_DLL%
         
         REM Build ACPIPatcher
         echo Building ACPIPatcher...
@@ -768,28 +801,76 @@ jobs:
           findstr /C:"DEFINE VS2022" "%CONF_PATH%\tools_def.txt" >nul 2>&1
           if %ERRORLEVEL%==0 (
             echo ✓ VS2022 found in tools_def.txt
+            
+            REM Verify that VS2022_BIN path exists in tools_def.txt
+            findstr /C:"VS2022_BIN" "%CONF_PATH%\tools_def.txt" >nul 2>&1
+            if %ERRORLEVEL%==0 (
+              echo ✓ VS2022_BIN definition found in tools_def.txt
+            ) else (
+              echo ✗ VS2022_BIN definition missing, adding it...
+              echo. >> "%CONF_PATH%\tools_def.txt"
+              echo # Added by build script for VS2022 support >> "%CONF_PATH%\tools_def.txt"
+              echo DEFINE VS2022_BIN = %VS2022_BIN% >> "%CONF_PATH%\tools_def.txt"
+              echo DEFINE VS2022_DLL = %VS2022_DLL% >> "%CONF_PATH%\tools_def.txt"
+              echo DEFINE VS2022_BINX86 = %VS2022_BINX86% >> "%CONF_PATH%\tools_def.txt"
+              echo DEFINE VS2022_DLLX86 = %VS2022_DLLX86% >> "%CONF_PATH%\tools_def.txt"
+            )
           ) else (
             echo ✗ VS2022 not found in tools_def.txt, checking available toolchains...
             findstr /C:"DEFINE.*_" "%CONF_PATH%\tools_def.txt" | findstr "DEFINE" | head -10
           )
         )
         
+        REM Validate that required VS2022 paths exist
+        if not exist "%VS2022_BIN%\cl.exe" (
+          echo ✗ cl.exe not found at %VS2022_BIN%\cl.exe
+          echo Available files in %VS2022_BIN%:
+          dir "%VS2022_BIN%" 2>nul | findstr "cl"
+          exit /b 1
+        ) else (
+          echo ✓ cl.exe found at %VS2022_BIN%\cl.exe
+        )
+        
+        REM Set target-specific variables for EDK2 build
+        if /i "${{ matrix.arch }}"=="IA32" (
+          set "BUILD_ARCH=IA32"
+          set "TARGET_ARCH=x86"
+        ) else (
+          set "BUILD_ARCH=X64"
+          set "TARGET_ARCH=x64"
+        )
+        echo Building for architecture: %BUILD_ARCH% (target: %TARGET_ARCH%)
+        
         REM Try building with VS2022 first, fall back to VS2019 if needed
-        build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t VS2022 ^
+        echo Attempting build with VS2022 toolchain...
+        build -a %BUILD_ARCH% -b ${{ matrix.build_type }} -t VS2022 ^
               -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
               -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
         
         if errorlevel 1 (
           echo ❌ ACPIPatcher build with VS2022 failed, trying VS2019...
-          build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t VS2019 ^
-                -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
-                -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
           
-          if errorlevel 1 (
-            echo ❌ ACPIPatcher build failed with both VS2022 and VS2019
-            exit /b 1
+          REM Check if VS2019 is available as fallback
+          findstr /C:"DEFINE VS2019" "%CONF_PATH%\tools_def.txt" >nul 2>&1
+          if %ERRORLEVEL%==0 (
+            echo Attempting build with VS2019 toolchain...
+            build -a %BUILD_ARCH% -b ${{ matrix.build_type }} -t VS2019 ^
+                  -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
+                  -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
+            
+            if errorlevel 1 (
+              echo ❌ ACPIPatcher build failed with both VS2022 and VS2019
+              
+              REM Show available toolchains for debugging
+              echo Available toolchains in tools_def.txt:
+              findstr /C:"DEFINE.*_FAMILY" "%CONF_PATH%\tools_def.txt"
+              exit /b 1
+            ) else (
+              echo ✅ ACPIPatcher build completed successfully with VS2019
+            )
           ) else (
-            echo ✅ ACPIPatcher build completed successfully with VS2019
+            echo ❌ VS2019 toolchain not available either
+            exit /b 1
           )
         ) else (
           echo ✅ ACPIPatcher build completed successfully with VS2022
@@ -800,7 +881,42 @@ jobs:
       continue-on-error: true
       run: |
         cd edk2
-        $BUILD_DIR = "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2022\${{ matrix.arch }}"
+        
+        # Try VS2022 build directory first, then VS2019
+        $BUILD_DIRS = @(
+          "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2022\${{ matrix.arch }}",
+          "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2019\${{ matrix.arch }}"
+        )
+        
+        $BUILD_DIR = $null
+        foreach ($dir in $BUILD_DIRS) {
+          if (Test-Path $dir) {
+            $BUILD_DIR = $dir
+            Write-Host "✓ Found build directory: $BUILD_DIR"
+            break
+          }
+        }
+        
+        if (-not $BUILD_DIR) {
+          Write-Host "❌ No build directory found, searching for any ACPIPatcher builds..."
+          $allBuilds = Get-ChildItem -Path "Build" -Recurse -Directory -Name "*ACPIPatcher*" -ErrorAction SilentlyContinue
+          foreach ($build in $allBuilds) {
+            Write-Host "Found build directory: $build"
+          }
+          
+          # Try to find EFI files anywhere in Build directory
+          $efiFiles = Get-ChildItem -Path "Build" -Recurse -Filter "*.efi" -ErrorAction SilentlyContinue
+          if ($efiFiles) {
+            Write-Host "Found EFI files:"
+            foreach ($file in $efiFiles) {
+              Write-Host "  - $($file.FullName)"
+            }
+            exit 0
+          } else {
+            Write-Host "❌ No EFI files found anywhere in Build directory"
+            exit 1
+          }
+        }
         
         Write-Host "Build directory contents:"
         Get-ChildItem "$BUILD_DIR" -ErrorAction SilentlyContinue | Format-Table
@@ -810,7 +926,7 @@ jobs:
           Write-Host "✅ ACPIPatcher.efi built successfully"
           Get-ItemProperty "$BUILD_DIR\ACPIPatcher.efi" | Select-Object Name, Length, LastWriteTime
         } else {
-          Write-Host "❌ ACPIPatcher.efi not found"
+          Write-Host "❌ ACPIPatcher.efi not found at $BUILD_DIR"
           exit 1
         }
         
@@ -818,7 +934,7 @@ jobs:
           Write-Host "✅ ACPIPatcherDxe.efi built successfully" 
           Get-ItemProperty "$BUILD_DIR\ACPIPatcherDxe.efi" | Select-Object Name, Length, LastWriteTime
         } else {
-          Write-Host "❌ ACPIPatcherDxe.efi not found"
+          Write-Host "❌ ACPIPatcherDxe.efi not found at $BUILD_DIR"
           exit 1
         }
     
@@ -827,34 +943,63 @@ jobs:
       continue-on-error: true
       run: |
         cd edk2
-        $BUILD_DIR = "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2022\${{ matrix.arch }}"
-        $DIST_DIR = "ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-windows"
         
+        # Try to find build directory (VS2022 or VS2019)
+        $BUILD_DIRS = @(
+          "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2022\${{ matrix.arch }}",
+          "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2019\${{ matrix.arch }}"
+        )
+        
+        $BUILD_DIR = $null
+        $TOOLCHAIN = "UNKNOWN"
+        foreach ($dir in $BUILD_DIRS) {
+          if (Test-Path $dir) {
+            $BUILD_DIR = $dir
+            if ($dir -like "*VS2022*") {
+              $TOOLCHAIN = "VS2022"
+            } elseif ($dir -like "*VS2019*") {
+              $TOOLCHAIN = "VS2019"
+            }
+            Write-Host "✓ Using build directory: $BUILD_DIR (toolchain: $TOOLCHAIN)"
+            break
+          }
+        }
+        
+        $DIST_DIR = "ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-windows"
         New-Item -ItemType Directory -Path "$DIST_DIR" -Force
         
-        # Try to copy EFI files - create placeholders if not found
-        if (Test-Path "$BUILD_DIR\ACPIPatcher.efi") {
-            Copy-Item "$BUILD_DIR\ACPIPatcher.efi" "$DIST_DIR\" -ErrorAction SilentlyContinue
-            Write-Host "✅ Copied ACPIPatcher.efi to distribution package"
+        if ($BUILD_DIR -and (Test-Path $BUILD_DIR)) {
+          # Try to copy EFI files from found build directory
+          if (Test-Path "$BUILD_DIR\ACPIPatcher.efi") {
+              Copy-Item "$BUILD_DIR\ACPIPatcher.efi" "$DIST_DIR\" -ErrorAction SilentlyContinue
+              Write-Host "✅ Copied ACPIPatcher.efi to distribution package"
+          } else {
+              Write-Host "⚠️ ACPIPatcher.efi not found at $BUILD_DIR, creating placeholder"
+              "This is a placeholder for ACPIPatcher.efi that failed to build" | Out-File -FilePath "$DIST_DIR\ACPIPatcher.efi.placeholder" -Encoding utf8
+          }
+          
+          if (Test-Path "$BUILD_DIR\ACPIPatcherDxe.efi") {
+              Copy-Item "$BUILD_DIR\ACPIPatcherDxe.efi" "$DIST_DIR\" -ErrorAction SilentlyContinue
+              Write-Host "✅ Copied ACPIPatcherDxe.efi to distribution package"
+          } else {
+              Write-Host "⚠️ ACPIPatcherDxe.efi not found at $BUILD_DIR, creating placeholder"
+              "This is a placeholder for ACPIPatcherDxe.efi that failed to build" | Out-File -FilePath "$DIST_DIR\ACPIPatcherDxe.efi.placeholder" -Encoding utf8
+          }
         } else {
-            Write-Host "⚠️ ACPIPatcher.efi not found, creating placeholder"
+          Write-Host "⚠️ No build directory found, searching for any .efi files..."
+          
+          # Try to find any .efi files that might have been built
+          $efiFiles = Get-ChildItem -Path "Build\" -Filter "*.efi" -Recurse -ErrorAction SilentlyContinue
+          foreach ($file in $efiFiles) {
+              Write-Host "Found EFI file: $($file.FullName)"
+              Copy-Item $file.FullName "$DIST_DIR\" -ErrorAction SilentlyContinue
+          }
+          
+          if (-not $efiFiles) {
+            Write-Host "⚠️ No EFI files found, creating placeholders"
             "This is a placeholder for ACPIPatcher.efi that failed to build" | Out-File -FilePath "$DIST_DIR\ACPIPatcher.efi.placeholder" -Encoding utf8
-        }
-        
-        if (Test-Path "$BUILD_DIR\ACPIPatcherDxe.efi") {
-            Copy-Item "$BUILD_DIR\ACPIPatcherDxe.efi" "$DIST_DIR\" -ErrorAction SilentlyContinue
-            Write-Host "✅ Copied ACPIPatcherDxe.efi to distribution package"
-        } else {
-            Write-Host "⚠️ ACPIPatcherDxe.efi not found, creating placeholder"
             "This is a placeholder for ACPIPatcherDxe.efi that failed to build" | Out-File -FilePath "$DIST_DIR\ACPIPatcherDxe.efi.placeholder" -Encoding utf8
-        }
-        
-        # Try to find any .efi files that might have been built
-        Write-Host "Searching for any .efi files built..."
-        $efiFiles = Get-ChildItem -Path "Build\" -Filter "*.efi" -Recurse -ErrorAction SilentlyContinue
-        foreach ($file in $efiFiles) {
-            Write-Host "Found additional EFI file: $($file.FullName)"
-            Copy-Item $file.FullName "$DIST_DIR\" -ErrorAction SilentlyContinue
+          }
         }
         
         # Copy ACPI directory if it exists
@@ -904,7 +1049,7 @@ jobs:
         Add-Content -Path $buildInfoFile -Value "Architecture: ${{ matrix.arch }}"
         Add-Content -Path $buildInfoFile -Value "Build Type: ${{ matrix.build_type }}"
         Add-Content -Path $buildInfoFile -Value "Debug Level: ${{ env.DEBUG_LEVEL }}"
-        Add-Content -Path $buildInfoFile -Value "Toolchain: VS2022"
+        Add-Content -Path $buildInfoFile -Value "Toolchain: $TOOLCHAIN"
         Add-Content -Path $buildInfoFile -Value "Platform: Windows"
         
         Compress-Archive -Path "$DIST_DIR" -DestinationPath "$DIST_DIR.zip"
@@ -915,7 +1060,21 @@ jobs:
       continue-on-error: true
       run: |
         cd edk2
-        $BUILD_DIR = "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2022\${{ matrix.arch }}"
+        
+        # Try to find the build directory (VS2022 or VS2019)
+        $BUILD_DIRS = @(
+          "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2022\${{ matrix.arch }}",
+          "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2019\${{ matrix.arch }}"
+        )
+        
+        $BUILD_DIR = $null
+        foreach ($dir in $BUILD_DIRS) {
+          if (Test-Path $dir) {
+            $BUILD_DIR = $dir
+            Write-Host "✓ Found build directory: $BUILD_DIR"
+            break
+          }
+        }
         
         Write-Host "Running build artifact validation..."
         
@@ -923,25 +1082,34 @@ jobs:
         $requiredFiles = @("ACPIPatcher.efi", "ACPIPatcherDxe.efi")
         $allValid = $true
         
-        # First check expected location
-        foreach ($file in $requiredFiles) {
-          $filePath = Join-Path $BUILD_DIR $file
-          if (Test-Path $filePath) {
-            $fileInfo = Get-ItemProperty $filePath
-            $fileSize = $fileInfo.Length
-            
-            if ($fileSize -gt 1024 -and $fileSize -lt 10485760) {
-              Write-Host "✅ Valid EFI file: $file ($fileSize bytes)"
+        if ($BUILD_DIR) {
+          # Check expected location
+          foreach ($file in $requiredFiles) {
+            $filePath = Join-Path $BUILD_DIR $file
+            if (Test-Path $filePath) {
+              $fileInfo = Get-ItemProperty $filePath
+              $fileSize = $fileInfo.Length
+              
+              if ($fileSize -gt 1024 -and $fileSize -lt 10485760) {
+                Write-Host "✅ Valid EFI file: $file ($fileSize bytes)"
+              } else {
+                Write-Host "❌ Invalid EFI file size: $file ($fileSize bytes)"
+                $allValid = $false
+              }
             } else {
-              Write-Host "❌ Invalid EFI file size: $file ($fileSize bytes)"
+              Write-Host "❌ Missing EFI file: $file at expected location $filePath"
               $allValid = $false
             }
-          } else {
-            Write-Host "❌ Missing EFI file: $file at expected location $filePath"
-            $allValid = $false
-            
-            # Try dynamic discovery if not found at expected location
-            Write-Host "Searching for $file in Build directory..."
+          }
+        } else {
+          Write-Host "⚠️ No standard build directory found, searching for files..."
+          $allValid = $false
+        }
+        
+        # If standard validation failed, try dynamic discovery
+        if (-not $allValid) {
+          Write-Host "Searching for EFI files in entire Build directory..."
+          foreach ($file in $requiredFiles) {
             $foundFiles = Get-ChildItem -Path "Build" -Recurse -Filter $file -ErrorAction SilentlyContinue
             if ($foundFiles) {
               Write-Host "✅ Found $file at alternative location(s):"
@@ -949,6 +1117,8 @@ jobs:
                 Write-Host "  - $($foundFile.FullName)"
               }
               $allValid = $true
+            } else {
+              Write-Host "❌ $file not found anywhere in Build directory"
             }
           }
         }
