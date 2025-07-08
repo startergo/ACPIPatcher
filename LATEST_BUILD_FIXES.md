@@ -2,45 +2,55 @@
 
 # ACPIPatcher Build Fixes - Status Update
 
+# 🔧 Latest Critical Fixes Applied
+
+> **Status**: ✅ **RESOLVED** - Critical Windows and validation issues fixed
+> **Date**: July 8, 2025
+
 ## 🔧 **Latest Critical Fixes Applied (July 8, 2025)**
 
-### **🚨 Build Validation Logic Fixed:**
+### **🚨 CRITICAL Windows WORKSPACE Environment Fix:**
 
-#### **Issue**: Linux/macOS builds failing validation despite successful compilation
-- **Root Cause**: Validation script tested ALL configurations (X64/IA32, DEBUG/RELEASE) regardless of what was built
-- **Impact**: False failures when only one specific configuration was built (e.g., X64/DEBUG)
-- **Solution**: Enhanced validation script to auto-detect actual build configurations and accept specific targets
+#### **Issue**: `Cannot find BaseTools Bin Win32!!! Please check the directory D:\a\ACPIPatcher\ACPIPatcher\edk2\BaseTools\Bin\Win32`
+- **Root Cause**: `WORKSPACE` environment variable not set correctly (`%CD%` not expanding)
+- **Impact**: Complete Windows build failure - edksetup.bat cannot establish BASE_TOOLS_PATH
+- **Solution**: Use `for /f "tokens=*" %%i in ('cd') do set "WORKSPACE=%%i"` instead of `set "WORKSPACE=%CD%"`
 
-#### **Issue**: Windows WORKSPACE Environment Variable Missing  
-- **Root Cause**: `edksetup.bat` requires WORKSPACE to be set before execution
-- **Impact**: BASE_TOOLS_PATH still not set correctly even after calling edksetup.bat first
-- **Solution**: Ensure WORKSPACE is set before calling edksetup.bat in all Windows workflows
+### **🔍 Build Validation Path Detection Fixed:**
 
-### **🔄 Validation Logic Fix:**
+#### **Issue**: Linux/macOS builds failing validation despite successful compilation  
+- **Root Cause**: Validation script searched wrong directory patterns (`Build/ACPIPatcherPkg/` before `Build/ACPIPatcher/`)
+- **Impact**: False failures when builds were actually successful
+- **Solution**: Enhanced search paths and auto-detection logic to match actual CI output structure
+
+### **🔄 Windows Environment Setup Fix:**
 **BEFORE (Broken):**
-```bash
-# Always test hardcoded configurations
-for config in X64:RELEASE:GCC5 X64:DEBUG:GCC5 IA32:RELEASE:GCC5 IA32:DEBUG:GCC5
-  test_build_structure $config  # ❌ Fails for non-built configs
-```
-
-**AFTER (Smart):**
-```bash  
-# Auto-detect what was actually built
-find Build/ -name "*.efi" | detect_configurations
-# OR accept specific configuration: script.sh <root> <arch> <build_type> <toolchain>
-```
-
-### **🔧 Windows Environment Fix:**
-**BEFORE (Incomplete):**
 ```batch
-call edksetup.bat          # ❌ WORKSPACE may not be set
+set "WORKSPACE=%CD%"          # ❌ %CD% not expanding properly
+echo Set WORKSPACE to: %WORKSPACE%   # Shows empty value
 ```
 
-**AFTER (Complete):**
+**AFTER (Fixed):**
 ```batch  
-set "WORKSPACE=%CD%"       # ✅ Ensure WORKSPACE is set
-call edksetup.bat          # ✅ Now works properly
+for /f "tokens=*" %%i in ('cd') do set "WORKSPACE=%%i"   # ✅ Proper path capture
+echo Set WORKSPACE to: %WORKSPACE%   # Shows full path
+```
+
+### **🔧 Validation Enhancement:**
+**BEFORE (Limited):**
+```bash
+# Only checked standard paths
+"$build_dir/ACPIPatcher.efi"
+"$build_dir/ACPIPatcherDxe.efi"
+```
+
+**AFTER (Comprehensive):**
+```bash
+# Checks multiple EDK2 build structure patterns  
+"$build_dir/ACPIPatcher.efi"
+"$build_dir/ACPIPatcherPkg/ACPIPatcher/ACPIPatcher/OUTPUT/$efi_file"
+"$build_dir/ACPIPatcherPkg/ACPIPatcher/ACPIPatcher/DEBUG/$efi_file"
+"$build_dir/ACPIPatcher/$efi_file"
 ```
 
 ### **Files Modified:**
@@ -57,7 +67,8 @@ call edksetup.bat          # ✅ Now works properly
 
 | Issue Category | Status | Details |
 |---|---|---|
-| **🚨 Windows WORKSPACE Setup** | ✅ **FIXED** | Set WORKSPACE before calling edksetup.bat |
+| **🚨 Windows WORKSPACE Setup** | ✅ **FIXED** | Use 'for' loop to properly capture current directory |
+| **🔍 Build Validation Paths** | ✅ **FIXED** | Enhanced search patterns for actual CI directory structure |
 | **🔍 Build Validation Logic** | ✅ **FIXED** | Smart configuration detection, no false failures |
 | **🚨 Windows BASE_TOOLS_PATH** | ✅ **FIXED** | Call edksetup.bat BEFORE BaseTools build |
 | **📁 Documentation Copying** | ✅ **FIXED** | Dynamic path discovery with fallbacks |
