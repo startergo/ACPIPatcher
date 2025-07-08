@@ -96,37 +96,66 @@ jobs:
     - name: Verify Build Output
       run: |
         cd edk2
+        
+        echo "Exploring actual build directory structure..."
+        echo "=== Top-level Build directory ==="
+        ls -la Build/ || echo "No Build directory found"
+        
+        echo "=== All subdirectories in Build/ ==="
+        find Build/ -type d -name "*ACPIPatcher*" 2>/dev/null || echo "No ACPIPatcher directories found"
+        
+        echo "=== All .efi files in Build/ ==="
+        find Build/ -name "*.efi" 2>/dev/null || echo "No .efi files found"
+        
+        # Try the expected path first
         BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_GCC5/${{ matrix.arch }}"
+        echo "=== Checking expected path: $BUILD_DIR ==="
+        ls -la "$BUILD_DIR/" || echo "Expected path not found"
         
-        echo "Build directory contents:"
-        ls -la "$BUILD_DIR/" || true
+        # Find the actual path to .efi files
+        echo "=== Finding actual .efi file locations ==="
+        EFI_PATHS=$(find Build/ -name "ACPIPatcher.efi" 2>/dev/null || true)
+        DXE_PATHS=$(find Build/ -name "ACPIPatcherDxe.efi" 2>/dev/null || true)
         
-        # Check if binaries exist
-        if [ -f "$BUILD_DIR/ACPIPatcher.efi" ]; then
-          echo "✅ ACPIPatcher.efi built successfully"
-          file "$BUILD_DIR/ACPIPatcher.efi"
+        if [ -n "$EFI_PATHS" ]; then
+          echo "✅ Found ACPIPatcher.efi at:"
+          echo "$EFI_PATHS"
+          for path in $EFI_PATHS; do
+            file "$path"
+          done
         else
-          echo "❌ ACPIPatcher.efi not found"
+          echo "❌ ACPIPatcher.efi not found anywhere"
           exit 1
         fi
         
-        if [ -f "$BUILD_DIR/ACPIPatcherDxe.efi" ]; then
-          echo "✅ ACPIPatcherDxe.efi built successfully"
-          file "$BUILD_DIR/ACPIPatcherDxe.efi"
+        if [ -n "$DXE_PATHS" ]; then
+          echo "✅ Found ACPIPatcherDxe.efi at:"
+          echo "$DXE_PATHS"
+          for path in $DXE_PATHS; do
+            file "$path"
+          done
         else
-          echo "❌ ACPIPatcherDxe.efi not found"
+          echo "❌ ACPIPatcherDxe.efi not found anywhere"
           exit 1
         fi
     
     - name: Create Distribution Package
       run: |
         cd edk2
-        BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_GCC5/${{ matrix.arch }}"
         DIST_DIR="ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-linux"
         
+        # Find the actual paths to .efi files
+        EFI_PATH=$(find Build/ -name "ACPIPatcher.efi" 2>/dev/null | head -1)
+        DXE_PATH=$(find Build/ -name "ACPIPatcherDxe.efi" 2>/dev/null | head -1)
+        
+        if [ -z "$EFI_PATH" ] || [ -z "$DXE_PATH" ]; then
+          echo "❌ Could not find .efi files for distribution package"
+          exit 1
+        fi
+        
         mkdir -p "$DIST_DIR"
-        cp "$BUILD_DIR/ACPIPatcher.efi" "$DIST_DIR/"
-        cp "$BUILD_DIR/ACPIPatcherDxe.efi" "$DIST_DIR/"
+        cp "$EFI_PATH" "$DIST_DIR/"
+        cp "$DXE_PATH" "$DIST_DIR/"
         cp -r acpipatcher/Build/ACPI "$DIST_DIR/" || true
         cp acpipatcher/README.md "$DIST_DIR/"
         cp acpipatcher/DEBUG_GUIDE.md "$DIST_DIR/" || true
@@ -247,37 +276,66 @@ jobs:
     - name: Verify Build Output
       run: |
         cd edk2
+        
+        echo "Exploring actual build directory structure..."
+        echo "=== Top-level Build directory ==="
+        ls -la Build/ || echo "No Build directory found"
+        
+        echo "=== All subdirectories in Build/ ==="
+        find Build/ -type d -name "*ACPIPatcher*" 2>/dev/null || echo "No ACPIPatcher directories found"
+        
+        echo "=== All .efi files in Build/ ==="
+        find Build/ -name "*.efi" 2>/dev/null || echo "No .efi files found"
+        
+        # Try the expected path first
         BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_XCODE5/${{ matrix.arch }}"
+        echo "=== Checking expected path: $BUILD_DIR ==="
+        ls -la "$BUILD_DIR/" || echo "Expected path not found"
         
-        echo "Build directory contents:"
-        ls -la "$BUILD_DIR/" || true
+        # Find the actual path to .efi files
+        echo "=== Finding actual .efi file locations ==="
+        EFI_PATHS=$(find Build/ -name "ACPIPatcher.efi" 2>/dev/null || true)
+        DXE_PATHS=$(find Build/ -name "ACPIPatcherDxe.efi" 2>/dev/null || true)
         
-        # Check if binaries exist
-        if [ -f "$BUILD_DIR/ACPIPatcher.efi" ]; then
-          echo "✅ ACPIPatcher.efi built successfully"
-          file "$BUILD_DIR/ACPIPatcher.efi"
+        if [ -n "$EFI_PATHS" ]; then
+          echo "✅ Found ACPIPatcher.efi at:"
+          echo "$EFI_PATHS"
+          for path in $EFI_PATHS; do
+            file "$path"
+          done
         else
-          echo "❌ ACPIPatcher.efi not found"
+          echo "❌ ACPIPatcher.efi not found anywhere"
           exit 1
         fi
         
-        if [ -f "$BUILD_DIR/ACPIPatcherDxe.efi" ]; then
-          echo "✅ ACPIPatcherDxe.efi built successfully"
-          file "$BUILD_DIR/ACPIPatcherDxe.efi"
+        if [ -n "$DXE_PATHS" ]; then
+          echo "✅ Found ACPIPatcherDxe.efi at:"
+          echo "$DXE_PATHS"
+          for path in $DXE_PATHS; do
+            file "$path"
+          done
         else
-          echo "❌ ACPIPatcherDxe.efi not found"
+          echo "❌ ACPIPatcherDxe.efi not found anywhere"
           exit 1
         fi
     
     - name: Create Distribution Package
       run: |
         cd edk2
-        BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_XCODE5/${{ matrix.arch }}"
         DIST_DIR="ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-macos"
         
+        # Find the actual paths to .efi files
+        EFI_PATH=$(find Build/ -name "ACPIPatcher.efi" 2>/dev/null | head -1)
+        DXE_PATH=$(find Build/ -name "ACPIPatcherDxe.efi" 2>/dev/null | head -1)
+        
+        if [ -z "$EFI_PATH" ] || [ -z "$DXE_PATH" ]; then
+          echo "❌ Could not find .efi files for distribution package"
+          exit 1
+        fi
+        
         mkdir -p "$DIST_DIR"
-        cp "$BUILD_DIR/ACPIPatcher.efi" "$DIST_DIR/"
-        cp "$BUILD_DIR/ACPIPatcherDxe.efi" "$DIST_DIR/"
+        cp "$EFI_PATH" "$DIST_DIR/"
+        cp "$DXE_PATH" "$DIST_DIR/"
         cp -r acpipatcher/Build/ACPI "$DIST_DIR/" || true
         cp acpipatcher/README.md "$DIST_DIR/"
         cp acpipatcher/DEBUG_GUIDE.md "$DIST_DIR/" || true
@@ -310,10 +368,15 @@ jobs:
           }
         else
           echo "Validation script not found, running basic checks..."
-          BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_XCODE5/${{ matrix.arch }}"
           
-          if [ -f "$BUILD_DIR/ACPIPatcher.efi" ] && [ -f "$BUILD_DIR/ACPIPatcherDxe.efi" ]; then
+          # Find actual .efi file paths
+          EFI_PATH=$(find Build/ -name "ACPIPatcher.efi" 2>/dev/null | head -1)
+          DXE_PATH=$(find Build/ -name "ACPIPatcherDxe.efi" 2>/dev/null | head -1)
+          
+          if [ -n "$EFI_PATH" ] && [ -n "$DXE_PATH" ]; then
             echo "✅ Basic validation passed - required EFI files present"
+            echo "  ACPIPatcher.efi: $EFI_PATH"
+            echo "  ACPIPatcherDxe.efi: $DXE_PATH"
           else
             echo "❌ Basic validation failed - required EFI files missing"
             exit 1
@@ -403,6 +466,7 @@ jobs:
     
     - name: Checkout EDK2
       if: steps.cache-edk2.outputs.cache-hit != 'true'
+      shell: bash
       run: |
         git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
         cd edk2
