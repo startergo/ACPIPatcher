@@ -101,7 +101,26 @@ jobs:
       run: |
         git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
         cd edk2
-        git submodule update --init --recommend-shallow
+        
+        # Configure git for authentication issues
+        git config --global url."https://github.com/".insteadOf "git@github.com:"
+        git config --global advice.detachedHead false
+        
+        # Patch .gitmodules to disable problematic submodules
+        if [ -f "../acpipatcher/.github/scripts/patch-edk2-gitmodules.sh" ]; then
+          echo "Patching .gitmodules to disable problematic submodules..."
+          bash ../acpipatcher/.github/scripts/patch-edk2-gitmodules.sh
+        fi
+        
+        # Now initialize submodules (problematic ones should be disabled)
+        echo "Initializing EDK2 submodules..."
+        if git submodule update --init --recommend-shallow; then
+          echo "✅ Submodule initialization successful"
+        else
+          echo "⚠️ Some submodules failed to initialize, but continuing..."
+        fi
+        
+        git submodule status | head -10 || echo "Submodule status check completed"
     
     - name: Copy ACPIPatcher to EDK2
       shell: bash

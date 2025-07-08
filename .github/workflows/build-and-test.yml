@@ -61,7 +61,7 @@ jobs:
       run: |
         git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
         cd edk2
-        git submodule update --init --recommend-shallow
+        git config --global url."https://github.com/".insteadOf "git@github.com:" && (git submodule update --init --recommend-shallow || echo "Warning: Some submodules failed to initialize")
     
     - name: Copy ACPIPatcher to EDK2
       run: |
@@ -179,7 +179,7 @@ jobs:
       run: |
         git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
         cd edk2
-        git submodule update --init --recommend-shallow
+        git config --global url."https://github.com/".insteadOf "git@github.com:" && (git submodule update --init --recommend-shallow || echo "Warning: Some submodules failed to initialize")
     
     - name: Copy ACPIPatcher to EDK2
       run: |
@@ -300,7 +300,7 @@ jobs:
       run: |
         git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
         cd edk2
-        git submodule update --init --recommend-shallow
+        git config --global url."https://github.com/".insteadOf "git@github.com:" && (git submodule update --init --recommend-shallow || echo "Warning: Some submodules failed to initialize")
     
     - name: Copy ACPIPatcher to EDK2
       run: |
