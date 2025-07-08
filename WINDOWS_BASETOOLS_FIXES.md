@@ -9,6 +9,7 @@ The Windows builds were failing because:
 2. EDK2 setup scripts expect this directory to exist and contain build tools
 3. The `EDK_TOOLS_BIN` environment variable was not being set correctly
 4. Warning-as-error flags (`/WX`) in BaseTools makefiles were causing build failures
+5. **Environment variables** (`NASM_PREFIX`, `CLANG_BIN`, `CYGWIN_HOME`) were not properly set, causing EDK2 warnings
 
 ## Solutions Implemented
 
@@ -32,8 +33,38 @@ The Windows builds were failing because:
 - **EDK_TOOLS_BIN fallback**: Automatically set if not detected by EDK2 setup
 - **Path verification**: Check that the tools directory exists and is accessible
 - **Error recovery**: Attempt to find and set correct paths if initial setup fails
+- **NASM_PREFIX detection**: Automatically detect and set NASM installation path
+- **CLANG_BIN setup**: Set LLVM/Clang path if available to suppress warnings
+- **CYGWIN_HOME suppression**: Set to empty to suppress GCC-related warnings
 
-### 4. Build Strategy Implementation
+### 4. Environment Variable Detection and Setup
+
+#### NASM_PREFIX Detection
+```batch
+where nasm >nul 2>&1
+if errorlevel 1 (
+  if exist "%ProgramData%\chocolatey\bin\nasm.exe" (
+    set "NASM_PREFIX=%ProgramData%\chocolatey\bin\"
+  ) else if exist "C:\tools\nasm\nasm.exe" (
+    set "NASM_PREFIX=C:\tools\nasm\"
+  ) else (
+    set "NASM_PREFIX=C:\tools\nasm\"
+  )
+) else (
+  for /f "tokens=*" %%i in ('where nasm') do set "NASM_PATH=%%i"
+  for %%i in ("%NASM_PATH%") do set "NASM_PREFIX=%%~dpi"
+)
+```
+
+#### CLANG_BIN and CYGWIN_HOME Setup
+```batch
+if exist "C:\Program Files\LLVM\bin\clang.exe" (
+  set "CLANG_BIN=C:\Program Files\LLVM\bin\"
+)
+set "CYGWIN_HOME="
+```
+
+### 5. Build Strategy Implementation
 
 #### Strategy 1: Standard nmake with warning suppression
 ```batch
@@ -83,12 +114,14 @@ python Makefiles\NmakeSubdirs.py all
 - No fallback for missing directories
 - No tool location or copying
 - Build failures due to hardcoded warning flags
+- Missing environment variables causing EDK2 warnings
 
 ### After
 - Multi-tier fallback build strategies
 - Automatic directory creation and tool copying
 - Comprehensive environment variable management
 - Warning suppression at multiple levels
+- Proper NASM_PREFIX, CLANG_BIN, and CYGWIN_HOME setup
 
 ## Verification Steps
 Each workflow now includes verification steps that:
@@ -103,6 +136,7 @@ With these fixes, Windows builds should:
 - ✅ Successfully build BaseTools without warning-related failures
 - ✅ Create and populate the `Bin\Win32` directory with required tools
 - ✅ Set environment variables correctly for EDK2 build system
+- ✅ Eliminate NASM_PREFIX, CLANG_BIN, and CYGWIN_HOME warnings
 - ✅ Provide clear diagnostic information in case of failures
 - ✅ Complete the full ACPIPatcher build process successfully
 
@@ -110,7 +144,7 @@ With these fixes, Windows builds should:
 The CI workflows will now provide detailed output showing:
 - Which BaseTools build strategy succeeded
 - Contents of the `Bin\Win32` directory
-- Environment variable values
+- Environment variable values (NASM_PREFIX, CLANG_BIN, CYGWIN_HOME, EDK_TOOLS_BIN)
 - Detailed error messages if any step fails
 
-This comprehensive approach should resolve the Windows BaseTools build issues that were preventing successful CI/CD execution.
+This comprehensive approach should resolve the Windows BaseTools build issues and eliminate EDK2 environment warnings that were preventing successful CI/CD execution.
