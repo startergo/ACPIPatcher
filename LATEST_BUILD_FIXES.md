@@ -49,3 +49,44 @@ The ACPIPatcher project now has:
 - Robust CI/CD with comprehensive error handling
 - Enhanced backward compatibility (EFI 1.x support)
 - Professional documentation and troubleshooting guides
+
+---
+
+## 🔧 **Dynamic Artifact Discovery Implementation (December 2024)**
+
+### **Issue Addressed:**
+- **Problem**: Hardcoded build directory paths in workflows
+- **Risk**: Fails when EDK2 uses different build directory structure
+- **Impact**: CI failures due to missing build artifacts
+
+### **Solution Implemented:**
+- **Approach**: Dynamic artifact discovery using `find` commands
+- **Coverage**: All workflows updated (ci.yml, comprehensive-test.yml, build-and-test.yml)
+- **Cross-Platform**: Unix/Linux/macOS (`find`) and Windows (`Get-ChildItem`)
+
+### **Technical Changes:**
+```bash
+# Before (hardcoded)
+BUILD_DIR="Build/ACPIPatcherPkg/DEBUG_GCC5/X64"
+
+# After (dynamic)
+EFI_PATH=$(find Build/ -name "ACPIPatcher.efi" 2>/dev/null | head -1)
+```
+
+### **Files Updated:**
+- `.github/workflows/ci.yml` - Dynamic discovery for verification and packaging
+- `.github/workflows/comprehensive-test.yml` - Unix and Windows dynamic discovery
+- `DYNAMIC_ARTIFACT_DISCOVERY.md` - New comprehensive documentation
+
+### **Benefits:**
+- ✅ **Platform Agnostic**: Works regardless of build directory structure
+- ✅ **Future Proof**: Adapts to EDK2 changes automatically
+- ✅ **Better Debugging**: Shows actual discovered file paths in logs
+- ✅ **Robust Fallback**: Graceful handling when artifacts missing
+
+### **Status:**
+- **Implementation**: ✅ Complete across all workflows
+- **Testing**: 🔄 Pending CI validation
+- **Documentation**: ✅ Complete
+
+---

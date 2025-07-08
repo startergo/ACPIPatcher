@@ -441,42 +441,35 @@ jobs:
       shell: bash
       run: |
         cd edk2
-        BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_${{ matrix.toolchain }}/${{ matrix.arch }}"
+        echo "=== Dynamic Build Artifact Discovery ==="
+        echo "Searching for .efi files in Build directory..."
+        find Build/ -name "*.efi" 2>/dev/null || echo "No .efi files found"
         
-        echo "Searching for build outputs..."
-        echo "Expected build directory: $BUILD_DIR"
+        echo "=== Artifact Validation ==="
+        EFI_PATHS=$(find Build/ -name "ACPIPatcher.efi" 2>/dev/null || true)
+        DXE_PATHS=$(find Build/ -name "ACPIPatcherDxe.efi" 2>/dev/null || true)
         
-        # List all build directories to debug
-        echo "All build directories:"
-        find Build -type d -name "*ACPIPatcher*" 2>/dev/null || true
-        find Build -name "*.efi" 2>/dev/null || true
-        
-        # Try multiple possible paths
-        POSSIBLE_PATHS=(
-          "$BUILD_DIR"
-          "Build/ACPIPatcherPkg/${{ matrix.build_type }}_${{ matrix.toolchain }}/${{ matrix.arch }}"
-          "Build/${{ matrix.build_type }}_${{ matrix.toolchain }}/${{ matrix.arch }}"
-          "Build/ACPIPatcher/${{ matrix.build_type }}_${{ matrix.toolchain }}/${{ matrix.arch }}"
-        )
-        
-        FOUND_DIR=""
-        for path in "${POSSIBLE_PATHS[@]}"; do
-          if [ -d "$path" ]; then
-            echo "Found build directory: $path"
-            ls -la "$path/" || true
-            if [ -f "$path/ACPIPatcher.efi" ] || [ -f "$path/ACPIPatcherDxe.efi" ]; then
-              FOUND_DIR="$path"
-              break
-            fi
-          fi
-        done
-        
-        if [ -z "$FOUND_DIR" ]; then
-          echo "❌ No build directory with EFI files found"
+        if [ -z "$EFI_PATHS" ] && [ -z "$DXE_PATHS" ]; then
+          echo "❌ No EFI files found"
           echo "Complete build tree:"
-          ls -la Build/ || true
-          find Build -name "*.efi" -o -name "*.dll" -o -name "*.exe" 2>/dev/null || true
+          find Build/ -type f 2>/dev/null || true
           exit 1
+        fi
+        
+        if [ -n "$EFI_PATHS" ]; then
+          for path in $EFI_PATHS; do
+            echo "✅ Found ACPIPatcher.efi: $path"
+            ls -la "$path"
+            file "$path" || true
+          done
+        fi
+        
+        if [ -n "$DXE_PATHS" ]; then
+          for path in $DXE_PATHS; do
+            echo "✅ Found ACPIPatcherDxe.efi: $path"
+            ls -la "$path"
+            file "$path" || true
+          done
         fi
         
         echo "Using build directory: $FOUND_DIR"
@@ -508,27 +501,28 @@ jobs:
       run: |
         cd edk2
         
-        # Use the directory found in the previous step
-        if [ -n "$ACTUAL_BUILD_DIR" ]; then
-          BUILD_DIR="$ACTUAL_BUILD_DIR"
-        else
-          BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_${{ matrix.toolchain }}/${{ matrix.arch }}"
-        fi
+        echo "=== Dynamic Artifact Discovery for Distribution ==="
+        EFI_PATH=$(find Build/ -name "ACPIPatcher.efi" 2>/dev/null | head -1)
+        DXE_PATH=$(find Build/ -name "ACPIPatcherDxe.efi" 2>/dev/null | head -1)
         
         DIST_DIR="ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-${{ matrix.os }}"
         
-        echo "Creating distribution package from: $BUILD_DIR"
+        echo "Creating distribution package: $DIST_DIR"
         mkdir -p "$DIST_DIR"
         
-        # Copy binaries
-        if [ -f "$BUILD_DIR/ACPIPatcher.efi" ]; then
-          cp "$BUILD_DIR/ACPIPatcher.efi" "$DIST_DIR/"
-          echo "✅ Copied ACPIPatcher.efi"
+        # Copy binaries using dynamic paths
+        if [ -n "$EFI_PATH" ] && [ -f "$EFI_PATH" ]; then
+          cp "$EFI_PATH" "$DIST_DIR/"
+          echo "✅ Copied ACPIPatcher.efi from: $EFI_PATH"
+        else
+          echo "⚠️ ACPIPatcher.efi not found"
         fi
         
-        if [ -f "$BUILD_DIR/ACPIPatcherDxe.efi" ]; then
-          cp "$BUILD_DIR/ACPIPatcherDxe.efi" "$DIST_DIR/"
-          echo "✅ Copied ACPIPatcherDxe.efi"
+        if [ -n "$DXE_PATH" ] && [ -f "$DXE_PATH" ]; then
+          cp "$DXE_PATH" "$DIST_DIR/"
+          echo "✅ Copied ACPIPatcherDxe.efi from: $DXE_PATH"
+        else
+          echo "⚠️ ACPIPatcherDxe.efi not found"
         fi
         
         # Copy documentation if it exists

@@ -494,25 +494,29 @@ jobs:
       if: matrix.platform != 'windows'
       run: |
         cd edk2
-        BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_${{ matrix.toolchain }}/${{ matrix.arch }}"
+        
+        echo "=== Dynamic Build Artifact Discovery ==="
+        echo "Searching for .efi files in Build directory..."
+        find Build/ -name "*.efi" 2>/dev/null || echo "No .efi files found"
         
         echo "=== Build Verification ==="
-        echo "Build directory: $BUILD_DIR"
+        EFI_PATH=$(find Build/ -name "ACPIPatcher.efi" 2>/dev/null | head -1)
+        DXE_PATH=$(find Build/ -name "ACPIPatcherDxe.efi" 2>/dev/null | head -1)
         
         # Check if binaries exist and get their info
-        if [ -f "$BUILD_DIR/ACPIPatcher.efi" ]; then
-          echo "✅ ACPIPatcher.efi exists"
-          ls -la "$BUILD_DIR/ACPIPatcher.efi"
-          file "$BUILD_DIR/ACPIPatcher.efi" || true
+        if [ -n "$EFI_PATH" ] && [ -f "$EFI_PATH" ]; then
+          echo "✅ ACPIPatcher.efi found: $EFI_PATH"
+          ls -la "$EFI_PATH"
+          file "$EFI_PATH" || true
         else
           echo "❌ ACPIPatcher.efi missing"
           exit 1
         fi
         
-        if [ -f "$BUILD_DIR/ACPIPatcherDxe.efi" ]; then
-          echo "✅ ACPIPatcherDxe.efi exists"
-          ls -la "$BUILD_DIR/ACPIPatcherDxe.efi"
-          file "$BUILD_DIR/ACPIPatcherDxe.efi" || true
+        if [ -n "$DXE_PATH" ] && [ -f "$DXE_PATH" ]; then
+          echo "✅ ACPIPatcherDxe.efi found: $DXE_PATH"
+          ls -la "$DXE_PATH"
+          file "$DXE_PATH" || true
         else
           echo "❌ ACPIPatcherDxe.efi missing"
           exit 1
@@ -524,23 +528,34 @@ jobs:
       shell: powershell
       run: |
         cd edk2
-        $BUILD_DIR = "Build\ACPIPatcherPkg\${{ matrix.build_type }}_${{ matrix.toolchain }}\${{ matrix.arch }}"
+        
+        Write-Host "=== Dynamic Build Artifact Discovery ==="
+        Write-Host "Searching for .efi files in Build directory..."
+        $EfiFiles = Get-ChildItem -Path "Build" -Recurse -Filter "*.efi" -ErrorAction SilentlyContinue
+        if ($EfiFiles) {
+          foreach ($file in $EfiFiles) {
+            Write-Host "Found EFI file: $($file.FullName)"
+          }
+        } else {
+          Write-Host "No .efi files found"
+        }
         
         Write-Host "=== Build Verification ==="
-        Write-Host "Build directory: $BUILD_DIR"
+        $EFI_PATH = (Get-ChildItem -Path "Build" -Recurse -Filter "ACPIPatcher.efi" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+        $DXE_PATH = (Get-ChildItem -Path "Build" -Recurse -Filter "ACPIPatcherDxe.efi" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
         
         # Check if binaries exist and get their info
-        if (Test-Path "$BUILD_DIR\ACPIPatcher.efi") {
-          Write-Host "✅ ACPIPatcher.efi exists"
-          Get-ItemProperty "$BUILD_DIR\ACPIPatcher.efi" | Select-Object Name, Length, LastWriteTime
+        if ($EFI_PATH -and (Test-Path $EFI_PATH)) {
+          Write-Host "✅ ACPIPatcher.efi found: $EFI_PATH"
+          Get-ItemProperty $EFI_PATH | Select-Object Name, Length, LastWriteTime
         } else {
           Write-Host "❌ ACPIPatcher.efi missing"
           exit 1
         }
         
-        if (Test-Path "$BUILD_DIR\ACPIPatcherDxe.efi") {
-          Write-Host "✅ ACPIPatcherDxe.efi exists"
-          Get-ItemProperty "$BUILD_DIR\ACPIPatcherDxe.efi" | Select-Object Name, Length, LastWriteTime
+        if ($DXE_PATH -and (Test-Path $DXE_PATH)) {
+          Write-Host "✅ ACPIPatcherDxe.efi found: $DXE_PATH"
+          Get-ItemProperty $DXE_PATH | Select-Object Name, Length, LastWriteTime
         } else {
           Write-Host "❌ ACPIPatcherDxe.efi missing"
           exit 1
@@ -550,40 +565,61 @@ jobs:
       if: matrix.test_efi && matrix.platform != 'windows'
       run: |
         cd edk2
-        BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_${{ matrix.toolchain }}/${{ matrix.arch }}"
         
         echo "=== Extended EFI File Analysis ==="
+        EFI_PATH=$(find Build/ -name "ACPIPatcher.efi" 2>/dev/null | head -1)
         
-        # Check EFI file headers and basic structure
-        echo "Analyzing EFI file structure..."
-        hexdump -C "$BUILD_DIR/ACPIPatcher.efi" | head -5 || true
-        
-        # Check for common EFI signatures
-        echo "Checking for EFI signatures..."
-        if strings "$BUILD_DIR/ACPIPatcher.efi" | grep -i "uefi\|efi" | head -5; then
-          echo "✅ Found EFI/UEFI signatures"
+        if [ -n "$EFI_PATH" ] && [ -f "$EFI_PATH" ]; then
+          echo "Analyzing EFI file structure for: $EFI_PATH"
+          
+          # Check EFI file headers and basic structure
+          echo "Analyzing EFI file structure..."
+          hexdump -C "$EFI_PATH" | head -5 || true
+          
+          # Check for common EFI signatures
+          echo "Checking for EFI signatures..."
+          if strings "$EFI_PATH" | grep -i "uefi\|efi" | head -5; then
+            echo "✅ Found EFI/UEFI signatures"
+          else
+            echo "⚠️ No obvious EFI signatures found"
+          fi
+          
+          # Check file size (should be reasonable)
+          SIZE=$(stat -c%s "$EFI_PATH" 2>/dev/null || stat -f%z "$EFI_PATH" 2>/dev/null || echo "0")
+          echo "ACPIPatcher.efi size: $SIZE bytes"
+          
+          if [ "$SIZE" -gt 1000 ] && [ "$SIZE" -lt 10000000 ]; then
+            echo "✅ EFI file size is reasonable"
+          else
+            echo "⚠️ EFI file size seems unusual"
+          fi
         else
-          echo "⚠️ No obvious EFI signatures found"
-        fi
-        
-        # Check file size (should be reasonable)
-        SIZE=$(stat -c%s "$BUILD_DIR/ACPIPatcher.efi" 2>/dev/null || stat -f%z "$BUILD_DIR/ACPIPatcher.efi" 2>/dev/null || echo "0")
-        echo "ACPIPatcher.efi size: $SIZE bytes"
-        
-        if [ "$SIZE" -gt 1000 ] && [ "$SIZE" -lt 10000000 ]; then
-          echo "✅ EFI file size is reasonable"
-        else
-          echo "⚠️ EFI file size seems unusual"
+          echo "❌ ACPIPatcher.efi not found for extended testing"
         fi
     
     - name: Create Test Package (Unix)
       if: matrix.platform != 'windows'
       run: |
         cd edk2
-        BUILD_DIR="Build/ACPIPatcherPkg/${{ matrix.build_type }}_${{ matrix.toolchain }}/${{ matrix.arch }}"
+        
+        echo "=== Creating Test Package with Dynamic Artifacts ==="
+        EFI_PATH=$(find Build/ -name "ACPIPatcher.efi" 2>/dev/null | head -1)
+        DXE_PATH=$(find Build/ -name "ACPIPatcherDxe.efi" 2>/dev/null | head -1)
+        
         PACKAGE_NAME="ACPIPatcher-Test-${{ matrix.platform }}-${{ matrix.arch }}-${{ matrix.build_type }}"
         
         mkdir "$PACKAGE_NAME"
+        
+        # Copy EFI files using dynamic paths
+        if [ -n "$EFI_PATH" ] && [ -f "$EFI_PATH" ]; then
+          cp "$EFI_PATH" "$PACKAGE_NAME/"
+          echo "✅ Packaged ACPIPatcher.efi from: $EFI_PATH"
+        fi
+        
+        if [ -n "$DXE_PATH" ] && [ -f "$DXE_PATH" ]; then
+          cp "$DXE_PATH" "$PACKAGE_NAME/"
+          echo "✅ Packaged ACPIPatcherDxe.efi from: $DXE_PATH"
+        fi
         cp "$BUILD_DIR/ACPIPatcher.efi" "$PACKAGE_NAME/" 2>/dev/null || true
         cp "$BUILD_DIR/ACPIPatcherDxe.efi" "$PACKAGE_NAME/" 2>/dev/null || true
         
