@@ -509,6 +509,56 @@ jobs:
         # Verify Stuart installation
         python -c "import edk2toolext; print('Stuart tools installed successfully')" || echo "Stuart installation verification failed"
       shell: bash
+
+    # Windows-specific Stuart Virtual Environment Setup
+    - name: Setup Windows Stuart Virtual Environment
+      shell: cmd
+      run: |
+        echo Setting up Windows-specific Python virtual environment for Stuart...
+        cd acpipatcher
+        
+        echo Creating Python virtual environment...
+        py -m venv .venv
+        if errorlevel 1 (
+          echo ❌ Failed to create virtual environment
+          exit /b 1
+        )
+        
+        echo Activating virtual environment...
+        call .venv\Scripts\activate.bat
+        if errorlevel 1 (
+          echo ❌ Failed to activate virtual environment
+          exit /b 1
+        )
+        
+        echo Upgrading pip and core tools...
+        python -m pip install --upgrade pip setuptools wheel
+        if errorlevel 1 (
+          echo ❌ Failed to upgrade pip and tools
+          exit /b 1
+        )
+        
+        echo Installing Stuart dependencies...
+        if exist "pip-requirements.txt" (
+          echo Installing from pip-requirements.txt...
+          python -m pip install -r pip-requirements.txt
+        ) else (
+          echo Installing core Stuart dependencies...
+          python -m pip install edk2-pytool-library^>=0.21.0 edk2-pytool-extensions^>=0.25.0
+        )
+        if errorlevel 1 (
+          echo ❌ Failed to install Stuart dependencies
+          exit /b 1
+        )
+        
+        echo Verifying Stuart installation...
+        python -c "import edk2toolext; print('Stuart tools installed successfully in venv')"
+        if errorlevel 1 (
+          echo ❌ Stuart verification failed
+          exit /b 1
+        )
+        
+        echo ✅ Windows Stuart virtual environment setup complete
     
     - name: Setup MSYS2 and Build Tools
       uses: msys2/setup-msys2@v2
@@ -609,7 +659,7 @@ jobs:
         
         Write-Host "Initializing submodules..."
         # Use basic submodule initialization - the enhanced script may not be compatible
-        git submodule update --init --recommend-shallow
+        git submodule update --init --recursive
         if ($LASTEXITCODE -ne 0) {
           Write-Host "⚠️ Some submodules failed to initialize, continuing anyway..."
         } else {
@@ -741,7 +791,56 @@ jobs:
         echo VCToolsInstallDir=%VCToolsInstallDir%
         echo WindowsSdkDir=%WindowsSdkDir%
 
+    # Try Stuart Build First (Windows Only)
+    - name: Attempt Stuart Build
+      shell: cmd
+      continue-on-error: true
+      id: stuart-build
+      run: |
+        echo Attempting Stuart build for Windows...
+        cd acpipatcher
+        
+        echo Activating Python virtual environment...
+        call .venv\Scripts\activate.bat
+        if errorlevel 1 (
+          echo ❌ Failed to activate virtual environment, skipping Stuart build
+          exit /b 1
+        )
+        
+        echo Verifying Stuart installation in venv...
+        python -c "import edk2toolext; print('Stuart available')"
+        if errorlevel 1 (
+          echo ❌ Stuart not available in venv, skipping Stuart build
+          exit /b 1
+        )
+        
+        echo Running Stuart update to download dependencies...
+        stuart_update -c .pytool\CISettings.py TOOL_CHAIN_TAG=VS2022 -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
+        if errorlevel 1 (
+          echo ❌ Stuart update failed, will fallback to traditional build
+          exit /b 1
+        )
+        
+        echo Running Stuart update to download dependencies...
+        stuart_update -c .pytool\CISettings.py TOOL_CHAIN_TAG=VS2022 -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
+        if errorlevel 1 (
+          echo ❌ Stuart update failed, will fallback to traditional build
+          exit /b 1
+        )
+        
+        echo Running Stuart CI build...
+        stuart_ci_build -c .pytool\CISettings.py TOOL_CHAIN_TAG=VS2022 -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
+        if errorlevel 1 (
+          echo ❌ Stuart build failed, will fallback to traditional build
+          exit /b 1
+        ) else (
+          echo ✅ Stuart build completed successfully
+          exit /b 0
+        )
+
     - name: Setup EDK2 Environment and Build
+      # Only run if Stuart build failed
+      if: steps.stuart-build.outcome == 'failure'
       shell: cmd
       run: |
         cd edk2
@@ -1039,41 +1138,85 @@ jobs:
       shell: powershell
       continue-on-error: true
       run: |
-        cd edk2
-        
-        # Try VS2022 build directory first, then VS2019
-        $BUILD_DIRS = @(
-          "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2022\${{ matrix.arch }}",
-          "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2019\${{ matrix.arch }}"
-        )
-        
-        $BUILD_DIR = $null
-        foreach ($dir in $BUILD_DIRS) {
-          if (Test-Path $dir) {
-            $BUILD_DIR = $dir
-            Write-Host "✓ Found build directory: $BUILD_DIR"
-            break
-          }
-        }
-        
-        if (-not $BUILD_DIR) {
-          Write-Host "❌ No build directory found, searching for any ACPIPatcher builds..."
-          $allBuilds = Get-ChildItem -Path "Build" -Recurse -Directory -Name "*ACPIPatcher*" -ErrorAction SilentlyContinue
-          foreach ($build in $allBuilds) {
-            Write-Host "Found build directory: $build"
+        # Check if Stuart build was successful first
+        if ("${{ steps.stuart-build.outcome }}" -eq "success") {
+          Write-Host "✅ Verifying Stuart build output..."
+          cd acpipatcher
+          
+          # Stuart builds typically put outputs in Build directory within the project
+          $STUART_BUILD_DIRS = @(
+            "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2022\${{ matrix.arch }}",
+            "Build\${{ matrix.build_type }}_VS2022\${{ matrix.arch }}",
+            "Build\${{ matrix.arch }}\${{ matrix.build_type }}_VS2022"
+          )
+          
+          $BUILD_DIR = $null
+          foreach ($dir in $STUART_BUILD_DIRS) {
+            if (Test-Path $dir) {
+              $BUILD_DIR = $dir
+              Write-Host "✓ Found Stuart build directory: $BUILD_DIR"
+              break
+            }
           }
           
-          # Try to find EFI files anywhere in Build directory
-          $efiFiles = Get-ChildItem -Path "Build" -Recurse -Filter "*.efi" -ErrorAction SilentlyContinue
-          if ($efiFiles) {
-            Write-Host "Found EFI files:"
-            foreach ($file in $efiFiles) {
-              Write-Host "  - $($file.FullName)"
+          if (-not $BUILD_DIR) {
+            Write-Host "❌ No Stuart build directory found, searching for any build outputs..."
+            $allBuilds = Get-ChildItem -Path "Build" -Recurse -Directory -ErrorAction SilentlyContinue
+            foreach ($build in $allBuilds) {
+              Write-Host "Found build directory: $($build.FullName)"
             }
-            exit 0
-          } else {
-            Write-Host "❌ No EFI files found anywhere in Build directory"
-            exit 1
+            
+            # Try to find EFI files anywhere in Build directory
+            $efiFiles = Get-ChildItem -Path "Build" -Recurse -Filter "*.efi" -ErrorAction SilentlyContinue
+            if ($efiFiles) {
+              Write-Host "Found EFI files in Stuart build:"
+              foreach ($file in $efiFiles) {
+                Write-Host "  - $($file.FullName)"
+              }
+              exit 0
+            } else {
+              Write-Host "❌ No EFI files found in Stuart build directory"
+              exit 1
+            }
+          }
+        } else {
+          Write-Host "🔄 Verifying traditional EDK2 build output..."
+          cd edk2
+          
+          # Try VS2022 build directory first, then VS2019
+          $BUILD_DIRS = @(
+            "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2022\${{ matrix.arch }}",
+            "Build\ACPIPatcherPkg\${{ matrix.build_type }}_VS2019\${{ matrix.arch }}"
+          )
+          
+          $BUILD_DIR = $null
+          foreach ($dir in $BUILD_DIRS) {
+            if (Test-Path $dir) {
+              $BUILD_DIR = $dir
+              Write-Host "✓ Found build directory: $BUILD_DIR"
+              break
+            }
+          }
+          
+          if (-not $BUILD_DIR) {
+            Write-Host "❌ No build directory found, searching for any ACPIPatcher builds..."
+            $allBuilds = Get-ChildItem -Path "Build" -Recurse -Directory -Name "*ACPIPatcher*" -ErrorAction SilentlyContinue
+            foreach ($build in $allBuilds) {
+              Write-Host "Found build directory: $build"
+            }
+            
+            # Try to find EFI files anywhere in Build directory
+            $efiFiles = Get-ChildItem -Path "Build" -Recurse -Filter "*.efi" -ErrorAction SilentlyContinue
+            if ($efiFiles) {
+              Write-Host "Found EFI files:"
+              foreach ($file in $efiFiles) {
+                Write-Host "  - $($file.FullName)"
+              }
+              exit 0
+            } else {
+              Write-Host "❌ No EFI files found anywhere in Build directory"
+              exit 1
+            }
           }
         }
         

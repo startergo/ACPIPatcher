@@ -369,6 +369,57 @@ jobs:
       if: matrix.platform == 'windows'
       run: |
         xcopy /E /I acpipatcher\ACPIPatcherPkg edk2\ACPIPatcherPkg
+
+    # Windows-specific Stuart Virtual Environment Setup
+    - name: Setup Windows Stuart Virtual Environment
+      if: matrix.platform == 'windows'
+      shell: cmd
+      run: |
+        echo Setting up Windows-specific Python virtual environment for Stuart...
+        cd acpipatcher
+        
+        echo Creating Python virtual environment...
+        py -m venv .venv
+        if errorlevel 1 (
+          echo ❌ Failed to create virtual environment
+          exit /b 1
+        )
+        
+        echo Activating virtual environment...
+        call .venv\Scripts\activate.bat
+        if errorlevel 1 (
+          echo ❌ Failed to activate virtual environment
+          exit /b 1
+        )
+        
+        echo Upgrading pip and core tools...
+        python -m pip install --upgrade pip setuptools wheel
+        if errorlevel 1 (
+          echo ❌ Failed to upgrade pip and tools
+          exit /b 1
+        )
+        
+        echo Installing Stuart dependencies...
+        if exist "pip-requirements.txt" (
+          echo Installing from pip-requirements.txt...
+          python -m pip install -r pip-requirements.txt
+        ) else (
+          echo Installing core Stuart dependencies...
+          python -m pip install edk2-pytool-library^>=0.21.0 edk2-pytool-extensions^>=0.25.0
+        )
+        if errorlevel 1 (
+          echo ❌ Failed to install Stuart dependencies
+          exit /b 1
+        )
+        
+        echo Verifying Stuart installation...
+        python -c "import edk2toolext; print('Stuart tools installed successfully in venv')"
+        if errorlevel 1 (
+          echo ❌ Stuart verification failed
+          exit /b 1
+        )
+        
+        echo ✅ Windows Stuart virtual environment setup complete
     
     - name: Setup Python Virtual Environment (Stuart) - Unix
       if: matrix.platform != 'windows'
@@ -391,9 +442,51 @@ jobs:
         build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t ${{ matrix.toolchain }} \
               -p ACPIPatcherPkg/ACPIPatcherPkg.dsc \
               -D DEBUG_LEVEL=3
-    
+
+    # Try Stuart Build First (Windows Only)
+    - name: Attempt Stuart Build (Windows)
+      if: matrix.platform == 'windows'
+      shell: cmd
+      continue-on-error: true
+      id: stuart-build-windows
+      run: |
+        echo Attempting Stuart build for Windows...
+        cd acpipatcher
+        
+        echo Activating Python virtual environment...
+        call .venv\Scripts\activate.bat
+        if errorlevel 1 (
+          echo ❌ Failed to activate virtual environment, skipping Stuart build
+          exit /b 1
+        )
+        
+        echo Verifying Stuart installation in venv...
+        python -c "import edk2toolext; print('Stuart available')"
+        if errorlevel 1 (
+          echo ❌ Stuart not available in venv, skipping Stuart build
+          exit /b 1
+        )
+        
+        echo Running Stuart update to download dependencies...
+        stuart_update -c .pytool\CISettings.py TOOL_CHAIN_TAG=${{ matrix.toolchain }} -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
+        if errorlevel 1 (
+          echo ❌ Stuart update failed, will fallback to traditional build
+          exit /b 1
+        )
+        
+        echo Running Stuart CI build...
+        stuart_ci_build -c .pytool\CISettings.py TOOL_CHAIN_TAG=${{ matrix.toolchain }} -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
+        if errorlevel 1 (
+          echo ❌ Stuart build failed, will fallback to traditional build
+          exit /b 1
+        ) else (
+          echo ✅ Stuart build completed successfully
+          echo STUART_BUILD_SUCCESS=true >> %GITHUB_ENV%
+          exit /b 0
+        )
+
     - name: Build ACPIPatcher (Windows - Traditional Fallback)
-      if: matrix.platform == 'windows' && env.STUART_BUILD_SUCCESS != 'true'
+      if: matrix.platform == 'windows' && steps.stuart-build-windows.outcome == 'failure'
       shell: cmd
       run: |
         cd edk2

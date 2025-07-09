@@ -365,29 +365,27 @@ jobs:
           echo ✗ Visual Studio compiler not accessible
         )
 
-    - name: Build with Stuart-Inspired Approach (Windows)
+    - name: Build with Stuart (Windows)
       if: matrix.os == 'windows'
       shell: pwsh
       continue-on-error: true
       run: |
         cd edk2
         
-        Write-Host "=== Building with Stuart-inspired approach ==="
+        Write-Host "=== Building with Stuart Build System ==="
         .\.venv\Scripts\Activate.ps1
         
-        $env:WORKSPACE = $PWD.Path
-        $env:EDK_TOOLS_PATH = "$PWD\BaseTools"
-        $env:PYTHON_COMMAND = "python"
-        
+        # First, run stuart_update to download dependencies and binaries
+        Write-Host "Running Stuart update to download dependencies..."
         try {
-          Write-Host "Building BaseTools with Python tools..."
-          python BaseTools/Edk2ToolsBuild.py -t VS2022
+          stuart_update -c .pytool\CISettings.py TOOL_CHAIN_TAG=VS2022 -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
           
           if ($LASTEXITCODE -eq 0) {
-            Write-Host "✅ BaseTools built with VS2022"
+            Write-Host "✅ Stuart update completed successfully with VS2022"
             
-            Write-Host "Building ACPIPatcher with Python tools..."
-            python BaseTools/BinWrappers/PosixLike/build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t VS2022 -p ACPIPatcherPkg\ACPIPatcherPkg.dsc
+            # Now run the actual Stuart CI build
+            Write-Host "Running Stuart CI build..."
+            stuart_ci_build -c .pytool\CISettings.py TOOL_CHAIN_TAG=VS2022 -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
             
             if ($LASTEXITCODE -eq 0) {
               Write-Host "✅ Stuart build completed successfully"
@@ -398,9 +396,9 @@ jobs:
           
           # Try with VS2019 if VS2022 fails
           Write-Host "Trying VS2019 toolchain..."
-          python BaseTools/Edk2ToolsBuild.py -t VS2019
+          stuart_update -c .pytool\CISettings.py TOOL_CHAIN_TAG=VS2019 -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
           if ($LASTEXITCODE -eq 0) {
-            python BaseTools/BinWrappers/PosixLike/build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t VS2019 -p ACPIPatcherPkg\ACPIPatcherPkg.dsc
+            stuart_ci_build -c .pytool\CISettings.py TOOL_CHAIN_TAG=VS2019 -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
             if ($LASTEXITCODE -eq 0) {
               Write-Host "✅ Stuart build completed with VS2019"
               echo "STUART_BUILD_SUCCESS=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
@@ -408,7 +406,7 @@ jobs:
             }
           }
         } catch {
-          Write-Host "Stuart build encountered errors"
+          Write-Host "Stuart build encountered errors: $_"
         }
         
         Write-Host "❌ Stuart build failed, will use traditional build"
