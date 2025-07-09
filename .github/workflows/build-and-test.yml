@@ -831,9 +831,36 @@ jobs:
         echo CONF_PATH=%CONF_PATH%
         echo EDK_TOOLS_BIN=%EDK_TOOLS_BIN%
         echo.
+        
+        REM Debug: Test Python script execution before nmake
+        echo Testing Python script execution...
+        if exist "Makefiles\NmakeSubdirs.py" (
+          echo ✓ NmakeSubdirs.py found
+          "%PYTHON_COMMAND%" "Makefiles\NmakeSubdirs.py" --help 2>nul || echo "⚠️ Python script test failed or no --help option"
+        ) else (
+          echo ⚠️ NmakeSubdirs.py not found
+        )
+        
+        REM Debug: Show directory structure
+        echo Current BaseTools directory contents:
+        dir /b | head -10
+        echo.
+        echo Makefiles directory contents:
+        dir /b Makefiles\ 2>nul | head -10 || echo "Makefiles directory not found"
+        echo.
+        
         nmake PYTHON_COMMAND="%PYTHON_COMMAND%" BUILD_CFLAGS="/W0 /WX-" CC_FLAGS="/W0 /WX-"
         if errorlevel 1 (
           echo ❌ BaseTools build failed, trying without makefile patches...
+          
+          REM Debug: Try running the Python script manually to see the actual error
+          echo.
+          echo === Debugging Python Script Execution ===
+          if exist "Makefiles\NmakeSubdirs.py" (
+            echo Running NmakeSubdirs.py manually to debug...
+            "%PYTHON_COMMAND%" "Makefiles\NmakeSubdirs.py" all Common 2>&1 || echo "Python script failed with the above error"
+          )
+          echo.
           
           REM Reset makefiles and try again without patches
           if exist "Makefiles\ms.common.backup" (
@@ -872,13 +899,50 @@ jobs:
           
           if errorlevel 1 (
             echo ❌ BaseTools build failed even without patches
-            echo This is critical - cannot proceed without GenFw and other tools
-            exit /b 1
+            echo.
+            echo === Trying Alternative BaseTools Build Method ===
+            echo Attempting to use traditional EDK2 setup approach...
+            
+            REM Go back to workspace root and try edksetup.bat first
+            cd ..
+            echo Calling edksetup.bat to see if it builds BaseTools...
+            call edksetup.bat
+            
+            if errorlevel 1 (
+              echo ❌ edksetup.bat also failed
+              echo This is critical - cannot proceed without GenFw and other tools
+              exit /b 1
+            ) else (
+              echo ✓ edksetup.bat succeeded, checking if BaseTools were built...
+              if exist "BaseTools\Bin\Win32\GenFw.exe" (
+                echo ✅ GenFw.exe found after edksetup.bat
+                set "PATH=%WORKSPACE%\BaseTools\Bin\Win32;%PATH%"
+                goto :build_success
+              ) else (
+                echo ❌ GenFw.exe still not found after edksetup.bat
+                echo This is critical - cannot proceed without GenFw and other tools
+                exit /b 1
+              )
+            )
           ) else (
             echo ✅ BaseTools build completed on retry
+            goto :build_success
           )
         ) else (
           echo ✅ BaseTools build completed successfully
+        )
+        
+        :build_success
+        echo === BaseTools Build Success ===
+        
+        REM Ensure we're in the BaseTools directory for verification
+        if not exist "Bin\Win32" (
+          if exist "BaseTools\Bin\Win32" (
+            cd BaseTools
+            echo Switched to BaseTools directory for verification
+          ) else (
+            echo ⚠️ Cannot find BaseTools Bin\Win32 directory
+          )
         )
         
         REM Verify that essential tools were built
