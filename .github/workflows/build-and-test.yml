@@ -491,6 +491,25 @@ jobs:
       with:
         python-version: '3.9'
     
+    # Stuart Build System Setup
+    - name: Setup Stuart Python Environment
+      run: |
+        echo "Setting up Stuart Python environment..."
+        python -m pip install --upgrade pip setuptools wheel
+        
+        # Install Stuart dependencies if pip-requirements.txt exists
+        if [ -f "acpipatcher/pip-requirements.txt" ]; then
+          echo "Installing Stuart dependencies from pip-requirements.txt..."
+          python -m pip install -r acpipatcher/pip-requirements.txt
+        else
+          echo "Installing core Stuart dependencies..."
+          python -m pip install edk2-pytool-library>=0.21.0 edk2-pytool-extensions>=0.25.0
+        fi
+        
+        # Verify Stuart installation
+        python -c "import edk2toolext; print('Stuart tools installed successfully')" || echo "Stuart installation verification failed"
+      shell: bash
+    
     - name: Setup MSYS2 and Build Tools
       uses: msys2/setup-msys2@v2
       with:

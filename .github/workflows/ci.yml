@@ -71,10 +71,11 @@ jobs:
       with:
         python-version: '3.9'
     
-    # Stuart Build System Setup
-    - name: Setup Stuart Python Environment
+    # Stuart Build System Setup (Windows only)
+    - name: Setup Stuart Python Environment (Windows)
+      if: matrix.os == 'windows'
       run: |
-        echo "Setting up Stuart Python environment..."
+        echo "Setting up Stuart Python environment for Windows..."
         python -m pip install --upgrade pip setuptools wheel
         
         # Install Stuart dependencies if pip-requirements.txt exists
@@ -229,95 +230,15 @@ jobs:
       shell: bash
       run: |
         cp -r acpipatcher/ACPIPatcherPkg edk2/
-
-    - name: Setup Python Virtual Environment (Stuart) - Unix
-      if: matrix.os != 'windows'
-      shell: bash
-      run: |
-        cd edk2
-        
-        echo "=== Setting up Stuart-inspired build environment ==="
-        
-        # Copy pip requirements to EDK2 directory
-        cp ../acpipatcher/pip-requirements.txt . 2>/dev/null || true
-        
-        echo "Creating Python virtual environment..."
-        python3 -m venv .venv
-        
-        echo "Activating virtual environment..."
-        source .venv/bin/activate
-        
-        echo "Installing EDK2 Python tools following Stuart documentation..."
-        python -m pip install --upgrade pip
-        
-        if [ -f "pip-requirements.txt" ]; then
-          pip install -r pip-requirements.txt --upgrade
-        else
-          pip install edk2-pytool-library edk2-pytool-extensions
-        fi
-        
-        echo "✅ Python virtual environment setup complete"
-
-    - name: Stuart Dependencies Update (Unix)
-      if: matrix.os != 'windows'
-      shell: bash
-      run: |
-        cd edk2
-        
-        echo "=== Stuart Setup: Updating Dependencies ==="
-        source .venv/bin/activate
-        
-        # Git submodules update (Stuart documentation step)
-        echo "Updating git submodules..."
-        git submodule update --init --recursive
-        
-        # Copy Stuart configuration if available
-        if [ -d "../acpipatcher/.pytool" ]; then
-          cp -r ../acpipatcher/.pytool . 2>/dev/null || true
-          echo "✅ Copied Stuart configuration files"
-        fi
-        
-        echo "✅ Stuart dependencies update completed"
     
-    # Build steps - Stuart approach for all platforms
-    - name: Build with Stuart-Inspired Approach (Unix)
+    # Build steps - Linux/macOS
+    - name: Build on Unix (Linux/macOS)
       if: matrix.os != 'windows'
-      shell: bash
-      continue-on-error: true
-      run: |
-        cd edk2
-        
-        echo "=== Building with Stuart-inspired approach ==="
-        source .venv/bin/activate
-        
-        export WORKSPACE=$(pwd)
-        export EDK_TOOLS_PATH="$WORKSPACE/BaseTools"
-        export PYTHON_COMMAND="python"
-        
-        # Try Stuart-style build first
-        echo "Building BaseTools with Python tools..."
-        if python BaseTools/Edk2ToolsBuild.py -t ${{ matrix.toolchain }}; then
-          echo "✅ BaseTools built with Python tools"
-          
-          echo "Building ACPIPatcher with Python tools..."
-          if python BaseTools/BinWrappers/PosixLike/build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t ${{ matrix.toolchain }} -p ACPIPatcherPkg/ACPIPatcherPkg.dsc; then
-            echo "✅ Stuart build completed successfully"
-            echo "STUART_BUILD_SUCCESS=true" >> $GITHUB_ENV
-            exit 0
-          fi
-        fi
-        
-        echo "❌ Stuart build failed, will use traditional build"
-        echo "STUART_BUILD_SUCCESS=false" >> $GITHUB_ENV
-
-    - name: Build on Unix (Traditional Fallback)
-      if: matrix.os != 'windows' && env.STUART_BUILD_SUCCESS != 'true'
-      shell: bash
       run: |
         cd edk2
         . edksetup.sh
         
-        # Traditional BaseTools build with comprehensive error workarounds
+        # Build BaseTools with comprehensive error workarounds
         echo "Building EDK2 BaseTools..."
         export BUILD_SUCCESS=false
         
