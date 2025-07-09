@@ -553,29 +553,116 @@ jobs:
       uses: actions/cache@v4
       with:
         path: edk2
-        key: edk2-${{ env.EDK2_VERSION }}-windows-${{ matrix.arch }}
+        key: edk2-${{ env.EDK2_VERSION }}-windows-${{ matrix.arch }}-v2
+        restore-keys: |
+          edk2-${{ env.EDK2_VERSION }}-windows-
+          edk2-${{ env.EDK2_VERSION }}-
+
+    - name: Debug Cache Status
+      shell: cmd
+      run: |
+        echo === Cache Status Debug ===
+        echo Cache hit: ${{ steps.cache-edk2.outputs.cache-hit }}
+        echo Cache key: edk2-${{ env.EDK2_VERSION }}-windows-${{ matrix.arch }}-v2
+        echo.
+        if exist "edk2" (
+          echo ✅ EDK2 directory exists after cache step
+          dir edk2 | head -5
+        ) else (
+          echo ❌ EDK2 directory does not exist after cache step
+        )
     
     - name: Checkout EDK2
       if: steps.cache-edk2.outputs.cache-hit != 'true'
-      shell: bash
+      shell: pwsh
       run: |
+        Write-Host "Cloning EDK2 repository..."
         git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
-        cd edk2
+        
+        if ($LASTEXITCODE -ne 0) {
+          Write-Host "❌ Failed to clone EDK2 repository"
+          exit 1
+        }
+        
+        Set-Location edk2
         git config --global url."https://github.com/".insteadOf "git@github.com:"
         git config --global advice.detachedHead false
         
-        # Use enhanced submodule initialization script
-        if [ -f "../acpipatcher/.github/scripts/enhanced-submodule-init.sh" ]; then
-          echo "Using enhanced submodule initialization..."
-          bash ../acpipatcher/.github/scripts/enhanced-submodule-init.sh
-        else
-          echo "Enhanced script not found, falling back to basic initialization..."
-          git submodule update --init --recommend-shallow || echo "Warning: Some submodules failed to initialize"
-        fi
+        Write-Host "Initializing submodules..."
+        # Use basic submodule initialization - the enhanced script may not be compatible
+        git submodule update --init --recommend-shallow
+        if ($LASTEXITCODE -ne 0) {
+          Write-Host "⚠️ Some submodules failed to initialize, continuing anyway..."
+        } else {
+          Write-Host "✅ Submodules initialized successfully"
+        }
+        
+        Set-Location ..
+        Write-Host "✅ EDK2 checkout completed"
+
+    - name: Verify EDK2 Checkout
+      shell: cmd
+      run: |
+        echo === Verifying EDK2 Checkout Results ===
+        echo Current working directory: %CD%
+        echo Directory contents:
+        dir
+        echo.
+        
+        if exist "edk2" (
+          echo ✅ EDK2 directory exists
+          echo EDK2 directory size and contents:
+          dir edk2 | head -15
+          echo.
+          if exist "edk2\BaseTools" (
+            echo ✅ BaseTools directory exists
+            dir edk2\BaseTools | head -10
+          ) else (
+            echo ❌ BaseTools directory missing
+          )
+        ) else (
+          echo ❌ EDK2 directory does not exist
+          echo Looking for any EDK2-related directories:
+          dir /ad 2>nul | findstr -i edk
+        )
     
     - name: Copy ACPIPatcher to EDK2
       run: |
+        echo === Debugging EDK2 Directory Structure ===
+        echo Current directory contents:
+        dir
+        echo.
+        
+        echo Verifying EDK2 checkout...
+        if not exist "edk2" (
+          echo ❌ EDK2 directory not found after checkout/cache
+          echo Looking for any directories that might be EDK2:
+          dir /ad | findstr -i edk
+          exit /b 1
+        ) else (
+          echo ✅ EDK2 directory found
+          echo EDK2 directory contents:
+          dir edk2 | head -10
+        )
+        
+        if not exist "edk2\BaseTools" (
+          echo ❌ EDK2 BaseTools directory not found
+          echo Contents of EDK2 directory:
+          dir edk2
+          exit /b 1
+        ) else (
+          echo ✅ EDK2 BaseTools directory found
+        )
+        
+        echo ✅ EDK2 directory structure verified
+        
+        echo Copying ACPIPatcher to EDK2...
         xcopy /E /I acpipatcher\ACPIPatcherPkg edk2\ACPIPatcherPkg
+        if errorlevel 1 (
+          echo ❌ Failed to copy ACPIPatcher to EDK2
+          exit /b 1
+        )
+        echo ✅ ACPIPatcher copied to EDK2 successfully
 
     - name: Set EDK2 Environment Variables
       shell: pwsh
@@ -857,7 +944,7 @@ jobs:
         echo Setting up VS2022 toolchain...
         
         REM Find Visual Studio installation using vswhere (should already be in PATH)
-        for /f "delims=" %%i in ('"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.Component.MSBuild -property installationPath') do set "VS_INSTALL_PATH=%%i"
+        for /f "delims=" %%i in ('"%ProgramFiles(x86)%\\Microsoft Visual Studio\\Installer\\vswhere.exe" -latest -products * -requires Microsoft.Component.MSBuild -property installationPath') do set "VS_INSTALL_PATH=%%i"
         if "%VS_INSTALL_PATH%"=="" (
           echo ✗ Could not find Visual Studio installation
           exit /b 1
@@ -865,7 +952,7 @@ jobs:
         echo Found Visual Studio at: %VS_INSTALL_PATH%
         
         REM Find MSVC version directory
-        for /f "delims=" %%i in ('dir /b "%VS_INSTALL_PATH%\VC\Tools\MSVC\" ^| findstr "^[0-9]" ^| sort /r') do (
+        for /f "delims=" %%i in ('dir /b "%VS_INSTALL_PATH%\\VC\\Tools\\MSVC\\" ^| findstr "^[0-9]" ^| sort /r') do (
           set "MSVC_VERSION=%%i"
           goto :found_msvc
         )
@@ -877,7 +964,7 @@ jobs:
         echo Found MSVC version: %MSVC_VERSION%
         
         REM Set VS2022 paths for EDK2
-        set "VS2022_BIN=%VS_INSTALL_PATH%\VC\Tools\MSVC\%MSVC_VERSION%\bin\Hostx64\x64"
+        set "VS2022_BIN=%VS_INSTALL_PATH%\\VC\\Tools\\MSVC\\%MSVC_VERSION%\\bin\\Hostx64\\x64"
         echo Set VS2022_BIN=%VS2022_BIN%
         
         REM Build ACPIPatcher
