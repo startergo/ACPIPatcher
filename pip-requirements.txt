@@ -1,0 +1,27 @@
+# EDK2 Python Dependencies for Stuart Build System
+# This file contains the required Python packages for building EDK2 projects
+# using the Stuart build system
+
+# Core EDK2 Python tools
+edk2-pytool-library>=0.21.0
+edk2-pytool-extensions>=0.25.0
+
+# Required dependencies for BaseTools
+antlr4-python3-runtime>=4.9.3
+
+# Build and development tools
+setuptools>=65.0.0
+wheel>=0.37.0
+pip>=22.0.0
+
+# Additional tools for enhanced functionality
+gitpython>=3.1.0
+requests>=2.28.0
+pyyaml>=6.0
+
+# Static analysis tools
+flake8>=5.0.0
+pycodestyle>=2.9.0
+
+# Testing framework (optional)
+pytest>=7.0.0
