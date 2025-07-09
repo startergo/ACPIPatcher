@@ -71,6 +71,25 @@ jobs:
       with:
         python-version: '3.9'
     
+    # Stuart Build System Setup
+    - name: Setup Stuart Python Environment
+      run: |
+        echo "Setting up Stuart Python environment..."
+        python -m pip install --upgrade pip setuptools wheel
+        
+        # Install Stuart dependencies if pip-requirements.txt exists
+        if [ -f "acpipatcher/pip-requirements.txt" ]; then
+          echo "Installing Stuart dependencies from pip-requirements.txt..."
+          python -m pip install -r acpipatcher/pip-requirements.txt
+        else
+          echo "Installing core Stuart dependencies..."
+          python -m pip install edk2-pytool-library>=0.21.0 edk2-pytool-extensions>=0.25.0
+        fi
+        
+        # Verify Stuart installation
+        python -c "import edk2toolext; print('Stuart tools installed successfully')" || echo "Stuart installation verification failed"
+      shell: bash
+    
     # Platform-specific dependency installation
     - name: Install Linux Dependencies
       if: matrix.os == 'linux'
@@ -210,15 +229,95 @@ jobs:
       shell: bash
       run: |
         cp -r acpipatcher/ACPIPatcherPkg edk2/
-    
-    # Build steps - Linux/macOS
-    - name: Build on Unix (Linux/macOS)
+
+    - name: Setup Python Virtual Environment (Stuart) - Unix
       if: matrix.os != 'windows'
+      shell: bash
+      run: |
+        cd edk2
+        
+        echo "=== Setting up Stuart-inspired build environment ==="
+        
+        # Copy pip requirements to EDK2 directory
+        cp ../acpipatcher/pip-requirements.txt . 2>/dev/null || true
+        
+        echo "Creating Python virtual environment..."
+        python3 -m venv .venv
+        
+        echo "Activating virtual environment..."
+        source .venv/bin/activate
+        
+        echo "Installing EDK2 Python tools following Stuart documentation..."
+        python -m pip install --upgrade pip
+        
+        if [ -f "pip-requirements.txt" ]; then
+          pip install -r pip-requirements.txt --upgrade
+        else
+          pip install edk2-pytool-library edk2-pytool-extensions
+        fi
+        
+        echo "✅ Python virtual environment setup complete"
+
+    - name: Stuart Dependencies Update (Unix)
+      if: matrix.os != 'windows'
+      shell: bash
+      run: |
+        cd edk2
+        
+        echo "=== Stuart Setup: Updating Dependencies ==="
+        source .venv/bin/activate
+        
+        # Git submodules update (Stuart documentation step)
+        echo "Updating git submodules..."
+        git submodule update --init --recursive
+        
+        # Copy Stuart configuration if available
+        if [ -d "../acpipatcher/.pytool" ]; then
+          cp -r ../acpipatcher/.pytool . 2>/dev/null || true
+          echo "✅ Copied Stuart configuration files"
+        fi
+        
+        echo "✅ Stuart dependencies update completed"
+    
+    # Build steps - Stuart approach for all platforms
+    - name: Build with Stuart-Inspired Approach (Unix)
+      if: matrix.os != 'windows'
+      shell: bash
+      continue-on-error: true
+      run: |
+        cd edk2
+        
+        echo "=== Building with Stuart-inspired approach ==="
+        source .venv/bin/activate
+        
+        export WORKSPACE=$(pwd)
+        export EDK_TOOLS_PATH="$WORKSPACE/BaseTools"
+        export PYTHON_COMMAND="python"
+        
+        # Try Stuart-style build first
+        echo "Building BaseTools with Python tools..."
+        if python BaseTools/Edk2ToolsBuild.py -t ${{ matrix.toolchain }}; then
+          echo "✅ BaseTools built with Python tools"
+          
+          echo "Building ACPIPatcher with Python tools..."
+          if python BaseTools/BinWrappers/PosixLike/build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t ${{ matrix.toolchain }} -p ACPIPatcherPkg/ACPIPatcherPkg.dsc; then
+            echo "✅ Stuart build completed successfully"
+            echo "STUART_BUILD_SUCCESS=true" >> $GITHUB_ENV
+            exit 0
+          fi
+        fi
+        
+        echo "❌ Stuart build failed, will use traditional build"
+        echo "STUART_BUILD_SUCCESS=false" >> $GITHUB_ENV
+
+    - name: Build on Unix (Traditional Fallback)
+      if: matrix.os != 'windows' && env.STUART_BUILD_SUCCESS != 'true'
+      shell: bash
       run: |
         cd edk2
         . edksetup.sh
         
-        # Build BaseTools with comprehensive error workarounds
+        # Traditional BaseTools build with comprehensive error workarounds
         echo "Building EDK2 BaseTools..."
         export BUILD_SUCCESS=false
         
@@ -295,8 +394,57 @@ jobs:
           echo ✗ Visual Studio compiler not accessible
         )
 
-    - name: Build on Windows
+    - name: Build with Stuart-Inspired Approach (Windows)
       if: matrix.os == 'windows'
+      shell: pwsh
+      continue-on-error: true
+      run: |
+        cd edk2
+        
+        Write-Host "=== Building with Stuart-inspired approach ==="
+        .\.venv\Scripts\Activate.ps1
+        
+        $env:WORKSPACE = $PWD.Path
+        $env:EDK_TOOLS_PATH = "$PWD\BaseTools"
+        $env:PYTHON_COMMAND = "python"
+        
+        try {
+          Write-Host "Building BaseTools with Python tools..."
+          python BaseTools/Edk2ToolsBuild.py -t VS2022
+          
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "✅ BaseTools built with VS2022"
+            
+            Write-Host "Building ACPIPatcher with Python tools..."
+            python BaseTools/BinWrappers/PosixLike/build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t VS2022 -p ACPIPatcherPkg\ACPIPatcherPkg.dsc
+            
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "✅ Stuart build completed successfully"
+              echo "STUART_BUILD_SUCCESS=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+              exit 0
+            }
+          }
+          
+          # Try with VS2019 if VS2022 fails
+          Write-Host "Trying VS2019 toolchain..."
+          python BaseTools/Edk2ToolsBuild.py -t VS2019
+          if ($LASTEXITCODE -eq 0) {
+            python BaseTools/BinWrappers/PosixLike/build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t VS2019 -p ACPIPatcherPkg\ACPIPatcherPkg.dsc
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "✅ Stuart build completed with VS2019"
+              echo "STUART_BUILD_SUCCESS=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+              exit 0
+            }
+          }
+        } catch {
+          Write-Host "Stuart build encountered errors"
+        }
+        
+        Write-Host "❌ Stuart build failed, will use traditional build"
+        echo "STUART_BUILD_SUCCESS=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+    - name: Build on Windows (Traditional Fallback)
+      if: matrix.os == 'windows' && env.STUART_BUILD_SUCCESS != 'true'
       shell: cmd
       run: |
         cd edk2
@@ -414,7 +562,7 @@ jobs:
           echo ⚠ edksetup.bat reported issues, but continuing...
         )
         
-        REM Re-source Visual Studio environment to ensure toolchain is available
+        REM Re-sourcing Visual Studio environment to ensure toolchain is available
         echo Re-sourcing Visual Studio environment...
         call "%VCToolsInstallDir%\..\..\Auxiliary\Build\vcvarsall.bat" x64
         
