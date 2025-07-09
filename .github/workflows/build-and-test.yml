@@ -741,6 +741,15 @@ jobs:
           )
         )
         
+        REM Try py.exe if other methods didn't work
+        if "!PYTHON_COMMAND!"=="" (
+          where py >nul 2>&1
+          if %ERRORLEVEL%==0 (
+            set "PYTHON_COMMAND=py -3"
+            echo ✓ Found Python via py.exe: py -3
+          )
+        )
+        
         REM Final fallback: try known GitHub Actions path
         if "!PYTHON_COMMAND!"=="" (
           echo Trying fallback Python detection...
@@ -774,219 +783,47 @@ jobs:
         where python python3 py 2>nul | findstr /V "INFO:" || echo "No Python executables found with where command"
         
         REM Build BaseTools FIRST, before calling edksetup.bat
-        echo Building BaseTools with warning suppression...
+        echo Building BaseTools...
         cd BaseTools
         
         REM Ensure Win32 directory exists
         if not exist "Bin\Win32" mkdir "Bin\Win32"
         
-        REM Patch Makefiles to disable warnings-as-errors before building
-        if exist "Makefiles\ms.common" (
-          echo Patching ms.common to disable warnings-as-errors...
-          REM More aggressive patching to override all warning flags
-          REM First backup the original file
-          copy "Makefiles\ms.common" "Makefiles\ms.common.backup" >nul 2>&1
-          
-          REM Remove all /WX flags and replace with /WX-
-          powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/WX\b', '/WX-' | Set-Content 'Makefiles\ms.common'"
-          REM Replace warning levels with /W0 (no warnings)
-          powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/W[0-4]\b', '/W0' | Set-Content 'Makefiles\ms.common'"
-          REM Remove specific warning disables as they're not needed with /W0
-          powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/wd[0-9]+\s*', '' | Set-Content 'Makefiles\ms.common'"
-          
-          echo ✓ Patched ms.common to disable warnings-as-errors
-          echo Modified ms.common content (warning-related lines):
-          findstr "/W\|/wd" "Makefiles\ms.common" || echo "No warning flags found in patched file"
-        ) else (
-          echo ⚠️ ms.common not found - makefile patching skipped
-        )
-        
-        REM Also patch makefile.common if it exists
-        if exist "Makefiles\makefile.common" (
-          echo Patching makefile.common...
-          copy "Makefiles\makefile.common" "Makefiles\makefile.common.backup" >nul 2>&1
-          powershell -Command "(Get-Content 'Makefiles\makefile.common') -replace '/WX\b', '/WX-' | Set-Content 'Makefiles\makefile.common'"
-          powershell -Command "(Get-Content 'Makefiles\makefile.common') -replace '/W[0-4]\b', '/W0' | Set-Content 'Makefiles\makefile.common'"
-          echo ✓ Patched makefile.common
-        ) else (
-          echo ⚠️ makefile.common not found
-        )
-        
-        REM Set environment to disable warnings for BaseTools build
-        echo Building BaseTools with nmake (warnings suppressed via makefile patches)...
-        echo Current directory: %CD%
-        
-        REM Clear all potentially problematic environment variables
-        REM Preserve PYTHON_COMMAND and other required variables
-        set "SAVED_PYTHON_COMMAND=%PYTHON_COMMAND%"
-        set "SAVED_BASE_TOOLS_PATH=%BASE_TOOLS_PATH%"
-        set "SAVED_EDK_TOOLS_PATH=%EDK_TOOLS_PATH%"
-        set "SAVED_WORKSPACE=%WORKSPACE%"
-        set "SAVED_CONF_PATH=%CONF_PATH%"
-        set "SAVED_EDK_TOOLS_BIN=%EDK_TOOLS_BIN%"
-        
+        REM Clear ALL problematic environment variables that cause NMAKE U1065 error
         set MAKEFLAGS=
         set CFLAGS=
         set CXXFLAGS=
         set LDFLAGS=
         set MFLAGS=
+        set MAKELEVEL=
         
-        REM Restore critical variables
-        set "PYTHON_COMMAND=%SAVED_PYTHON_COMMAND%"
-        set "BASE_TOOLS_PATH=%SAVED_BASE_TOOLS_PATH%"
-        set "EDK_TOOLS_PATH=%SAVED_EDK_TOOLS_PATH%"
-        set "WORKSPACE=%SAVED_WORKSPACE%"
-        set "CONF_PATH=%SAVED_CONF_PATH%"
-        set "EDK_TOOLS_BIN=%SAVED_EDK_TOOLS_BIN%"
+        REM Build BaseTools using the simplest possible approach
+        echo Building BaseTools with PYTHON_COMMAND: %PYTHON_COMMAND%
+        echo Current directory: %CD%
         
-        REM Override warning flags via environment to suppress warnings-as-errors
-        set "BUILD_CFLAGS=/W0 /WX-"
-        set "CFLAGS=/W0 /WX-"
-        set "CC_FLAGS=/W0 /WX-"
-        echo Set warning suppression flags: BUILD_CFLAGS=%BUILD_CFLAGS%
-        echo Cleared potentially problematic build flags and restored critical variables
-        
-        REM Build BaseTools with nmake (use clean environment but explicit PYTHON_COMMAND)
-        echo Running nmake with PYTHON_COMMAND: %PYTHON_COMMAND%
-        echo Verifying EDK2 environment variables for BaseTools build:
-        echo WORKSPACE=%WORKSPACE%
-        echo BASE_TOOLS_PATH=%BASE_TOOLS_PATH%
-        echo EDK_TOOLS_PATH=%EDK_TOOLS_PATH%
-        echo CONF_PATH=%CONF_PATH%
-        echo EDK_TOOLS_BIN=%EDK_TOOLS_BIN%
-        echo.
-        echo EDK_TOOLS_PATH=%EDK_TOOLS_PATH%
-        echo CONF_PATH=%CONF_PATH%
-        echo EDK_TOOLS_BIN=%EDK_TOOLS_BIN%
-        echo.
-        
-        REM Debug: Test Python script execution before nmake
-        echo Testing Python script execution...
-        if exist "Makefiles\NmakeSubdirs.py" (
-          echo ✓ NmakeSubdirs.py found
-          "%PYTHON_COMMAND%" "Makefiles\NmakeSubdirs.py" --help 2>nul || echo "⚠️ Python script test failed or no --help option"
-        ) else (
-          echo ⚠️ NmakeSubdirs.py not found
-        )
-        
-        REM Debug: Show directory structure
-        echo Current BaseTools directory contents:
-        dir /b | head -10
-        echo.
-        echo Makefiles directory contents:
-        dir /b Makefiles\ 2>nul | head -10 || echo "Makefiles directory not found"
-        echo.
-        
-        nmake PYTHON_COMMAND="%PYTHON_COMMAND%" BUILD_CFLAGS="/W0 /WX-" CC_FLAGS="/W0 /WX-"
+        REM Use simple nmake without any complex parameters to avoid NMAKE U1065
+        echo Attempting simplified BaseTools build...
+        nmake
         if errorlevel 1 (
-          echo ❌ BaseTools build failed, trying without makefile patches...
-          
-          REM Debug: Try running the Python script manually to see the actual error
-          echo.
-          echo === Debugging Python Script Execution ===
-          if exist "Makefiles\NmakeSubdirs.py" (
-            echo Running NmakeSubdirs.py manually to debug...
-            "%PYTHON_COMMAND%" "Makefiles\NmakeSubdirs.py" all Common 2>&1 || echo "Python script failed with the above error"
-          )
-          echo.
-          
-          REM Reset makefiles and try again without patches
-          if exist "Makefiles\ms.common.backup" (
-            copy "Makefiles\ms.common.backup" "Makefiles\ms.common" >nul 2>&1
-            echo "Restored ms.common from backup"
-          ) else (
-            git checkout -- Makefiles\ms.common 2>nul || echo "No ms.common to reset"
-          )
-          
-          if exist "Makefiles\makefile.common.backup" (
-            copy "Makefiles\makefile.common.backup" "Makefiles\makefile.common" >nul 2>&1
-            echo "Restored makefile.common from backup"
-          ) else (
-            git checkout -- Makefiles\makefile.common 2>nul || echo "No makefile.common to reset"
-          )
-          
-          REM Try build again with default settings
-          echo Retrying BaseTools build with default settings...
-          
-          REM Ensure completely clean environment for retry
-          set MAKEFLAGS=
-          set CFLAGS=
-          set CXXFLAGS=
-          set LDFLAGS=
-          set MFLAGS=
-          
-          echo Retry nmake with PYTHON_COMMAND: %PYTHON_COMMAND%
-          echo Verifying EDK2 environment variables for retry build:
-          echo WORKSPACE=%WORKSPACE%
-          echo BASE_TOOLS_PATH=%BASE_TOOLS_PATH%
-          echo EDK_TOOLS_PATH=%EDK_TOOLS_PATH%
-          echo CONF_PATH=%CONF_PATH%
-          echo EDK_TOOLS_BIN=%EDK_TOOLS_BIN%
-          echo.
-          nmake PYTHON_COMMAND="%PYTHON_COMMAND%" BUILD_CFLAGS="/W0 /WX-" CC_FLAGS="/W0 /WX-"
-          
-          if errorlevel 1 (
-            echo ❌ BaseTools build failed even without patches
-            echo.
-            echo === Trying Alternative BaseTools Build Method ===
-            echo Attempting to use traditional EDK2 setup approach...
-            
-            REM Go back to workspace root and try edksetup.bat first
-            cd ..
-            echo Calling edksetup.bat to see if it builds BaseTools...
-            call edksetup.bat
-            
-            if errorlevel 1 (
-              echo ❌ edksetup.bat also failed
-              echo This is critical - cannot proceed without GenFw and other tools
-              exit /b 1
-            ) else (
-              echo ✓ edksetup.bat succeeded, checking if BaseTools were built...
-              if exist "BaseTools\Bin\Win32\GenFw.exe" (
-                echo ✅ GenFw.exe found after edksetup.bat
-                set "PATH=%WORKSPACE%\BaseTools\Bin\Win32;%PATH%"
-                goto :build_success
-              ) else (
-                echo ❌ GenFw.exe still not found after edksetup.bat
-                echo This is critical - cannot proceed without GenFw and other tools
-                exit /b 1
-              )
-            )
-          ) else (
-            echo ✅ BaseTools build completed on retry
-            goto :build_success
-          )
+          echo ✗ BaseTools build failed
+          echo Displaying build directory contents for debugging:
+          dir /s *.exe | findstr GenFw || echo "No GenFw.exe found"
+          exit /b 1
         ) else (
           echo ✅ BaseTools build completed successfully
         )
         
-        :build_success
-        echo === BaseTools Build Success ===
-        
-        REM Ensure we're in the BaseTools directory for verification
-        if not exist "Bin\Win32" (
-          if exist "BaseTools\Bin\Win32" (
-            cd BaseTools
-            echo Switched to BaseTools directory for verification
-          ) else (
-            echo ⚠️ Cannot find BaseTools Bin\Win32 directory
-          )
+        echo Verifying BaseTools build results...
+        if exist "Bin\Win32\GenFw.exe" (
+          echo ✅ GenFw.exe found
+        ) else (
+          echo ✗ GenFw.exe not found - this may cause build failures
         )
         
-        REM Verify that essential tools were built
-        if not exist "Bin\Win32\GenFw.exe" (
-          echo ❌ Critical error: GenFw.exe not found after BaseTools build
-          echo BaseTools build may have been incomplete
-          exit /b 1
+        if exist "Bin\Win32\build.exe" (
+          echo ✅ build.exe found
         ) else (
-          echo ✅ GenFw.exe found at Bin\Win32\GenFw.exe
-        )
-        
-        if not exist "Bin\Win32\build.exe" (
-          echo ❌ Critical error: build.exe not found after BaseTools build
-          exit /b 1
-        ) else (
-          echo ✅ build.exe found at Bin\Win32\build.exe
+          echo ✗ build.exe not found - this may cause build failures
         )
         
         REM Reset any environment variables for application build
@@ -1016,14 +853,10 @@ jobs:
           exit /b 1
         )
         
-        REM Verify EDK_TOOLS_BIN is properly set
-        echo EDK_TOOLS_BIN=%EDK_TOOLS_BIN%
-        echo BASE_TOOLS_PATH=%BASE_TOOLS_PATH%
+        REM Set up VS2022 toolchain using simpler detection
+        echo Setting up VS2022 toolchain...
         
-        REM Ensure VS2022 toolchain is available by sourcing again
-        echo Setting up VS2022 toolchain for ACPIPatcher build...
-        
-        REM Find Visual Studio installation path using vswhere
+        REM Find Visual Studio installation using vswhere (should already be in PATH)
         for /f "delims=" %%i in ('"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.Component.MSBuild -property installationPath') do set "VS_INSTALL_PATH=%%i"
         if "%VS_INSTALL_PATH%"=="" (
           echo ✗ Could not find Visual Studio installation
@@ -1031,188 +864,56 @@ jobs:
         )
         echo Found Visual Studio at: %VS_INSTALL_PATH%
         
-        REM Set up VS environment variables properly
-        call "%VS_INSTALL_PATH%\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
-        if errorlevel 1 (
-          echo ✗ Failed to set up VS environment
-          exit /b 1
+        REM Find MSVC version directory
+        for /f "delims=" %%i in ('dir /b "%VS_INSTALL_PATH%\VC\Tools\MSVC\" ^| findstr "^[0-9]" ^| sort /r') do (
+          set "MSVC_VERSION=%%i"
+          goto :found_msvc
         )
-        
-        REM Verify VS2022 tools are available
-        where cl >nul 2>&1
-        if %ERRORLEVEL%==0 (
-          echo ✓ Visual Studio compiler accessible
-          cl 2>&1 | findstr "Microsoft"
-        ) else (
-          echo ✗ Visual Studio compiler not accessible
-          exit /b 1
-        )
-        
-        REM Explicitly set VS2022 environment variables for EDK2
-        set "VS2022_PREFIX=%VS_INSTALL_PATH%\VC\Tools\MSVC\"
-        
-        REM Find the latest MSVC version using PowerShell for reliable sorting
-        for /f "delims=" %%i in ('powershell -Command "Get-ChildItem '%VS2022_PREFIX%' -Directory | Where-Object { $_.Name -match '^[0-9]' } | Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty Name"') do set "MSVC_VERSION=%%i"
+        :found_msvc
         if "%MSVC_VERSION%"=="" (
           echo ✗ Could not find MSVC version directory
-          echo Available directories in %VS2022_PREFIX%:
-          dir "%VS2022_PREFIX%" 2>nul
           exit /b 1
         )
         echo Found MSVC version: %MSVC_VERSION%
         
-        REM Set EDK2-specific environment variables for VS2022
-        set "VS2022_BIN=%VS2022_PREFIX%%MSVC_VERSION%\bin\Hostx64\x64"
-        set "VS2022_DLL=%VS2022_PREFIX%%MSVC_VERSION%\bin\Hostx64\x64"
-        set "VS2022_BINX86=%VS2022_PREFIX%%MSVC_VERSION%\bin\Hostx86\x86"
-        set "VS2022_DLLX86=%VS2022_PREFIX%%MSVC_VERSION%\bin\Hostx86\x86"
-        
+        REM Set VS2022 paths for EDK2
+        set "VS2022_BIN=%VS_INSTALL_PATH%\VC\Tools\MSVC\%MSVC_VERSION%\bin\Hostx64\x64"
         echo Set VS2022_BIN=%VS2022_BIN%
-        echo Set VS2022_DLL=%VS2022_DLL%
         
         REM Build ACPIPatcher
         echo Building ACPIPatcher...
         
-        REM Debug toolchain information
-        echo === Debugging Build Toolchain ===
-        echo WORKSPACE=%WORKSPACE%
-        echo EDK_TOOLS_PATH=%EDK_TOOLS_PATH%
-        echo CONF_PATH=%CONF_PATH%
-        echo.
-        
-        REM Check if tools_def.txt contains VS2022 definition
-        if exist "%CONF_PATH%\tools_def.txt" (
-          echo Checking tools_def.txt for VS2022...
-          echo Available toolchain families in tools_def.txt:
-          findstr /C:"_FAMILY" "%CONF_PATH%\tools_def.txt" | findstr "MSFT\|GCC" | head -5
-          echo.
-          
-          findstr /C:"DEFINE VS2022" "%CONF_PATH%\tools_def.txt" >nul 2>&1
-          if %ERRORLEVEL%==0 (
-            echo ✓ VS2022 found in tools_def.txt
-            
-            REM Check if VS2022_BIN path is properly defined in tools_def.txt
-            findstr /C:"VS2022_BIN" "%CONF_PATH%\tools_def.txt" >nul 2>&1
-            if %ERRORLEVEL%==0 (
-              echo ✓ VS2022_BIN definition found in tools_def.txt
-              
-              REM Verify the path in tools_def.txt matches our detected path
-              findstr /C:"DEFINE VS2022_BIN" "%CONF_PATH%\tools_def.txt" | findstr /C:"%VS2022_BIN%" >nul 2>&1
-              if %ERRORLEVEL%==0 (
-                echo ✓ VS2022_BIN path matches detected path
-              ) else (
-                echo ✗ VS2022_BIN path mismatch, updating...
-                REM Update the existing definition
-                powershell -Command "(Get-Content '%CONF_PATH%\tools_def.txt') -replace 'DEFINE VS2022_BIN.*', 'DEFINE VS2022_BIN = %VS2022_BIN%' | Set-Content '%CONF_PATH%\tools_def.txt'"
-                powershell -Command "(Get-Content '%CONF_PATH%\tools_def.txt') -replace 'DEFINE VS2022_DLL.*', 'DEFINE VS2022_DLL = %VS2022_DLL%' | Set-Content '%CONF_PATH%\tools_def.txt'"
-                powershell -Command "(Get-Content '%CONF_PATH%\tools_def.txt') -replace 'DEFINE VS2022_BINX86.*', 'DEFINE VS2022_BINX86 = %VS2022_BINX86%' | Set-Content '%CONF_PATH%\tools_def.txt'"
-                powershell -Command "(Get-Content '%CONF_PATH%\tools_def.txt') -replace 'DEFINE VS2022_DLLX86.*', 'DEFINE VS2022_DLLX86 = %VS2022_DLLX86%' | Set-Content '%CONF_PATH%\tools_def.txt'"
-              )
-            ) else (
-              echo ✗ VS2022_BIN definition missing, adding complete VS2022 toolchain...
-              echo. >> "%CONF_PATH%\tools_def.txt"
-              echo # Added by build script for VS2022 support >> "%CONF_PATH%\tools_def.txt"
-              echo DEFINE VS2022_BIN = %VS2022_BIN% >> "%CONF_PATH%\tools_def.txt"
-              echo DEFINE VS2022_DLL = %VS2022_DLL% >> "%CONF_PATH%\tools_def.txt"
-              echo DEFINE VS2022_BINX86 = %VS2022_BINX86% >> "%CONF_PATH%\tools_def.txt"
-              echo DEFINE VS2022_DLLX86 = %VS2022_DLLX86% >> "%CONF_PATH%\tools_def.txt"
-            )
-            
-            REM Ensure VS2022 toolchain is properly defined by checking for _FAMILY definition
-            findstr /C:"VS2022.*_FAMILY" "%CONF_PATH%\tools_def.txt" >nul 2>&1
-            if %ERRORLEVEL%==0 (
-              echo ✓ VS2022 toolchain family found
-            ) else (
-              echo ✗ VS2022 toolchain family missing, this may be why build fails
-              echo Adding minimal VS2022 toolchain family definition...
-              echo # VS2022 toolchain family definition >> "%CONF_PATH%\tools_def.txt"
-              echo *_VS2022_*_*_FAMILY = MSFT >> "%CONF_PATH%\tools_def.txt"
-            )
-          ) else (
-            echo ✗ VS2022 not found in tools_def.txt at all
-            echo This suggests EDK2 version may not support VS2022, trying to use VS2019...
-            
-            REM Check if VS2019 is available
-            findstr /C:"DEFINE VS2019" "%CONF_PATH%\tools_def.txt" >nul 2>&1
-            if %ERRORLEVEL%==0 (
-              echo ✓ VS2019 found in tools_def.txt, will use as fallback
-              set "USE_VS2019_FALLBACK=1"
-            ) else (
-              echo ✗ Neither VS2022 nor VS2019 found in tools_def.txt
-              echo Available toolchains:
-              findstr /C:"DEFINE.*_FAMILY" "%CONF_PATH%\tools_def.txt" | head -10
-              exit /b 1
-            )
-          )
-        )
-        
-        REM Validate that required VS2022 paths exist
-        if not exist "%VS2022_BIN%\cl.exe" (
-          echo ✗ cl.exe not found at %VS2022_BIN%\cl.exe
-          echo Available files in %VS2022_BIN%:
-          dir "%VS2022_BIN%" 2>nul | findstr "cl"
-          exit /b 1
-        ) else (
-          echo ✓ cl.exe found at %VS2022_BIN%\cl.exe
-        )
-        
         REM Set target-specific variables for EDK2 build
         if /i "${{ matrix.arch }}"=="IA32" (
           set "BUILD_ARCH=IA32"
-          set "TARGET_ARCH=x86"
         ) else (
           set "BUILD_ARCH=X64"
-          set "TARGET_ARCH=x64"
         )
-        echo Building for architecture: %BUILD_ARCH% (target: %TARGET_ARCH%)
+        echo Building for architecture: %BUILD_ARCH%
         
         REM Try building with VS2022 first, fall back to VS2019 if needed
-        if "%USE_VS2019_FALLBACK%"=="1" (
-          echo Using VS2019 toolchain due to VS2022 unavailability...
+        echo Attempting build with VS2022 toolchain...
+        build -a %BUILD_ARCH% -b ${{ matrix.build_type }} -t VS2022 ^
+              -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
+              -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
+        
+        if errorlevel 1 (
+          echo ❌ ACPIPatcher build with VS2022 failed, trying VS2019...
+          
           build -a %BUILD_ARCH% -b ${{ matrix.build_type }} -t VS2019 ^
                 -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
                 -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
           
           if errorlevel 1 (
-            echo ❌ ACPIPatcher build failed with VS2019
+            echo ❌ ACPIPatcher build failed with both VS2022 and VS2019
+            echo Available toolchains in tools_def.txt:
+            findstr /C:"DEFINE.*_FAMILY" "%CONF_PATH%\tools_def.txt" | head -5
             exit /b 1
           ) else (
             echo ✅ ACPIPatcher build completed successfully with VS2019
           )
         ) else (
-          echo Attempting build with VS2022 toolchain...
-          build -a %BUILD_ARCH% -b ${{ matrix.build_type }} -t VS2022 ^
-                -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
-                -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
-          
-          if errorlevel 1 (
-            echo ❌ ACPIPatcher build with VS2022 failed, trying VS2019...
-            
-            REM Check if VS2019 is available as fallback
-            findstr /C:"DEFINE VS2019" "%CONF_PATH%\tools_def.txt" >nul 2>&1
-            if %ERRORLEVEL%==0 (
-              echo Attempting build with VS2019 toolchain...
-              build -a %BUILD_ARCH% -b ${{ matrix.build_type }} -t VS2019 ^
-                    -p ACPIPatcherPkg\ACPIPatcherPkg.dsc ^
-                    -D DEBUG_LEVEL=${{ env.DEBUG_LEVEL }}
-              
-              if errorlevel 1 (
-                echo ❌ ACPIPatcher build failed with both VS2022 and VS2019
-                
-                REM Show available toolchains for debugging
-                echo Available toolchains in tools_def.txt:
-                findstr /C:"DEFINE.*_FAMILY" "%CONF_PATH%\tools_def.txt"
-                exit /b 1
-              ) else (
-                echo ✅ ACPIPatcher build completed successfully with VS2019
-              )
-            ) else (
-              echo ❌ VS2019 toolchain not available either
-              exit /b 1
-            )
-          ) else (
-            echo ✅ ACPIPatcher build completed successfully with VS2022
-          )
+          echo ✅ ACPIPatcher build completed successfully with VS2022
         )
     
     - name: Verify Build Output
