@@ -461,49 +461,90 @@ jobs:
     # Try Stuart Build First (Windows Only)
     - name: Attempt Stuart Build (Windows)
       if: matrix.platform == 'windows'
-      shell: cmd
+      shell: pwsh
       continue-on-error: true
       id: stuart-build-windows
       run: |
-        echo Attempting Stuart build for Windows...
-        cd acpipatcher
+        Write-Host "Attempting Stuart build for Windows..."
         
-        echo Activating Python virtual environment...
-        call .venv\Scripts\activate.bat
-        if errorlevel 1 (
-          echo ❌ Failed to activate virtual environment, skipping Stuart build
-          exit /b 1
-        )
+        # Check if Stuart configuration exists
+        if (-not (Test-Path "acpipatcher\.pytool\CISettings.py")) {
+          Write-Host "❌ Stuart configuration (.pytool/CISettings.py) not found, skipping Stuart build"
+          echo "STUART_BUILD_SUCCESS=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          exit 0
+        }
         
-        echo Verifying Stuart installation in venv...
+        cd edk2
+        
+        Write-Host "Activating Python virtual environment..."
+        .\.venv\Scripts\Activate.ps1
+        if ($LASTEXITCODE -ne 0) {
+          Write-Host "❌ Failed to activate virtual environment, skipping Stuart build"
+          echo "STUART_BUILD_SUCCESS=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          exit 0
+        }
+        
+        Write-Host "Verifying Stuart installation in venv..."
         python -c "import edk2toolext; print('Stuart available')"
-        if errorlevel 1 (
-          echo ❌ Stuart not available in venv, skipping Stuart build
-          exit /b 1
-        )
+        if ($LASTEXITCODE -ne 0) {
+          Write-Host "❌ Stuart not available in venv, skipping Stuart build"
+          echo "STUART_BUILD_SUCCESS=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          exit 0
+        }
         
-        echo Running Stuart update to download dependencies...
-        stuart_update -c .pytool\CISettings.py -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=${{ matrix.toolchain }}
-        if errorlevel 1 (
-          echo ❌ Stuart update failed, will fallback to traditional build
-          exit /b 1
-        )
+        # Copy Stuart configuration from acpipatcher to edk2
+        Write-Host "Copying Stuart configuration..."
+        if (Test-Path "../acpipatcher/.pytool") {
+          Copy-Item -Recurse "../acpipatcher/.pytool" . -Force
+          Write-Host "✅ Copied Stuart configuration files"
+        } else {
+          Write-Host "❌ Stuart configuration directory not found, skipping Stuart build"
+          echo "STUART_BUILD_SUCCESS=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          exit 0
+        }
         
-        echo Running Stuart CI build...
-        stuart_ci_build -c .pytool\CISettings.py -p ACPIPatcherPkg -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=${{ matrix.toolchain }}
-        if errorlevel 1 (
-          echo ❌ Stuart build failed, will fallback to traditional build
-          exit /b 1
-        ) else (
-          echo ✅ Stuart build completed successfully
-          echo STUART_BUILD_SUCCESS=true >> %GITHUB_ENV%
-          exit /b 0
-        )
+        # Verify configuration file exists
+        if (-not (Test-Path ".pytool\CISettings.py")) {
+          Write-Host "❌ CISettings.py not found after copy, skipping Stuart build"
+          echo "STUART_BUILD_SUCCESS=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          exit 0
+        }
+        
+        Write-Host "Running Stuart update to download dependencies..."
+        try {
+          stuart_update -c .pytool\CISettings.py -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=${{ matrix.toolchain }}
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "❌ Stuart update failed, will fallback to traditional build"
+            echo "STUART_BUILD_SUCCESS=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            exit 0
+          }
+          
+          Write-Host "Running Stuart CI build..."
+          stuart_ci_build -c .pytool\CISettings.py -p ACPIPatcherPkg -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=${{ matrix.toolchain }}
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "❌ Stuart build failed, will fallback to traditional build"
+            echo "STUART_BUILD_SUCCESS=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            exit 0
+          } else {
+            Write-Host "✅ Stuart build completed successfully"
+            echo "STUART_BUILD_SUCCESS=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            exit 0
+          }
+        } catch {
+          Write-Host "❌ Stuart build encountered errors: $_"
+          echo "STUART_BUILD_SUCCESS=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          exit 0
+        }
 
     - name: Build ACPIPatcher (Windows - Traditional Fallback)
-      if: matrix.platform == 'windows' && steps.stuart-build-windows.outcome == 'failure'
+      if: matrix.platform == 'windows'
       shell: cmd
       run: |
+        if "%STUART_BUILD_SUCCESS%"=="true" (
+          echo Stuart build already succeeded, skipping traditional build
+          exit /b 0
+        )
+        
         cd edk2
         
         REM ====================================================================
@@ -515,19 +556,19 @@ jobs:
         if exist "C:\ProgramData\chocolatey\lib\nasm\tools\nasm.exe" (
           set "NASM_PREFIX=C:\ProgramData\chocolatey\lib\nasm\tools\"
           set "PATH=C:\ProgramData\chocolatey\lib\nasm\tools;%PATH%"
-          echo ✅ Found NASM at C:\ProgramData\chocolatey\lib\nasm\tools\
+          echo "✅ Found NASM at C:\ProgramData\chocolatey\lib\nasm\tools\"
         ) else if exist "C:\ProgramData\chocolatey\bin\nasm.exe" (
           set "NASM_PREFIX=C:\ProgramData\chocolatey\bin\"
           set "PATH=C:\ProgramData\chocolatey\bin;%PATH%"
-          echo ✅ Found NASM at C:\ProgramData\chocolatey\bin\
+          echo "✅ Found NASM at C:\ProgramData\chocolatey\bin\"
         ) else if exist "C:\tools\nasm\nasm.exe" (
           set "NASM_PREFIX=C:\tools\nasm\"
           set "PATH=C:\tools\nasm;%PATH%"
-          echo ✅ Found NASM at C:\tools\nasm\
+          echo "✅ Found NASM at C:\tools\nasm\"
         ) else if exist "C:\Program Files\NASM\nasm.exe" (
           set "NASM_PREFIX=C:\Program Files\NASM\"
           set "PATH=C:\Program Files\NASM;%PATH%"
-          echo ✅ Found NASM at C:\Program Files\NASM\
+          echo "✅ Found NASM at C:\Program Files\NASM\"
         ) else (
           echo ⚠️ NASM not found in standard locations, setting default...
           set "NASM_PREFIX=C:\ProgramData\chocolatey\lib\nasm\tools\"
@@ -605,7 +646,7 @@ jobs:
         REM Ensure placeholder BaseTools Bin\Win32 directory to satisfy edksetup.bat precondition
         if not exist "%WORKSPACE%\BaseTools\Bin\Win32" (
           mkdir "%WORKSPACE%\BaseTools\Bin\Win32"
-          echo Created placeholder BaseTools Bin\Win32 directory
+          echo "Created placeholder BaseTools Bin\Win32 directory"
         )
         
         call edksetup.bat
@@ -653,7 +694,7 @@ jobs:
         
         REM Ensure Bin\Win32 directory exists and contains tools
         if not exist "Bin\Win32" (
-          echo Creating missing Bin\Win32 directory...
+          echo "Creating missing Bin\Win32 directory..."
           mkdir "Bin\Win32" 2>nul
           
           REM Check for Win64 tools and copy them to Win32 directory

@@ -453,9 +453,16 @@ jobs:
       shell: pwsh
       continue-on-error: true
       run: |
-        cd edk2
-        
+        # Stuart should run from the root project directory where .pytool exists
         Write-Host "=== Building with Stuart Build System ==="
+        
+        # Copy Stuart configuration to edk2 directory if needed
+        if (Test-Path "acpipatcher\.pytool") {
+          Copy-Item -Recurse "acpipatcher\.pytool" "edk2\" -Force
+          Write-Host "✅ Copied Stuart configuration to edk2 directory"
+        }
+        
+        cd edk2
         .\.venv\Scripts\Activate.ps1
         
         # Use the detected VS toolchain from environment

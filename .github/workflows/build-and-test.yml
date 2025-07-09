@@ -543,7 +543,7 @@ jobs:
       shell: cmd
       run: |
         echo Setting up Windows-specific Python virtual environment for Stuart...
-        cd acpipatcher
+        cd edk2
         
         echo Creating Python virtual environment...
         py -m venv .venv
@@ -851,7 +851,21 @@ jobs:
       id: stuart-build
       run: |
         echo Attempting Stuart build for Windows...
-        cd acpipatcher
+        
+        REM Stuart should run from edk2 directory where the venv is located
+        cd edk2
+        
+        REM Copy Stuart configuration if not already present
+        if not exist ".pytool" (
+          if exist "..\acpipatcher\.pytool" (
+            echo Copying Stuart configuration...
+            xcopy /E /I "..\acpipatcher\.pytool" ".pytool"
+            echo ✅ Copied Stuart configuration files
+          ) else (
+            echo ❌ Stuart configuration not found, skipping Stuart build
+            exit /b 1
+          )
+        )
         
         echo Activating Python virtual environment...
         call .venv\Scripts\activate.bat
@@ -1082,7 +1096,7 @@ jobs:
         
         REM Ensure BaseTools are in PATH for the build
         set "PATH=%BASE_TOOLS_PATH%\Bin\Win32;%PATH%"
-        echo Added BaseTools to PATH: %BASE_TOOLS_PATH%\Bin\Win32
+        echo "Added BaseTools to PATH: %BASE_TOOLS_PATH%\Bin\Win32"
         
         REM Verify GenFw is accessible from PATH
         where GenFw >nul 2>&1
@@ -1091,7 +1105,7 @@ jobs:
           GenFw --version 2>nul || echo "GenFw found but version check failed"
         ) else (
           echo ✗ GenFw not accessible from PATH - this will cause build failures
-          echo Available tools in BaseTools\Bin\Win32:
+          echo "Available tools in BaseTools\Bin\Win32:"
           dir "%BASE_TOOLS_PATH%\Bin\Win32\*.exe" 2>nul
         )
         

@@ -144,10 +144,10 @@ jobs:
           
           REM Check common MSYS2 NASM locations
           if exist "D:\a\_temp\msys64\usr\bin\nasm.exe" (
-            echo Found NASM at: D:\a\_temp\msys64\usr\bin\nasm.exe
+            echo "Found NASM at: D:\a\_temp\msys64\usr\bin\nasm.exe"
             "D:\a\_temp\msys64\usr\bin\nasm.exe" -version | findstr "version"
           ) else if exist "C:\msys64\usr\bin\nasm.exe" (
-            echo Found NASM at: C:\msys64\usr\bin\nasm.exe
+            echo "Found NASM at: C:\msys64\usr\bin\nasm.exe"
             "C:\msys64\usr\bin\nasm.exe" -version | findstr "version"
           ) else (
             echo NASM not found in expected MSYS2 locations
