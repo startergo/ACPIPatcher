@@ -69,7 +69,7 @@ jobs:
     - name: Setup Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.9'
+        python-version: '3.13'
     
     # Stuart Build System Setup (Windows only)
     - name: Setup Stuart Python Environment (Windows)
@@ -438,14 +438,14 @@ jobs:
         # First, run stuart_update to download dependencies and binaries
         Write-Host "Running Stuart update to download dependencies..."
         try {
-          stuart_update -c .pytool\CISettings.py TOOL_CHAIN_TAG=$toolchain -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
+          stuart_update -c .pytool\CISettings.py -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=$toolchain
           
           if ($LASTEXITCODE -eq 0) {
             Write-Host "✅ Stuart update completed successfully with $toolchain"
             
             # Now run the actual Stuart CI build
             Write-Host "Running Stuart CI build..."
-            stuart_ci_build -c .pytool\CISettings.py TOOL_CHAIN_TAG=$toolchain -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
+            stuart_ci_build -c .pytool\CISettings.py -p ACPIPatcherPkg -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=$toolchain
             
             if ($LASTEXITCODE -eq 0) {
               Write-Host "✅ Stuart build completed successfully"
@@ -457,9 +457,9 @@ jobs:
           # Try alternative toolchain if primary fails
           $altToolchain = if ($toolchain -eq "VS2022") { "VS2019" } else { "VS2022" }
           Write-Host "Trying alternative toolchain: $altToolchain"
-          stuart_update -c .pytool\CISettings.py TOOL_CHAIN_TAG=$altToolchain -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
+          stuart_update -c .pytool\CISettings.py -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=$altToolchain
           if ($LASTEXITCODE -eq 0) {
-            stuart_ci_build -c .pytool\CISettings.py TOOL_CHAIN_TAG=$altToolchain -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
+            stuart_ci_build -c .pytool\CISettings.py -p ACPIPatcherPkg -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=$altToolchain
             if ($LASTEXITCODE -eq 0) {
               Write-Host "✅ Stuart build completed with $altToolchain"
               echo "STUART_BUILD_SUCCESS=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append

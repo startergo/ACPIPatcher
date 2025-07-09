@@ -313,10 +313,11 @@ jobs:
     - name: Setup Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.9'
+        python-version: '3.13'
     
-    # Stuart Build System Setup
+    # Stuart Build System Setup (Windows Only)
     - name: Setup Stuart Python Environment
+      if: matrix.platform == 'windows'
       run: |
         echo "Setting up Stuart Python environment..."
         python -m pip install --upgrade pip setuptools wheel
@@ -421,7 +422,7 @@ jobs:
         
         echo ✅ Windows Stuart virtual environment setup complete
     
-    - name: Setup Python Virtual Environment (Stuart) - Unix
+    - name: Build ACPIPatcher (Unix - Traditional EDK2)
       if: matrix.platform != 'windows'
       run: |
         cd edk2
@@ -468,14 +469,14 @@ jobs:
         )
         
         echo Running Stuart update to download dependencies...
-        stuart_update -c .pytool\CISettings.py TOOL_CHAIN_TAG=${{ matrix.toolchain }} -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
+        stuart_update -c .pytool\CISettings.py -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=${{ matrix.toolchain }}
         if errorlevel 1 (
           echo ❌ Stuart update failed, will fallback to traditional build
           exit /b 1
         )
         
         echo Running Stuart CI build...
-        stuart_ci_build -c .pytool\CISettings.py TOOL_CHAIN_TAG=${{ matrix.toolchain }} -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
+        stuart_ci_build -c .pytool\CISettings.py -p ACPIPatcherPkg -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=${{ matrix.toolchain }}
         if errorlevel 1 (
           echo ❌ Stuart build failed, will fallback to traditional build
           exit /b 1
@@ -1186,11 +1187,11 @@ jobs:
       run: |
         echo "Setting up Python environment..."
         
-        # Upgrade pip and install necessary Python packages
+        # Upgrade pip and install necessary Python packages for basic EDK2 build
         python3 -m pip install --upgrade pip setuptools wheel || true
         
-        # Install any other Python dependencies here
-        # e.g., python3 -m pip install <package>
+        # Note: Stuart dependencies are not needed for Linux/macOS builds
+        # Stuart is only used for Windows builds in this project
     
     - name: Build ACPIPatcher
       run: |

@@ -45,7 +45,7 @@ jobs:
     - name: Setup Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.9'
+        python-version: '3.13'
     
     - name: Install Dependencies
       run: |
@@ -267,7 +267,7 @@ jobs:
     - name: Setup Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.9'
+        python-version: '3.13'
     
     - name: Install Dependencies
       run: |
@@ -489,7 +489,7 @@ jobs:
     - name: Setup Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.9'
+        python-version: '3.13'
     
     # Stuart Build System Setup
     - name: Setup Stuart Python Environment
