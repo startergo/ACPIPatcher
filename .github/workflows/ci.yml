@@ -373,9 +373,36 @@ jobs:
         Write-Host "=== Stuart Setup: Updating Dependencies ==="
         .\.venv\Scripts\Activate.ps1
         
-        # Git submodules update (Stuart documentation step)
-        Write-Host "Updating git submodules..."
-        git submodule update --init --recursive
+        # Use selective submodule initialization like Linux/macOS to avoid unnecessary clones
+        Write-Host "Initializing essential submodules only..."
+        
+        # Check if enhanced submodule script exists
+        if (Test-Path "../acpipatcher/.github/scripts/enhanced-submodule-init.sh") {
+          Write-Host "Using enhanced submodule initialization script..."
+          bash ../acpipatcher/.github/scripts/enhanced-submodule-init.sh
+        } else {
+          Write-Host "Enhanced script not found, using selective submodule initialization..."
+          
+          # Initialize only essential submodules, avoiding problematic ones
+          $essentialSubmodules = @(
+            "BaseTools/Source/C/BrotliCompress/brotli",
+            "CryptoPkg/Library/OpensslLib/openssl",
+            "MdeModulePkg/Library/BrotliCustomDecompressLib/brotli"
+          )
+          
+          foreach ($submodule in $essentialSubmodules) {
+            if (Test-Path $submodule -PathType Container) {
+              Write-Host "Initializing submodule: $submodule"
+              git submodule update --init $submodule
+            }
+          }
+          
+          # If above approach fails, use basic initialization but exclude problematic modules
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Fallback: Basic submodule initialization with exclusions..."
+            git submodule update --init --recommend-shallow
+          }
+        }
         
         # Copy Stuart configuration if available
         if (Test-Path "../acpipatcher/.pytool") {

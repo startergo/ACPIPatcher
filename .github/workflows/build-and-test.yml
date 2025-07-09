@@ -72,8 +72,22 @@ jobs:
           echo "Using enhanced submodule initialization..."
           bash ../acpipatcher/.github/scripts/enhanced-submodule-init.sh
         else
-          echo "Enhanced script not found, falling back to basic initialization..."
-          git submodule update --init --recommend-shallow || echo "Warning: Some submodules failed to initialize"
+          echo "Enhanced script not found, falling back to selective initialization..."
+          # Patch .gitmodules to disable problematic submodules (cross-platform)
+          if [ -f "../acpipatcher/.github/scripts/patch-edk2-gitmodules.sh" ]; then
+            echo "Patching .gitmodules to disable problematic submodules..."
+            bash ../acpipatcher/.github/scripts/patch-edk2-gitmodules.sh
+          fi
+          
+          # Now initialize submodules (problematic ones should be disabled)
+          echo "Initializing EDK2 submodules..."
+          if git submodule update --init --recommend-shallow; then
+            echo "✅ Submodule initialization successful"
+          else
+            echo "⚠️ Some submodules failed to initialize, but continuing..."
+          fi
+          
+          git submodule status | head -10 || echo "Submodule status check completed"
         fi
     
     - name: Copy ACPIPatcher to EDK2
@@ -293,8 +307,22 @@ jobs:
           echo "Using enhanced submodule initialization..."
           bash ../acpipatcher/.github/scripts/enhanced-submodule-init.sh
         else
-          echo "Enhanced script not found, falling back to basic initialization..."
-          git submodule update --init --recommend-shallow || echo "Warning: Some submodules failed to initialize"
+          echo "Enhanced script not found, falling back to selective initialization..."
+          # Patch .gitmodules to disable problematic submodules (cross-platform)
+          if [ -f "../acpipatcher/.github/scripts/patch-edk2-gitmodules.sh" ]; then
+            echo "Patching .gitmodules to disable problematic submodules..."
+            bash ../acpipatcher/.github/scripts/patch-edk2-gitmodules.sh
+          fi
+          
+          # Now initialize submodules (problematic ones should be disabled)
+          echo "Initializing EDK2 submodules..."
+          if git submodule update --init --recommend-shallow; then
+            echo "✅ Submodule initialization successful"
+          else
+            echo "⚠️ Some submodules failed to initialize, but continuing..."
+          fi
+          
+          git submodule status | head -10 || echo "Submodule status check completed"
         fi
     
     - name: Copy ACPIPatcher to EDK2
@@ -657,9 +685,34 @@ jobs:
         git config --global url."https://github.com/".insteadOf "git@github.com:"
         git config --global advice.detachedHead false
         
-        Write-Host "Initializing submodules..."
-        # Use basic submodule initialization - the enhanced script may not be compatible
-        git submodule update --init --recursive
+        Write-Host "Initializing essential submodules only..."
+        # Use selective submodule initialization to avoid unnecessary clones
+        if (Test-Path "../acpipatcher/.github/scripts/enhanced-submodule-init.sh") {
+          Write-Host "Using enhanced submodule initialization script..."
+          bash ../acpipatcher/.github/scripts/enhanced-submodule-init.sh
+        } else {
+          Write-Host "Using selective submodule initialization..."
+          
+          # Initialize only essential submodules
+          $essentialSubmodules = @(
+            "BaseTools/Source/C/BrotliCompress/brotli",
+            "CryptoPkg/Library/OpensslLib/openssl", 
+            "MdeModulePkg/Library/BrotliCustomDecompressLib/brotli"
+          )
+          
+          foreach ($submodule in $essentialSubmodules) {
+            if (Test-Path $submodule -PathType Container) {
+              Write-Host "Initializing submodule: $submodule"
+              git submodule update --init $submodule
+            }
+          }
+          
+          # Fallback to basic initialization if needed
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Fallback: Basic submodule initialization..."
+            git submodule update --init --recommend-shallow
+          }
+        }
         if ($LASTEXITCODE -ne 0) {
           Write-Host "⚠️ Some submodules failed to initialize, continuing anyway..."
         } else {
