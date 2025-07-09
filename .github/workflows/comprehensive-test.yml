@@ -52,7 +52,6 @@ jobs:
           cppcheck \
           clang-tools \
           flawfinder \
-          rats \
           splint
     
     - name: Run Flawfinder (Security)
@@ -65,13 +64,13 @@ jobs:
         echo "Flawfinder Summary:"
         tail -10 flawfinder-report.txt || true
     
-    - name: Run RATS (Security)
+    # Note: RATS (Rough Auditing Tool for Security) has been deprecated
+    # Modern alternatives like CodeQL, Semgrep, or enhanced Flawfinder provide better security analysis
+    - name: Security Analysis Summary
       run: |
-        echo "🔍 Running RATS security analysis..."
-        rats -w 3 --html ACPIPatcher/ > rats-report.html 2>/dev/null || true
-        rats -w 3 ACPIPatcher/ > rats-report.txt 2>/dev/null || true
-        
-        echo "RATS Analysis completed"
+        echo "🔍 Security analysis completed with available tools"
+        echo "Using Flawfinder for C/C++ security auditing"
+        echo "RATS has been removed as it's no longer maintained"
     
     - name: Advanced CPPCheck Analysis
       run: |
@@ -135,7 +134,6 @@ jobs:
         name: security-analysis-reports
         path: |
           flawfinder-report.*
-          rats-report.*
           cppcheck-detailed.xml
         retention-days: 30
 
