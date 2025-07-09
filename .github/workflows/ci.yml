@@ -127,6 +127,62 @@ jobs:
       uses: ilammy/msvc-dev-cmd@v1.13.0
       with:
         arch: x64
+        
+    - name: Verify Visual Studio Toolchain (Windows)
+      if: matrix.os == 'windows'
+      shell: pwsh
+      run: |
+        Write-Host "=== Visual Studio Toolchain Verification ==="
+        
+        # Check for cl.exe (MSVC compiler)
+        try {
+          $clPath = Get-Command cl.exe -ErrorAction SilentlyContinue
+          if ($clPath) {
+            Write-Host "✓ Visual Studio compiler found at: $($clPath.Source)"
+            & cl.exe 2>&1 | Select-String "Microsoft" | ForEach-Object { Write-Host $_ }
+            
+            # Get VS version info
+            $vsInfo = & cl.exe 2>&1 | Select-String "Version"
+            Write-Host "Compiler version: $vsInfo"
+            
+            # Check if it's VS2022 (version 19.3x or higher)
+            if ($vsInfo -match "19\.3\d|19\.[4-9]\d|[2-9]\d\.\d") {
+              Write-Host "✓ VS2022 toolchain detected"
+              echo "VS_TOOLCHAIN=VS2022" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            } elseif ($vsInfo -match "19\.[2-9]\d") {
+              Write-Host "✓ VS2019 toolchain detected"
+              echo "VS_TOOLCHAIN=VS2019" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            } else {
+              Write-Host "⚠ Older Visual Studio version detected"
+              echo "VS_TOOLCHAIN=VS2019" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            }
+          } else {
+            Write-Host "✗ Visual Studio compiler not found in PATH"
+            echo "VS_TOOLCHAIN=VS2019" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          }
+        } catch {
+          Write-Host "✗ Error checking Visual Studio compiler: $_"
+          echo "VS_TOOLCHAIN=VS2019" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        }
+        
+        # Check for link.exe (MSVC linker)
+        try {
+          $linkPath = Get-Command link.exe -ErrorAction SilentlyContinue
+          if ($linkPath) {
+            Write-Host "✓ Visual Studio linker found at: $($linkPath.Source)"
+          } else {
+            Write-Host "✗ Visual Studio linker not found"
+          }
+        } catch {
+          Write-Host "✗ Error checking Visual Studio linker: $_"
+        }
+        
+        # Verify key environment variables
+        Write-Host "`n=== Environment Variables ==="
+        Write-Host "VCINSTALLDIR: $env:VCINSTALLDIR"
+        Write-Host "VCToolsInstallDir: $env:VCToolsInstallDir"
+        Write-Host "WindowsSdkDir: $env:WindowsSdkDir"
+        Write-Host "VS_TOOLCHAIN: $env:VS_TOOLCHAIN"
 
     - name: Add MSYS2 Tools to Windows PATH
       if: matrix.os == 'windows'
@@ -375,17 +431,21 @@ jobs:
         Write-Host "=== Building with Stuart Build System ==="
         .\.venv\Scripts\Activate.ps1
         
+        # Use the detected VS toolchain from environment
+        $toolchain = if ($env:VS_TOOLCHAIN) { $env:VS_TOOLCHAIN } else { "VS2022" }
+        Write-Host "Using detected toolchain: $toolchain"
+        
         # First, run stuart_update to download dependencies and binaries
         Write-Host "Running Stuart update to download dependencies..."
         try {
-          stuart_update -c .pytool\CISettings.py TOOL_CHAIN_TAG=VS2022 -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
+          stuart_update -c .pytool\CISettings.py TOOL_CHAIN_TAG=$toolchain -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
           
           if ($LASTEXITCODE -eq 0) {
-            Write-Host "✅ Stuart update completed successfully with VS2022"
+            Write-Host "✅ Stuart update completed successfully with $toolchain"
             
             # Now run the actual Stuart CI build
             Write-Host "Running Stuart CI build..."
-            stuart_ci_build -c .pytool\CISettings.py TOOL_CHAIN_TAG=VS2022 -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
+            stuart_ci_build -c .pytool\CISettings.py TOOL_CHAIN_TAG=$toolchain -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
             
             if ($LASTEXITCODE -eq 0) {
               Write-Host "✅ Stuart build completed successfully"
@@ -394,13 +454,14 @@ jobs:
             }
           }
           
-          # Try with VS2019 if VS2022 fails
-          Write-Host "Trying VS2019 toolchain..."
-          stuart_update -c .pytool\CISettings.py TOOL_CHAIN_TAG=VS2019 -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
+          # Try alternative toolchain if primary fails
+          $altToolchain = if ($toolchain -eq "VS2022") { "VS2019" } else { "VS2022" }
+          Write-Host "Trying alternative toolchain: $altToolchain"
+          stuart_update -c .pytool\CISettings.py TOOL_CHAIN_TAG=$altToolchain -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
           if ($LASTEXITCODE -eq 0) {
-            stuart_ci_build -c .pytool\CISettings.py TOOL_CHAIN_TAG=VS2019 -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
+            stuart_ci_build -c .pytool\CISettings.py TOOL_CHAIN_TAG=$altToolchain -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
             if ($LASTEXITCODE -eq 0) {
-              Write-Host "✅ Stuart build completed with VS2019"
+              Write-Host "✅ Stuart build completed with $altToolchain"
               echo "STUART_BUILD_SUCCESS=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
               exit 0
             }
@@ -413,9 +474,14 @@ jobs:
         echo "STUART_BUILD_SUCCESS=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
     - name: Build on Windows (Traditional Fallback)
-      if: matrix.os == 'windows' && env.STUART_BUILD_SUCCESS != 'true'
+      if: matrix.os == 'windows'
       shell: cmd
       run: |
+        if "%STUART_BUILD_SUCCESS%"=="true" (
+          echo Stuart build already succeeded, skipping traditional build
+          exit /b 0
+        )
+        
         cd edk2
         
         REM ====================================================================
@@ -587,14 +653,39 @@ jobs:
         :python_found
         echo Using PYTHON_COMMAND=%PYTHON_COMMAND%
         
-        REM Build ACPIPatcher
-        echo Building ACPIPatcher...
-        build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t ${{ matrix.toolchain }} -p ACPIPatcherPkg\ACPIPatcherPkg.dsc
-        if %ERRORLEVEL%==0 (
-          echo ✓ ACPIPatcher built successfully
+        REM Determine toolchain to use (use detected one or matrix default)
+        echo Determining toolchain to use...
+        if defined VS_TOOLCHAIN (
+          set "BUILD_TOOLCHAIN=%VS_TOOLCHAIN%"
+          echo ✓ Using detected toolchain: %VS_TOOLCHAIN%
         ) else (
-          echo ✗ ACPIPatcher build failed
-          exit /b 1
+          set "BUILD_TOOLCHAIN=${{ matrix.toolchain }}"
+          echo ✓ Using matrix toolchain: ${{ matrix.toolchain }}
+        )
+        
+        REM Build ACPIPatcher
+        echo Building ACPIPatcher with toolchain: %BUILD_TOOLCHAIN%
+        build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t %BUILD_TOOLCHAIN% -p ACPIPatcherPkg\ACPIPatcherPkg.dsc
+        if %ERRORLEVEL%==0 (
+          echo ✓ ACPIPatcher built successfully with %BUILD_TOOLCHAIN%
+        ) else (
+          echo ⚠ Build failed with %BUILD_TOOLCHAIN%, trying fallback...
+          
+          REM Try fallback toolchain
+          if "%BUILD_TOOLCHAIN%"=="VS2022" (
+            set "FALLBACK_TOOLCHAIN=VS2019"
+          ) else (
+            set "FALLBACK_TOOLCHAIN=VS2022"
+          )
+          
+          echo Trying fallback toolchain: %FALLBACK_TOOLCHAIN%
+          build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t %FALLBACK_TOOLCHAIN% -p ACPIPatcherPkg\ACPIPatcherPkg.dsc
+          if %ERRORLEVEL%==0 (
+            echo ✓ ACPIPatcher built successfully with fallback toolchain %FALLBACK_TOOLCHAIN%
+          ) else (
+            echo ✗ ACPIPatcher build failed with both toolchains
+            exit /b 1
+          )
         )
     
     # Verification and packaging
