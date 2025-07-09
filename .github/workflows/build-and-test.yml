@@ -815,21 +815,14 @@ jobs:
         )
         
         echo Running Stuart update to download dependencies...
-        stuart_update -c .pytool\CISettings.py TOOL_CHAIN_TAG=VS2022 -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
-        if errorlevel 1 (
-          echo ❌ Stuart update failed, will fallback to traditional build
-          exit /b 1
-        )
-        
-        echo Running Stuart update to download dependencies...
-        stuart_update -c .pytool\CISettings.py TOOL_CHAIN_TAG=VS2022 -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
+        stuart_update -c .pytool\CISettings.py -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=VS2022
         if errorlevel 1 (
           echo ❌ Stuart update failed, will fallback to traditional build
           exit /b 1
         )
         
         echo Running Stuart CI build...
-        stuart_ci_build -c .pytool\CISettings.py TOOL_CHAIN_TAG=VS2022 -a ${{ matrix.arch }} -t ${{ matrix.build_type }}
+        stuart_ci_build -c .pytool\CISettings.py -p ACPIPatcherPkg -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=VS2022
         if errorlevel 1 (
           echo ❌ Stuart build failed, will fallback to traditional build
           exit /b 1
