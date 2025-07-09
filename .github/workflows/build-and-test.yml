@@ -942,9 +942,22 @@ jobs:
         
         REM Set up VS2022 toolchain using simpler detection
         echo Setting up VS2022 toolchain...
+        echo Debug: About to call vswhere.exe with escaped paths
         
         REM Find Visual Studio installation using vswhere (should already be in PATH)
-        for /f "delims=" %%i in ('"%ProgramFiles(x86)%\\Microsoft Visual Studio\\Installer\\vswhere.exe" -latest -products * -requires Microsoft.Component.MSBuild -property installationPath') do set "VS_INSTALL_PATH=%%i"
+        echo Debug: Running vswhere command...
+        REM Try using environment variable instead of literal path
+        set "VSWHERE_PATH=%ProgramFiles(x86)%\\Microsoft Visual Studio\\Installer\\vswhere.exe"
+        echo Debug: VSWHERE_PATH="%VSWHERE_PATH%"
+        
+        if exist "%VSWHERE_PATH%" (
+          echo Debug: vswhere.exe found, executing...
+          for /f "delims=" %%i in ('"%VSWHERE_PATH%" -latest -products * -requires Microsoft.Component.MSBuild -property installationPath') do set "VS_INSTALL_PATH=%%i"
+        ) else (
+          echo Debug: vswhere.exe not found at expected location, trying PATH...
+          for /f "delims=" %%i in ('vswhere.exe -latest -products * -requires Microsoft.Component.MSBuild -property installationPath') do set "VS_INSTALL_PATH=%%i"
+        )
+        echo Debug: vswhere command completed
         if "%VS_INSTALL_PATH%"=="" (
           echo ✗ Could not find Visual Studio installation
           exit /b 1
