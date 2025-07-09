@@ -713,38 +713,35 @@ jobs:
         if not exist "%EDK_TOOLS_BIN%" mkdir "%EDK_TOOLS_BIN%"
         
         REM Set PYTHON_COMMAND to avoid '\python.exe' error in BaseTools
+        REM Enable delayed expansion for proper variable handling
+        setlocal enabledelayedexpansion
         set "PYTHON_COMMAND="
+        
+        REM Try python command first
         where python >nul 2>&1
         if %ERRORLEVEL%==0 (
-          for /f "delims=" %%i in ('where python 2^>nul') do (
-            if "!PYTHON_COMMAND!"=="" set "PYTHON_COMMAND=%%i"
-          )
-          if not "!PYTHON_COMMAND!"=="" (
-            echo ✓ Found Python: !PYTHON_COMMAND!
-          ) else (
-            echo ⚠️ Python command found but path extraction failed
-          )
-        ) else (
-          REM Try python3 if python is not found
-          where python3 >nul 2>&1
-          if %ERRORLEVEL%==0 (
-            for /f "delims=" %%i in ('where python3 2^>nul') do (
-              if "!PYTHON_COMMAND!"=="" set "PYTHON_COMMAND=%%i"
+          for /f "delims=" %%i in ('where python 2^>nul ^| findstr /v "INFO:"') do (
+            if "!PYTHON_COMMAND!"=="" (
+              set "PYTHON_COMMAND=%%i"
+              echo ✓ Found Python: %%i
             )
-            if not "!PYTHON_COMMAND!"=="" (
-              echo ✓ Found Python3: !PYTHON_COMMAND!
-            ) else (
-              echo ⚠️ Python3 command found but path extraction failed
-            )
-          ) else (
-            echo ✗ Python not found in PATH - this will cause BaseTools build to fail
-            echo Available commands in PATH:
-            where py >nul 2>&1 && echo "py.exe found" || echo "py.exe not found"
-            exit /b 1
           )
         )
         
-        REM Final fallback: if still empty, try direct path detection
+        REM Try python3 if python didn't work
+        if "!PYTHON_COMMAND!"=="" (
+          where python3 >nul 2>&1
+          if %ERRORLEVEL%==0 (
+            for /f "delims=" %%i in ('where python3 2^>nul ^| findstr /v "INFO:"') do (
+              if "!PYTHON_COMMAND!"=="" (
+                set "PYTHON_COMMAND=%%i"
+                echo ✓ Found Python3: %%i
+              )
+            )
+          )
+        )
+        
+        REM Final fallback: try known GitHub Actions path
         if "!PYTHON_COMMAND!"=="" (
           echo Trying fallback Python detection...
           if exist "C:\hostedtoolcache\windows\Python\3.9.13\x64\python.exe" (
@@ -752,9 +749,15 @@ jobs:
             echo ✓ Found Python via fallback: !PYTHON_COMMAND!
           ) else (
             echo ✗ Python fallback detection failed
+            echo Available commands in PATH:
+            where py >nul 2>&1 && echo "py.exe found" || echo "py.exe not found"
             exit /b 1
           )
         )
+        
+        REM Set as environment variable and disable delayed expansion
+        set "FINAL_PYTHON_COMMAND=!PYTHON_COMMAND!"
+        endlocal & set "PYTHON_COMMAND=%FINAL_PYTHON_COMMAND%"
         
         REM Verify Python works
         "%PYTHON_COMMAND%" --version
