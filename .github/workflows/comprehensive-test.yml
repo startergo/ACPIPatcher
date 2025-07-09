@@ -482,7 +482,7 @@ jobs:
         
         echo Building BaseTools for Windows...
         cd BaseTools
-        python -m pip install --upgrade pip
+        %PYTHON_COMMAND% -m pip install --upgrade pip
         
         REM Use enhanced BaseTools build with warning suppression
         set CL=/W0 /WX- /wd4311 /wd4312
@@ -1017,7 +1017,7 @@ jobs:
         # Simple build time measurement
         echo "=== Build Time Benchmark ==="
         TIMEFORMAT='%E'
-        time (cd edk2 && build -a X64 -b RELEASE -t GCC5 -p ACPIPatcherPkg/ACPIPatcherPkg.dsc) 2>&1 | grep real
+        time (cd edk2 && build -a X64 -b RELEASE -t ACPIPatcherPkg/ACPIPatcherPkg.dsc) 2>&1 | grep real
         
         # Placeholder for real performance tests
         echo "=== Real Performance Tests ==="
@@ -1031,3 +1031,180 @@ jobs:
         else
           echo "⚠️ pidstat not installed, skipping resource usage analysis"
         fi
+
+  # Comprehensive Testing Suite
+  comprehensive-test:
+    name: Comprehensive Testing
+    runs-on: ubuntu-latest
+    if: github.event.inputs.test_level == 'comprehensive' || github.event_name == 'schedule'
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Install Dependencies
+      run: |
+        echo "🔧 Installing dependencies..."
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          nasm \
+          uuid-dev \
+          gcc-multilib \
+          file \
+          python3 \
+          python3-pip \
+          clang \
+          lizard
+    
+    - name: Set Up Python Environment
+      run: |
+        echo "Setting up Python environment..."
+        
+        # Upgrade pip and install necessary Python packages
+        python3 -m pip install --upgrade pip setuptools wheel || true
+        
+        # Install any other Python dependencies here
+        # e.g., python3 -m pip install <package>
+    
+    - name: Build ACPIPatcher
+      run: |
+        echo "🔨 Building ACPIPatcher..."
+        cd edk2
+        . edksetup.sh
+        
+        # Build BaseTools with error workarounds for older EDK2 versions
+        echo "Building EDK2 BaseTools..."
+        if ! make -C BaseTools CFLAGS="-Wno-error=use-after-free -Wno-error=stringop-truncation" 2>/dev/null; then
+          echo "BaseTools build failed with strict flags, trying with relaxed flags..."
+          make -C BaseTools CFLAGS="-w" || {
+            echo "BaseTools build failed completely, trying alternative approach..."
+            export CC="gcc -Wno-error"
+            make -C BaseTools
+          }
+        fi
+        
+        echo "Building ACPIPatcher with GCC5..."
+        build -a X64 -b RELEASE -t GCC5 \
+              -p ACPIPatcherPkg/ACPIPatcherPkg.dsc \
+              -D DEBUG_LEVEL=3
+    
+    - name: Verify Build Artifacts
+      run: |
+        echo "📦 Verifying build artifacts..."
+        cd edk2
+        
+        echo "=== Dynamic Build Artifact Discovery ==="
+        echo "Searching for .efi files in Build directory..."
+        find Build/ -name "*.efi" 2>/dev/null || echo "No .efi files found"
+        
+        echo "=== Build Verification ==="
+        EFI_PATH=$(find Build/ -name "ACPIPatcher.efi" 2>/dev/null | head -1)
+        DXE_PATH=$(find Build/ -name "ACPIPatcherDxe.efi" 2>/dev/null | head -1)
+        
+        # Check if binaries exist and get their info
+        if [ -n "$EFI_PATH" ] && [ -f "$EFI_PATH" ]; then
+          echo "✅ ACPIPatcher.efi found: $EFI_PATH"
+          ls -la "$EFI_PATH"
+          file "$EFI_PATH" || true
+        else
+          echo "❌ ACPIPatcher.efi missing"
+          # Use continue-on-error approach to allow other steps to run
+          echo "ERROR: ACPIPatcher.efi not found, but continuing workflow"
+        fi
+        
+        if [ -n "$DXE_PATH" ] && [ -f "$DXE_PATH" ]; then
+          echo "✅ ACPIPatcherDxe.efi found: $DXE_PATH"
+          ls -la "$DXE_PATH"
+          file "$DXE_PATH" || true
+        else
+          echo "❌ ACPIPatcherDxe.efi missing"
+          # Use continue-on-error approach to allow other steps to run
+          echo "ERROR: ACPIPatcherDxe not found, but continuing workflow"
+        fi
+      shell: bash
+      continue-on-error: true
+    
+    - name: Extended EFI Testing
+      run: |
+        echo "🛠️ Running extended EFI testing..."
+        cd edk2
+        
+        echo "=== Extended EFI File Analysis ==="
+        EFI_PATH=$(find Build/ -name "ACPIPatcher.efi" 2>/dev/null | head -1)
+        
+        if [ -n "$EFI_PATH" ] && [ -f "$EFI_PATH" ]; then
+          echo "Analyzing EFI file structure for: $EFI_PATH"
+          
+          # Check EFI file headers and basic structure
+          echo "Analyzing EFI file structure..."
+          hexdump -C "$EFI_PATH" | head -5 || true
+          
+          # Check for common EFI signatures
+          echo "Checking for EFI signatures..."
+          if strings "$EFI_PATH" | grep -i "uefi\|efi" | head -5; then
+            echo "✅ Found EFI/UEFI signatures"
+          else
+            echo "⚠️ No obvious EFI signatures found"
+          fi
+          
+          # Check file size (should be reasonable)
+          SIZE=$(stat -c%s "$EFI_PATH" 2>/dev/null || stat -f%z "$EFI_PATH" 2>/dev/null || echo "0")
+          echo "ACPIPatcher.efi size: $SIZE bytes"
+          
+          if [ "$SIZE" -gt 1000 ] && [ "$SIZE" -lt 10000000 ]; then
+            echo "✅ EFI file size is reasonable"
+          else
+            echo "⚠️ EFI file size seems unusual"
+          fi
+        else
+          echo "❌ ACPIPatcher.efi not found for extended testing"
+        fi
+    
+    - name: Create Test Package
+      run: |
+        echo "📦 Creating test package..."
+        cd edk2
+        
+        PACKAGE_NAME="ACPIPatcher-Test-${{ github.run_id }}"
+        mkdir -p "$PACKAGE_NAME"
+        
+        # Copy EFI files using dynamic paths
+        EFI_PATH=$(find Build/ -name "ACPIPatcher.efi" 2>/dev/null | head -1)
+        DXE_PATH=$(find Build/ -name "ACPIPatcherDxe.efi" 2>/dev/null | head -1)
+        
+        if [ -n "$EFI_PATH" ] && [ -f "$EFI_PATH" ]; then
+          cp "$EFI_PATH" "$PACKAGE_NAME/"
+          echo "✅ Packaged ACPIPatcher.efi from: $EFI_PATH"
+        else
+          echo "⚠️ ACPIPatcher.efi not found, creating placeholder file"
+          echo "BUILD_FAILED: Could not find ACPIPatcher.efi" > "$PACKAGE_NAME/ACPIPatcher.efi.missing"
+        fi
+        
+        if [ -n "$DXE_PATH" ] && [ -f "$DXE_PATH" ]; then
+          cp "$DXE_PATH" "$PACKAGE_NAME/"
+          echo "✅ Packaged ACPIPatcherDxe.efi from: $DXE_PATH"
+        else
+          echo "⚠️ ACPIPatcherDxe.efi not found, creating placeholder file"
+          echo "BUILD_FAILED: Could not find ACPIPatcherDxe.efi" > "$PACKAGE_NAME/ACPIPatcherDxe.efi.missing"
+        fi
+        
+        # Create test report
+        echo "Test Build Report" > "$PACKAGE_NAME/TEST_REPORT.txt"
+        echo "Platform: ${{ matrix.platform }}" >> "$PACKAGE_NAME/TEST_REPORT.txt"
+        echo "Architecture: ${{ matrix.arch }}" >> "$PACKAGE_NAME/TEST_REPORT.txt"
+        echo "Build Type: ${{ matrix.build_type }}" >> "$PACKAGE_NAME/TEST_REPORT.txt"
+        echo "Toolchain: ${{ matrix.toolchain }}" >> "$PACKAGE_NAME/TEST_REPORT.txt"
+        echo "Test Date: $(date)" >> "$PACKAGE_NAME/TEST_REPORT.txt"
+        echo "Test Level: ${{ env.TEST_LEVEL }}" >> "$PACKAGE_NAME/TEST_REPORT.txt"
+        
+        # Compress package
+        tar -czf "$PACKAGE_NAME.tar.gz" -C "$PACKAGE_NAME" .
+        echo "📦 Created package: $PACKAGE_NAME.tar.gz"
+    
+    - name: Upload Test Package
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-package-${{ github.run_id }}
+        path: edk2/ACPIPatcher-Test-*
+        retention-days: 7

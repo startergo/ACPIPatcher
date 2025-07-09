@@ -435,6 +435,41 @@ jobs:
           )
         )
         
+        REM Set up Python environment for BaseTools
+        echo Setting up Python environment for BaseTools...
+        
+        REM Find and verify Python installation
+        for %%p in (python python3 "py -3") do (
+          %%p --version >nul 2>&1
+          if not errorlevel 1 (
+            echo ✓ Found working Python: %%p
+            set "PYTHON_COMMAND=%%p"
+            %%p --version
+            goto :python_found
+          )
+        )
+        
+        REM Fallback: try common Python installation paths
+        for %%d in ("C:\hostedtoolcache\windows\Python" "C:\Python*") do (
+          if exist "%%d" (
+            for /f "delims=" %%f in ('dir /b /s "%%d\python.exe" 2^>nul') do (
+              "%%f" --version >nul 2>&1
+              if not errorlevel 1 (
+                echo ✓ Found Python at: %%f
+                set "PYTHON_COMMAND=%%f"
+                "%%f" --version
+                goto :python_found
+              )
+            )
+          )
+        )
+        
+        echo ⚠ Could not find working Python, using default
+        set "PYTHON_COMMAND=python"
+        
+        :python_found
+        echo Using PYTHON_COMMAND=%PYTHON_COMMAND%
+        
         REM Build ACPIPatcher
         echo Building ACPIPatcher...
         build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t ${{ matrix.toolchain }} -p ACPIPatcherPkg\ACPIPatcherPkg.dsc
