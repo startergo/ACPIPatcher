@@ -597,26 +597,46 @@ jobs:
           echo ⚠ edksetup.bat reported issues, but continuing...
         )
         
-        REM Re-sourcing Visual Studio environment to ensure toolchain is available
-        echo Re-sourcing Visual Studio environment...
-        call "%VCToolsInstallDir%\..\..\Auxiliary\Build\vcvarsall.bat" x64
+        REM Configure and verify VS toolchain availability
+        echo === Configuring Visual Studio Toolchain ===
         
-        REM Verify VS2022 toolchain availability
-        echo Checking VS2022 toolchain availability...
-        if exist "%WORKSPACE%\Conf\tools_def.txt" (
-          findstr /C:"VS2022_BIN" "%WORKSPACE%\Conf\tools_def.txt" >nul
-          if %ERRORLEVEL%==0 (
-            echo ✓ VS2022 toolchain found in tools_def.txt
+        REM Verify VS environment is still active (sometimes lost after edksetup.bat)
+        where cl >nul 2>&1
+        if not %ERRORLEVEL%==0 (
+          echo Re-activating Visual Studio environment...
+          if exist "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" (
+            call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          ) else if exist "%ProgramFiles(x86)%\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" (
+            call "%ProgramFiles(x86)%\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" x64
+          ) else if exist "%ProgramFiles%\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" (
+            call "%ProgramFiles%\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
           ) else (
-            echo ⚠ VS2022 toolchain not found, attempting to use VS2019 as fallback...
-            findstr /C:"VS2019_BIN" "%WORKSPACE%\Conf\tools_def.txt" >nul
-            if %ERRORLEVEL%==0 (
-              echo ✓ Using VS2019 toolchain as fallback
-            ) else (
-              echo ✗ Neither VS2022 nor VS2019 toolchain found
-            )
+            echo ⚠ Could not find Visual Studio environment to activate
           )
         )
+        
+        REM Check which VS toolchain is available in tools_def.txt
+        echo Checking available toolchains in tools_def.txt...
+        if exist "%WORKSPACE%\Conf\tools_def.txt" (
+          findstr /C:"VS2022" "%WORKSPACE%\Conf\tools_def.txt" >nul
+          if %ERRORLEVEL%==0 (
+            echo ✓ VS2022 toolchain found in tools_def.txt
+            set "AVAILABLE_TOOLCHAIN=VS2022"
+          ) else (
+            findstr /C:"VS2019" "%WORKSPACE%\Conf\tools_def.txt" >nul
+            if %ERRORLEVEL%==0 (
+              echo ✓ VS2019 toolchain found in tools_def.txt  
+              set "AVAILABLE_TOOLCHAIN=VS2019"
+            ) else (
+              echo ⚠ Neither VS2022 nor VS2019 found in tools_def.txt, using VS2019 anyway
+              set "AVAILABLE_TOOLCHAIN=VS2019"
+            )
+          )
+        ) else (
+          echo ⚠ tools_def.txt not found, using VS2019 as default
+          set "AVAILABLE_TOOLCHAIN=VS2019"
+        )
+        echo Available toolchain: %AVAILABLE_TOOLCHAIN%
         
         REM Set up Python environment for BaseTools
         echo Setting up Python environment for BaseTools...
@@ -653,14 +673,17 @@ jobs:
         :python_found
         echo Using PYTHON_COMMAND=%PYTHON_COMMAND%
         
-        REM Determine toolchain to use (use detected one or matrix default)
-        echo Determining toolchain to use...
+        REM Determine toolchain to use (priority: detected VS_TOOLCHAIN, available toolchain, matrix default)
+        echo Determining final toolchain to use...
         if defined VS_TOOLCHAIN (
           set "BUILD_TOOLCHAIN=%VS_TOOLCHAIN%"
-          echo ✓ Using detected toolchain: %VS_TOOLCHAIN%
+          echo ✓ Using detected toolchain from environment: %VS_TOOLCHAIN%
+        ) else if defined AVAILABLE_TOOLCHAIN (
+          set "BUILD_TOOLCHAIN=%AVAILABLE_TOOLCHAIN%"
+          echo ✓ Using available toolchain from tools_def.txt: %AVAILABLE_TOOLCHAIN%
         ) else (
           set "BUILD_TOOLCHAIN=${{ matrix.toolchain }}"
-          echo ✓ Using matrix toolchain: ${{ matrix.toolchain }}
+          echo ✓ Using matrix default toolchain: ${{ matrix.toolchain }}
         )
         
         REM Build ACPIPatcher
