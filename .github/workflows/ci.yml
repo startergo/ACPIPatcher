@@ -279,6 +279,56 @@ jobs:
         echo "Building ACPIPatcher..."
         build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t ${{ matrix.toolchain }} -p ACPIPatcherPkg/ACPIPatcherPkg.dsc
     
+    # Stuart integration - Windows specific
+    - name: Setup Python Virtual Environment (Stuart) - Windows
+      if: matrix.os == 'windows'
+      shell: pwsh
+      run: |
+        cd edk2
+        
+        Write-Host "=== Setting up Stuart Python virtual environment (Windows) ==="
+        
+        # Copy pip requirements to EDK2 directory
+        Copy-Item "../acpipatcher/pip-requirements.txt" . -ErrorAction SilentlyContinue
+        
+        Write-Host "Creating Python virtual environment..."
+        py -m venv .venv
+        
+        Write-Host "Activating virtual environment..."
+        .\.venv\Scripts\Activate.ps1
+        
+        Write-Host "Installing EDK2 Python tools following Stuart documentation..."
+        python -m pip install --upgrade pip
+        
+        if (Test-Path "pip-requirements.txt") {
+          pip install -r pip-requirements.txt --upgrade
+        } else {
+          pip install edk2-pytool-library edk2-pytool-extensions
+        }
+        
+        Write-Host "✅ Python virtual environment setup complete"
+
+    - name: Stuart Dependencies Update (Windows)
+      if: matrix.os == 'windows'
+      shell: pwsh
+      run: |
+        cd edk2
+        
+        Write-Host "=== Stuart Setup: Updating Dependencies ==="
+        .\.venv\Scripts\Activate.ps1
+        
+        # Git submodules update (Stuart documentation step)
+        Write-Host "Updating git submodules..."
+        git submodule update --init --recursive
+        
+        # Copy Stuart configuration if available
+        if (Test-Path "../acpipatcher/.pytool") {
+          Copy-Item -Recurse "../acpipatcher/.pytool" . -ErrorAction SilentlyContinue
+          Write-Host "✅ Copied Stuart configuration files"
+        }
+        
+        Write-Host "✅ Stuart dependencies update completed"
+
     - name: Verify EDK2 Environment Variables (Windows)
       if: matrix.os == 'windows'
       shell: cmd
