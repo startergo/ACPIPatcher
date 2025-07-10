@@ -51,7 +51,7 @@ jobs:
       with:
         path: acpipatcher
 
-    - name: Setup MSYS2 for MinGW
+    - name: Setup MSYS2 for MinGW (Base packages)
       uses: msys2/setup-msys2@v2
       with:
         msystem: ${{ matrix.msys }}
@@ -65,8 +65,6 @@ jobs:
           mingw-w64-${{ matrix.msys_env }}-python-pip
           mingw-w64-${{ matrix.msys_env }}-python-setuptools
           mingw-w64-${{ matrix.msys_env }}-python-wheel
-          mingw-w64-${{ matrix.msys_env }}-python-cryptography
-          mingw-w64-${{ matrix.msys_env }}-python-cffi
           mingw-w64-${{ matrix.msys_env }}-rust
           mingw-w64-${{ matrix.msys_env }}-pkg-config
           mingw-w64-${{ matrix.msys_env }}-libffi
@@ -74,14 +72,19 @@ jobs:
           mingw-w64-${{ matrix.msys_env }}-openssl
           base-devel
 
-    - name: Install additional MSYS2 packages for x64 builds
+    - name: Install additional MSYS2 packages for x64 builds only
       if: matrix.arch == 'X64'
       uses: msys2/setup-msys2@v2
       with:
         msystem: ${{ matrix.msys }}
         update: false
         install: >-
+          mingw-w64-x86_64-python-cryptography
           mingw-w64-x86_64-python-maturin
+
+    # Note: python-cffi is only available in UCRT variant (mingw-w64-ucrt-x86_64-python-cffi)
+    # and there are no i686 packages for python-cryptography, python-cffi, or python-maturin
+    # These packages will be installed via pip with fallback strategies
 
     # Clone and setup EDK2
     - name: Clone EDK2 Repository
