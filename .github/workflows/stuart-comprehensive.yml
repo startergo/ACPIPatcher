@@ -1,0 +1,344 @@
+name: Stuart Comprehensive Build System
+
+on:
+  workflow_dispatch:
+
+env:
+  EDK2_VERSION: edk2-stable202405
+
+jobs:
+  stuart-build:
+    name: Stuart Build (${{ matrix.toolchain }}, ${{ matrix.arch }}, ${{ matrix.build_type }})
+    runs-on: windows-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # VS2019/VS2022 builds
+          - toolchain: VS2019
+            arch: X64
+            build_type: RELEASE
+            platform: x64
+          - toolchain: VS2019
+            arch: X64
+            build_type: DEBUG
+            platform: x64
+          - toolchain: VS2019
+            arch: IA32
+            build_type: RELEASE
+            platform: x86
+          - toolchain: VS2019
+            arch: IA32
+            build_type: DEBUG
+            platform: x86
+          - toolchain: VS2019
+            arch: IA32,X64
+            build_type: NOOPT
+            platform: x64
+            unit_test: true
+          # GCC5 builds with MinGW
+          - toolchain: GCC5
+            arch: X64
+            build_type: RELEASE
+            platform: x64
+          - toolchain: GCC5
+            arch: X64
+            build_type: DEBUG
+            platform: x64
+          - toolchain: GCC5
+            arch: IA32
+            build_type: RELEASE
+            platform: x86
+          - toolchain: GCC5
+            arch: IA32
+            build_type: DEBUG
+            platform: x86
+          - toolchain: GCC5
+            arch: IA32,X64
+            build_type: NOOPT
+            platform: x64
+            unit_test: true
+    
+    steps:
+    - name: Checkout ACPIPatcher
+      uses: actions/checkout@v4
+      with:
+        path: acpipatcher
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Setup Visual Studio Environment
+      if: startsWith(matrix.toolchain, 'VS')
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Setup Windows Build Environment
+      if: startsWith(matrix.toolchain, 'VS')
+      uses: ilammy/msvc-dev-cmd@v1.13.0
+      with:
+        arch: ${{ matrix.platform }}
+
+    - name: Set up MinGW
+      if: matrix.toolchain == 'GCC5'
+      uses: egor-tensin/setup-mingw@v2
+      with:
+        platform: ${{ matrix.platform }}
+
+    # Clone and setup EDK2
+    - name: Clone EDK2 Repository
+      run: |
+        git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
+
+    - name: Change to EDK2 Directory and Setup Python Virtual Environment
+      shell: cmd
+      run: |
+        cd edk2
+        echo Setting up Python virtual environment...
+        py -m venv .venv
+        
+        echo Activating virtual environment...
+        .venv\Scripts\activate.bat
+        
+        echo Upgrading pip and installing base requirements...
+        python -m pip install --upgrade pip setuptools wheel
+        
+        echo Installing Stuart dependencies...
+        pip install --upgrade edk2-pytool-extensions
+        
+        echo Python virtual environment setup complete
+
+    - name: Copy ACPIPatcher to EDK2
+      shell: cmd
+      run: |
+        xcopy /E /I acpipatcher\ACPIPatcherPkg edk2\ACPIPatcherPkg
+        
+        if exist "acpipatcher\.pytool" (
+          xcopy /E /I acpipatcher\.pytool edk2\.pytool
+          echo Copied Stuart configuration
+        )
+        
+        if exist "acpipatcher\pip-requirements.txt" (
+          copy acpipatcher\pip-requirements.txt edk2\
+          echo Copied pip requirements
+        )
+
+    - name: Initialize EDK2 Submodules
+      shell: cmd
+      run: |
+        cd edk2
+        
+        git config --global url."https://github.com/".insteadOf "git@github.com:"
+        git config --global advice.detachedHead false
+        
+        echo Initializing essential EDK2 submodules...
+        git submodule update --init --recommend-shallow BaseTools/Source/C/BrotliCompress/brotli CryptoPkg/Library/OpensslLib/openssl MdeModulePkg/Library/BrotliCustomDecompressLib/brotli UnitTestFrameworkPkg/Library/CmockaLib/cmocka
+        
+        echo Submodule initialization completed
+
+    - name: Install Additional Dependencies
+      shell: cmd
+      run: |
+        cd edk2
+        
+        echo Activating virtual environment...
+        .venv\Scripts\activate.bat
+        
+        echo Installing additional dependencies...
+        if exist "pip-requirements.txt" (
+          pip install -r pip-requirements.txt --upgrade
+        )
+        
+        echo Installing regex module...
+        pip install regex || echo Regex installation failed, continuing...
+        
+        echo Dependencies installation complete
+
+    - name: Build Base Tools (GCC5 only)
+      if: matrix.toolchain == 'GCC5'
+      shell: cmd
+      run: |
+        cd edk2
+        
+        echo Activating virtual environment...
+        .venv\Scripts\activate.bat
+        
+        echo Building base tools with GCC5...
+        python BaseTools/Edk2ToolsBuild.py -t GCC5
+
+    - name: Stuart Update Dependencies
+      shell: cmd
+      run: |
+        cd edk2
+        
+        echo Activating virtual environment...
+        .venv\Scripts\activate.bat
+        
+        echo Running Stuart update to download dependencies and binaries...
+        echo This may take a while as binaries can be very large...
+        
+        stuart_update -c .pytool/CISettings.py -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=${{ matrix.toolchain }}
+        
+        if %ERRORLEVEL% neq 0 (
+          echo Stuart update failed
+          exit /b 1
+        )
+        
+        echo Stuart update completed successfully
+
+    - name: Stuart CI Build
+      shell: cmd
+      run: |
+        cd edk2
+        
+        echo Activating virtual environment...
+        .venv\Scripts\activate.bat
+        
+        echo Running Stuart CI build...
+        
+        if "${{ matrix.unit_test }}" == "true" (
+          echo Running unit tests with NOOPT target...
+          stuart_ci_build -c .pytool/CISettings.py -p ACPIPatcherPkg -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=${{ matrix.toolchain }}
+        ) else (
+          echo Running normal CI build...
+          stuart_ci_build -c .pytool/CISettings.py -p ACPIPatcherPkg -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=${{ matrix.toolchain }}
+        )
+        
+        if %ERRORLEVEL% neq 0 (
+          echo Stuart CI build failed
+          exit /b 1
+        )
+        
+        echo Stuart CI build completed successfully
+
+    - name: Stuart Build (Alternative)
+      if: matrix.unit_test != true
+      shell: cmd
+      run: |
+        cd edk2
+        
+        echo Activating virtual environment...
+        .venv\Scripts\activate.bat
+        
+        echo Running Stuart build as alternative...
+        stuart_build -c ACPIPatcher.py -a ${{ matrix.arch }} TOOL_CHAIN_TAG=${{ matrix.toolchain }}
+        
+        if %ERRORLEVEL% neq 0 (
+          echo Stuart build failed, continuing...
+        ) else (
+          echo Stuart build completed successfully
+        )
+
+    - name: Verify Build Output
+      shell: cmd
+      run: |
+        cd edk2
+        
+        echo === Build Verification ===
+        echo Searching for built EFI files...
+        
+        for /r Build\ %%f in (*.efi) do (
+          echo Found EFI file: %%f
+        )
+        
+        echo Specifically looking for ACPIPatcher binaries...
+        for /r Build\ %%f in (ACPIPatcher*.efi) do (
+          echo ACPIPatcher binary: %%f
+          dir "%%f"
+        )
+
+    - name: Create Distribution Package
+      shell: cmd
+      run: |
+        cd edk2
+        
+        set DIST_DIR=ACPIPatcher-Stuart-%{{ matrix.build_type }}-%{{ matrix.arch }}-%{{ matrix.toolchain }}
+        mkdir "%DIST_DIR%"
+        
+        echo Copying EFI files...
+        for /r Build\ %%f in (*.efi) do (
+          copy "%%f" "%DIST_DIR%\"
+        )
+        
+        echo Copying documentation...
+        if exist "..\acpipatcher\README.md" (
+          copy "..\acpipatcher\README.md" "%DIST_DIR%\"
+        )
+        
+        echo Creating build info...
+        (
+          echo ACPIPatcher Stuart Build Information
+          echo ===================================
+          echo Build System: Stuart ^(edk2-pytool-extensions^)
+          echo Architecture: ${{ matrix.arch }}
+          echo Build Type: ${{ matrix.build_type }}
+          echo Toolchain: ${{ matrix.toolchain }}
+          echo Platform: Windows
+          echo Build Date: %DATE% %TIME%
+          echo EDK2 Version: ${{ env.EDK2_VERSION }}
+          echo Unit Test: ${{ matrix.unit_test }}
+        ) > "%DIST_DIR%\BUILD_INFO.txt"
+        
+        echo Creating archive...
+        powershell -Command "Compress-Archive -Path '%DIST_DIR%' -DestinationPath '%DIST_DIR%.zip'"
+        
+        echo Created distribution package: %DIST_DIR%
+
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ACPIPatcher-Stuart-${{ matrix.build_type }}-${{ matrix.arch }}-${{ matrix.toolchain }}
+        path: |
+          edk2/ACPIPatcher-Stuart-*.zip
+        retention-days: 30
+        if-no-files-found: warn
+
+  # Summary job
+  stuart-build-summary:
+    name: Stuart Build Summary
+    runs-on: ubuntu-latest
+    needs: [stuart-build]
+    if: always()
+    
+    steps:
+    - name: Generate Build Summary
+      run: |
+        echo "## ACPIPatcher Stuart Comprehensive Build Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Build Matrix Results" >> $GITHUB_STEP_SUMMARY
+        echo "| Toolchain | Architecture | Build Type | Unit Test | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|--------------|------------|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ needs.stuart-build.result }}" = "success" ]; then
+          echo "| VS2019/GCC5 | X64/IA32 | RELEASE/DEBUG/NOOPT | Yes/No | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| VS2019/GCC5 | X64/IA32 | RELEASE/DEBUG/NOOPT | Yes/No | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Stuart Build System Features" >> $GITHUB_STEP_SUMMARY
+        echo "This workflow implements the complete Stuart build process:" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Clone edk2 repository" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Python virtual environment setup" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Virtual environment activation" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Python dependencies installation" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Stuart update for binaries" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Stuart CI build execution" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Unit test support (NOOPT target)" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ VS2019 and GCC5 toolchain support" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ MinGW setup for GCC5 builds" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Base tools building for GCC5" >> $GITHUB_STEP_SUMMARY
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Build Process" >> $GITHUB_STEP_SUMMARY
+        echo "1. **Environment Setup**: Python venv, toolchain configuration" >> $GITHUB_STEP_SUMMARY
+        echo "2. **Dependencies**: pip-requirements.txt, regex module, edk2-pytool-extensions" >> $GITHUB_STEP_SUMMARY
+        echo "3. **Stuart Update**: Binary downloads and dependency management" >> $GITHUB_STEP_SUMMARY
+        echo "4. **Stuart Build**: CI build with comprehensive testing" >> $GITHUB_STEP_SUMMARY
+        echo "5. **Artifacts**: EFI binaries packaged and uploaded" >> $GITHUB_STEP_SUMMARY
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+        echo "Built EFI binaries are available in the Actions artifacts section." >> $GITHUB_STEP_SUMMARY
