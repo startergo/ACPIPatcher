@@ -98,7 +98,7 @@ jobs:
       run: |
         git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
 
-    - name: Setup Python Virtual Environment and Install Problematic Packages (GCC5 Toolchain)
+    - name: Setup Python Virtual Environment (GCC5 Toolchain)
       shell: msys2 {0}
       run: |
         cd edk2
@@ -106,40 +106,83 @@ jobs:
         python3 -m venv .venv
         source .venv/bin/activate
         python3 -m pip install --upgrade pip setuptools wheel
+        echo "✅ Python virtual environment created"
+
+    # Install problematic packages using PowerShell with proper path handling
+    - name: Install cffi and cryptography into virtual environment
+      shell: pwsh
+      run: |
+        cd edk2
+        Write-Host "Installing problematic packages into MSYS2 virtual environment..."
+        Write-Host "This avoids MSYS2/MinGW compilation issues with cffi/cryptography"
         
-        echo "Installing problematic packages that have compilation issues in MSYS2..."
+        # Get the Python executable path from the virtual environment
+        $venvPython = Resolve-Path ".\.venv\Scripts\python.exe" -ErrorAction SilentlyContinue
+        if (-not $venvPython) {
+          $venvPython = Resolve-Path ".\.venv\bin\python3" -ErrorAction SilentlyContinue
+          if (-not $venvPython) {
+            Write-Host "⚠️ Warning: Could not find virtual environment Python executable"
+            return
+          }
+        }
         
-        # Strategy: Install cffi and cryptography using Windows pip, then copy to virtual environment
-        echo "Installing cffi using Windows Python (to avoid MinGW compilation issues)..."
+        Write-Host "Using virtual environment Python: $venvPython"
         
-        # Install cffi using system Windows Python first
-        /c/hostedtoolcache/windows/Python/*/x64/python.exe -m pip install cffi --upgrade --target .venv/lib/python3.12/site-packages/ --force-reinstall --no-deps
+        # Install cffi using the virtual environment Python
+        Write-Host "Installing cffi..."
+        try {
+          & $venvPython -m pip install cffi --upgrade
+          Write-Host "✅ Successfully installed cffi"
+        } catch {
+          Write-Host "⚠️ Warning: Failed to install cffi: $_"
+        }
         
+        # Install cryptography using the virtual environment Python
+        Write-Host "Installing cryptography..."
+        try {
+          & $venvPython -m pip install cryptography --upgrade
+          Write-Host "✅ Successfully installed cryptography"
+        } catch {
+          Write-Host "⚠️ Warning: Failed to install cryptography: $_"
+        }
+        
+        # Install other build tools
+        Write-Host "Installing build tools..."
+        $packages = @("setuptools", "wheel", "build", "maturin")
+        foreach ($package in $packages) {
+          try {
+            & $venvPython -m pip install $package --upgrade
+            Write-Host "✅ Successfully installed $package"
+          } catch {
+            Write-Host "⚠️ Warning: Failed to install $package"
+          }
+        }
+
+    - name: Install Stuart and handle remaining dependencies (GCC5 Toolchain)
+      shell: msys2 {0}
+      run: |
+        cd edk2
+        source .venv/bin/activate
+        
+        # Check if problematic packages were successfully installed
+        echo "Checking for pre-installed packages in virtual environment..."
         if python3 -c "import cffi" 2>/dev/null; then
-          echo "✅ Successfully installed cffi via Windows Python"
+          echo "✅ cffi package is available in virtual environment"
         else
-          echo "⚠️ Warning: cffi installation via Windows Python failed, trying MSYS2 installation..."
-          
-          # Fallback to MSYS2 installation
+          echo "⚠️ cffi package not available, attempting MSYS2 installation..."
           if pip install cffi --upgrade --no-build-isolation; then
-            echo "✅ Successfully installed cffi via MSYS2 (fallback)"
+            echo "✅ Successfully installed cffi via MSYS2"
           else
             echo "⚠️ Warning: cffi installation failed, continuing without it"
           fi
         fi
         
-        # Install cryptography using similar approach
-        echo "Installing cryptography using Windows Python..."
-        /c/hostedtoolcache/windows/Python/*/x64/python.exe -m pip install cryptography --upgrade --target .venv/lib/python3.12/site-packages/ --force-reinstall
-        
         if python3 -c "import cryptography" 2>/dev/null; then
-          echo "✅ Successfully installed cryptography via Windows Python"
+          echo "✅ cryptography package is available in virtual environment"
         else
-          echo "⚠️ Warning: cryptography installation via Windows Python failed, trying MSYS2 installation..."
-          
-          # Fallback to MSYS2 installation
+          echo "⚠️ cryptography package not available, attempting MSYS2 installation..."
           if pip install cryptography --upgrade --no-build-isolation; then
-            echo "✅ Successfully installed cryptography via MSYS2 (fallback)"
+            echo "✅ Successfully installed cryptography via MSYS2"
           else
             echo "⚠️ Warning: cryptography installation failed, continuing without it"
           fi
