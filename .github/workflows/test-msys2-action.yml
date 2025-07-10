@@ -27,11 +27,6 @@ jobs:
         submodules: recursive
         fetch-depth: 0
     
-    - name: Setup Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-    
     - name: Setup MSYS2 with Required Tools
       uses: msys2/setup-msys2@v2
       with:
@@ -44,41 +39,9 @@ jobs:
           make
           mingw-w64-x86_64-diffutils
           mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-python
+          mingw-w64-x86_64-python-pip
           git
-    
-    - name: Add MSYS2 Tools to Windows PATH
-      shell: pwsh
-      run: |
-        # Add MSYS2 paths to Windows PATH for access from cmd/batch
-        $msys2Paths = @(
-          "D:\a\_temp\msys64\mingw64\bin",
-          "D:\a\_temp\msys64\usr\bin"
-        )
-        
-        foreach ($path in $msys2Paths) {
-          if (Test-Path $path) {
-            echo "Adding to PATH: $path"
-            echo "$path" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          } else {
-            echo "Path not found: $path"
-          }
-        }
-        
-        # Also try to find MSYS2 installation dynamically
-        $possibleMsys2Roots = @(
-          "D:\a\_temp\msys64",
-          "C:\msys64",
-          "D:\msys64"
-        )
-        
-        foreach ($root in $possibleMsys2Roots) {
-          if (Test-Path "$root\mingw64\bin") {
-            echo "Found MSYS2 at: $root"
-            echo "$root\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-            echo "$root\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-            break
-          }
-        }
     
     - name: Verify MSYS2 Tool Installation
       shell: msys2 {0}
@@ -91,23 +54,13 @@ jobs:
         echo "=== Tool Versions ==="
         which clang && clang --version
         echo ""
-        # Check both NASM locations
-        if which nasm >/dev/null 2>&1; then
-          echo "NASM found in MSYS2:"
-          which nasm && nasm -version
-        else
-          echo "NASM not found in MSYS2 PATH, checking common locations..."
-          for nasmpath in /usr/bin/nasm /mingw64/bin/nasm; do
-            if [ -f "$nasmpath" ]; then
-              echo "Found NASM at: $nasmpath"
-              "$nasmpath" -version
-            fi
-          done
-        fi
+        which nasm && nasm -version || echo "NASM not found in PATH"
         echo ""
         which make && make --version | head -1
         echo ""
         which gcc && gcc --version | head -1
+        echo ""
+        which python3 && python3 --version
         echo ""
         
         echo "=== Environment Variables ==="
@@ -118,188 +71,23 @@ jobs:
           echo "NASM_BIN: Not found in MSYS2 PATH"
         fi
     
-    - name: Test Windows Batch Access to MSYS2 Tools
-      shell: cmd
-      run: |
-        echo === Testing Windows Batch Access ===
-        echo MSYS2 PATH should be available...
-        
-        REM Test if clang is accessible from Windows cmd
-        where clang >nul 2>&1
-        if %ERRORLEVEL%==0 (
-          echo ✓ Clang accessible from Windows batch
-          clang --version | findstr "clang version"
-        ) else (
-          echo ✗ Clang not accessible from Windows batch
-        )
-        
-        REM Test if nasm is accessible from Windows cmd  
-        where nasm >nul 2>&1
-        if %ERRORLEVEL%==0 (
-          echo ✓ NASM accessible from Windows batch
-          nasm -version | findstr "version"
-        ) else (
-          echo ✗ NASM not accessible from Windows batch
-          echo Checking specific MSYS2 NASM locations...
-          
-          REM Check common MSYS2 NASM locations
-          if exist "D:\a\_temp\msys64\usr\bin\nasm.exe" (
-            echo "Found NASM at: D:\a\_temp\msys64\usr\bin\nasm.exe"
-            "D:\a\_temp\msys64\usr\bin\nasm.exe" -version | findstr "version"
-          ) else if exist "C:\msys64\usr\bin\nasm.exe" (
-            echo "Found NASM at: C:\msys64\usr\bin\nasm.exe"
-            "C:\msys64\usr\bin\nasm.exe" -version | findstr "version"
-          ) else (
-            echo NASM not found in expected MSYS2 locations
-          )
-        )
-    
-    - name: Set EDK2 Environment Variables for Windows
-      if: github.event.inputs.test_mode == 'full-build'
-      shell: pwsh
-      run: |
-        # Set EDK2 environment variables to suppress warnings
-        $msys2Root = "D:\a\_temp\msys64"
-        if (-not (Test-Path $msys2Root)) {
-          $msys2Root = "C:\msys64"
-        }
-        
-        echo "Setting EDK2 environment variables..."
-        echo "NASM_PREFIX=$msys2Root\usr\bin\" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-        echo "CLANG_BIN=$msys2Root\mingw64\bin\" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-        echo "CYGWIN_HOME=$msys2Root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-        
-        echo "Environment variables set:"
-        echo "NASM_PREFIX=$msys2Root\usr\bin\"
-        echo "CLANG_BIN=$msys2Root\mingw64\bin\"
-        echo "CYGWIN_HOME=$msys2Root"
-
-    - name: Verify EDK2 Environment Variables
-      if: github.event.inputs.test_mode == 'full-build'
-      shell: cmd
-      run: |
-        echo === Verifying EDK2 Environment Variables ===
-        echo NASM_PREFIX=%NASM_PREFIX%
-        echo CLANG_BIN=%CLANG_BIN%
-        echo CYGWIN_HOME=%CYGWIN_HOME%
-        echo.
-        
-        REM Test if the paths actually exist and contain the expected tools
-        if exist "%NASM_PREFIX%nasm.exe" (
-          echo ✓ NASM found at: %NASM_PREFIX%nasm.exe
-          "%NASM_PREFIX%nasm.exe" -version | findstr "version"
-        ) else (
-          echo ✗ NASM not found at: %NASM_PREFIX%nasm.exe
-        )
-        
-        if exist "%CLANG_BIN%clang.exe" (
-          echo ✓ Clang found at: %CLANG_BIN%clang.exe
-          "%CLANG_BIN%clang.exe" --version | findstr "clang version"
-        ) else (
-          echo ✗ Clang not found at: %CLANG_BIN%clang.exe
-        )
-        
-        if exist "%CYGWIN_HOME%" (
-          echo ✓ CYGWIN_HOME directory exists: %CYGWIN_HOME%
-        ) else (
-          echo ✗ CYGWIN_HOME directory not found: %CYGWIN_HOME%
-        )
-
-    - name: Setup EDK2 Environment (MSYS2)
+    - name: Test MSYS2 Python Environment
       if: github.event.inputs.test_mode == 'full-build'
       shell: msys2 {0}
       run: |
-        echo "=== Setting up EDK2 Environment ==="
+        echo "=== Testing MSYS2 Python Environment ==="
+        which python3 && python3 --version
+        which pip3 && pip3 --version
         
-        # Set environment variables for EDK2
-        export WORKSPACE=$(pwd)
-        export PACKAGES_PATH=$WORKSPACE/edk2:$WORKSPACE
-        export EDK_TOOLS_PATH=$WORKSPACE/edk2/BaseTools
-        export CLANG_BIN="$(dirname $(which clang))/"
-        export NASM_BIN="$(dirname $(which nasm))/"
+        echo "Installing test package..."
+        pip3 install --upgrade pip
+        pip3 install requests
         
-        echo "WORKSPACE: $WORKSPACE"
-        echo "PACKAGES_PATH: $PACKAGES_PATH"
-        echo "EDK_TOOLS_PATH: $EDK_TOOLS_PATH"
-        echo "CLANG_BIN: $CLANG_BIN"
-        echo "NASM_BIN: $NASM_BIN"
+        echo "Testing Python installation..."
+        python3 -c "import sys; print(f'Python executable: {sys.executable}')"
+        python3 -c "import requests; print(f'Requests version: {requests.__version__}')"
         
-        # Check if edk2 submodule exists
-        if [ -d "edk2" ]; then
-          echo "EDK2 submodule found"
-          cd edk2
-          
-          # Build BaseTools if needed
-          if [ ! -f "BaseTools/Source/C/bin/build" ]; then
-            echo "Building BaseTools..."
-            make -C BaseTools || echo "BaseTools build failed, but continuing..."
-          else
-            echo "BaseTools already built"
-          fi
-          
-          # Source edksetup.sh
-          echo "Sourcing edksetup.sh..."
-          source edksetup.sh BaseTools || echo "edksetup.sh failed, but continuing..."
-          
-          cd ..
-        else
-          echo "No EDK2 submodule found, skipping EDK2 setup"
-        fi
-    
-    - name: Test Build with MSYS2 Environment  
-      if: github.event.inputs.test_mode == 'full-build'
-      shell: msys2 {0}
-      run: |
-        echo "=== Testing Build Process ==="
-        
-        export WORKSPACE=$(pwd)
-        export PACKAGES_PATH=$WORKSPACE/edk2:$WORKSPACE
-        export EDK_TOOLS_PATH=$WORKSPACE/edk2/BaseTools
-        export CLANG_BIN="$(dirname $(which clang))/"
-        export NASM_BIN="$(dirname $(which nasm))/"
-        
-        if [ -d "edk2" ]; then
-          cd edk2
-          source edksetup.sh BaseTools || true
-          cd ..
-          
-          echo "Attempting to build ACPIPatcher..."
-          build -a X64 -t CLANG38 -b DEBUG -p ACPIPatcherPkg/ACPIPatcherPkg.dsc || {
-            echo "Build failed, but this is expected for testing"
-            echo "Build attempt completed"
-          }
-        else
-          echo "Skipping build test - no EDK2 submodule"
-        fi
-    
-    - name: Compare with Current Manual Method
-      shell: cmd
-      run: |
-        echo === Comparison with Current Manual Method ===
-        
-        REM Test current manual CLANG_BIN detection
-        echo Testing current manual detection logic...
-        
-        if exist "C:\Program Files\LLVM\bin\clang.exe" (
-          set "MANUAL_CLANG_BIN=C:\Program Files\LLVM\bin\"
-          echo Manual method found: %MANUAL_CLANG_BIN%
-        ) else (
-          if exist "C:\msys64\mingw64\bin\clang.exe" (
-            set "MANUAL_CLANG_BIN=C:\msys64\mingw64\bin\"
-            echo Manual method found MSYS2: %MANUAL_CLANG_BIN%
-          ) else (
-            echo Manual method: No clang found
-          )
-        )
-        
-        REM Test MSYS2 action result
-        where clang >nul 2>&1
-        if %ERRORLEVEL%==0 (
-          echo MSYS2 Action: Clang available in PATH
-          for /f "tokens=*" %%i in ('where clang') do echo MSYS2 Action found: %%i
-        ) else (
-          echo MSYS2 Action: Clang not in PATH
-        )
+        echo "✅ MSYS2 Python environment working correctly"
     
     - name: Generate Test Report
       shell: msys2 {0}

@@ -66,7 +66,8 @@ jobs:
       with:
         path: acpipatcher
 
-    - name: Setup Python
+    - name: Setup Python (VS Toolchain)
+      if: startsWith(matrix.toolchain, 'VS')
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
@@ -81,18 +82,33 @@ jobs:
       with:
         arch: ${{ matrix.platform }}
 
-    - name: Set up MinGW
+    - name: Setup MSYS2 for GCC5
       if: matrix.toolchain == 'GCC5'
-      uses: egor-tensin/setup-mingw@v2
+      uses: msys2/setup-msys2@v2
       with:
-        platform: ${{ matrix.platform }}
+        msystem: MINGW64
+        update: true
+        install: >-
+          base-devel
+          mingw-w64-x86_64-toolchain
+          mingw-w64-x86_64-python
+          mingw-w64-x86_64-python-pip
+          mingw-w64-x86_64-nasm
+          mingw-w64-i686-toolchain
+          mingw-w64-i686-python
+          mingw-w64-i686-python-pip
+          mingw-w64-i686-nasm
+          git
+          zip
+          unzip
 
     # Clone and setup EDK2
     - name: Clone EDK2 Repository
       run: |
         git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
 
-    - name: Change to EDK2 Directory and Setup Python Virtual Environment
+    - name: Change to EDK2 Directory and Setup Python Virtual Environment (VS Toolchain)
+      if: startsWith(matrix.toolchain, 'VS')
       shell: cmd
       run: |
         cd edk2
@@ -109,6 +125,25 @@ jobs:
         pip install --upgrade edk2-pytool-extensions
         
         echo Python virtual environment setup complete
+
+    - name: Change to EDK2 Directory and Setup Python Virtual Environment (GCC5 Toolchain)
+      if: matrix.toolchain == 'GCC5'
+      shell: msys2 {0}
+      run: |
+        cd edk2
+        echo "Setting up Python virtual environment..."
+        python -m venv .venv
+        
+        echo "Activating virtual environment..."
+        source .venv/Scripts/activate
+        
+        echo "Upgrading pip and installing base requirements..."
+        python -m pip install --upgrade pip setuptools wheel
+        
+        echo "Installing Stuart dependencies..."
+        pip install --upgrade edk2-pytool-extensions
+        
+        echo "Python virtual environment setup complete"
 
     - name: Copy ACPIPatcher to EDK2
       shell: cmd
@@ -138,7 +173,8 @@ jobs:
         
         echo Submodule initialization completed
 
-    - name: Install Additional Dependencies
+    - name: Install Additional Dependencies (VS Toolchain)
+      if: startsWith(matrix.toolchain, 'VS')
       shell: cmd
       run: |
         cd edk2
@@ -156,19 +192,39 @@ jobs:
         
         echo Dependencies installation complete
 
-    - name: Build Base Tools (GCC5 only)
+    - name: Install Additional Dependencies (GCC5 Toolchain)
       if: matrix.toolchain == 'GCC5'
-      shell: cmd
+      shell: msys2 {0}
       run: |
         cd edk2
         
-        echo Activating virtual environment...
-        .venv\Scripts\activate.bat
+        echo "Activating virtual environment..."
+        source .venv/Scripts/activate
         
-        echo Building base tools with GCC5...
+        echo "Installing additional dependencies..."
+        if [ -f "pip-requirements.txt" ]; then
+          pip install -r pip-requirements.txt --upgrade
+        fi
+        
+        echo "Installing regex module..."
+        pip install regex || echo "Regex installation failed, continuing..."
+        
+        echo "Dependencies installation complete"
+
+    - name: Build Base Tools (GCC5 only)
+      if: matrix.toolchain == 'GCC5'
+      shell: msys2 {0}
+      run: |
+        cd edk2
+        
+        echo "Activating virtual environment..."
+        source .venv/Scripts/activate
+        
+        echo "Building base tools with GCC5..."
         python BaseTools/Edk2ToolsBuild.py -t GCC5
 
-    - name: Stuart Update Dependencies
+    - name: Stuart Update Dependencies (VS Toolchain)
+      if: startsWith(matrix.toolchain, 'VS')
       shell: cmd
       run: |
         cd edk2
@@ -188,7 +244,29 @@ jobs:
         
         echo Stuart update completed successfully
 
-    - name: Stuart CI Build
+    - name: Stuart Update Dependencies (GCC5 Toolchain)
+      if: matrix.toolchain == 'GCC5'
+      shell: msys2 {0}
+      run: |
+        cd edk2
+        
+        echo "Activating virtual environment..."
+        source .venv/Scripts/activate
+        
+        echo "Running Stuart update to download dependencies and binaries..."
+        echo "This may take a while as binaries can be very large..."
+        
+        stuart_update -c .pytool/CISettings.py -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=${{ matrix.toolchain }}
+        
+        if [ $? -ne 0 ]; then
+          echo "Stuart update failed"
+          exit 1
+        fi
+        
+        echo "Stuart update completed successfully"
+
+    - name: Stuart CI Build (VS Toolchain)
+      if: startsWith(matrix.toolchain, 'VS')
       shell: cmd
       run: |
         cd edk2
@@ -213,8 +291,34 @@ jobs:
         
         echo Stuart CI build completed successfully
 
-    - name: Stuart Build (Alternative)
-      if: matrix.unit_test != true
+    - name: Stuart CI Build (GCC5 Toolchain)
+      if: matrix.toolchain == 'GCC5'
+      shell: msys2 {0}
+      run: |
+        cd edk2
+        
+        echo "Activating virtual environment..."
+        source .venv/Scripts/activate
+        
+        echo "Running Stuart CI build..."
+        
+        if [ "${{ matrix.unit_test }}" == "true" ]; then
+          echo "Running unit tests with NOOPT target..."
+          stuart_ci_build -c .pytool/CISettings.py -p ACPIPatcherPkg -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=${{ matrix.toolchain }}
+        else
+          echo "Running normal CI build..."
+          stuart_ci_build -c .pytool/CISettings.py -p ACPIPatcherPkg -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=${{ matrix.toolchain }}
+        fi
+        
+        if [ $? -ne 0 ]; then
+          echo "Stuart CI build failed"
+          exit 1
+        fi
+        
+        echo "Stuart CI build completed successfully"
+
+    - name: Stuart Build (Alternative - VS Toolchain)
+      if: matrix.unit_test != true && startsWith(matrix.toolchain, 'VS')
       shell: cmd
       run: |
         cd edk2
@@ -230,6 +334,24 @@ jobs:
         ) else (
           echo Stuart build completed successfully
         )
+
+    - name: Stuart Build (Alternative - GCC5 Toolchain)
+      if: matrix.unit_test != true && matrix.toolchain == 'GCC5'
+      shell: msys2 {0}
+      run: |
+        cd edk2
+        
+        echo "Activating virtual environment..."
+        source .venv/Scripts/activate
+        
+        echo "Running Stuart build as alternative..."
+        stuart_build -c ACPIPatcher.py -a ${{ matrix.arch }} TOOL_CHAIN_TAG=${{ matrix.toolchain }}
+        
+        if [ $? -ne 0 ]; then
+          echo "Stuart build failed, continuing..."
+        else
+          echo "Stuart build completed successfully"
+        fi
 
     - name: Verify Build Output
       shell: cmd

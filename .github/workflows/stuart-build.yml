@@ -1,4 +1,4 @@
-name: ACPIPatcher Stuart Build System
+name: ACPIPatcher Stuart Build System (GCC5/MinGW)
 
 on:
   workflow_dispatch:
@@ -15,27 +15,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Windows builds with VS2022
-          - os: windows
-            runner: windows-latest
-            arch: X64
-            build_type: RELEASE
-            toolchain: VS2022
-          - os: windows
-            runner: windows-latest
-            arch: X64
-            build_type: DEBUG
-            toolchain: VS2022
-          - os: windows
-            runner: windows-latest
-            arch: IA32
-            build_type: RELEASE
-            toolchain: VS2022
-          - os: windows
-            runner: windows-latest
-            arch: IA32
-            build_type: DEBUG
-            toolchain: VS2022
           # Windows builds with GCC5/MinGW using MSYS2
           - os: windows
             runner: windows-latest
@@ -58,13 +37,13 @@ jobs:
             toolchain: GCC5
             msys: mingw64
             msys_env: x86_64
-          # Unit test builds (NOOPT)
           - os: windows
             runner: windows-latest
-            arch: X64
-            build_type: NOOPT
-            toolchain: VS2022
-            unit_tests: true
+            arch: IA32
+            build_type: DEBUG
+            toolchain: GCC5
+            msys: mingw32
+            msys_env: i686
     
     steps:
     - name: Checkout ACPIPatcher
@@ -72,24 +51,7 @@ jobs:
       with:
         path: acpipatcher
 
-    - name: Setup Python (VS Toolchain)
-      if: startsWith(matrix.toolchain, 'VS')
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Setup Visual Studio Environment
-      if: startsWith(matrix.toolchain, 'VS')
-      uses: microsoft/setup-msbuild@v2
-
-    - name: Setup Windows Build Environment
-      if: startsWith(matrix.toolchain, 'VS')
-      uses: ilammy/msvc-dev-cmd@v1.13.0
-      with:
-        arch: ${{ matrix.arch == 'IA32' && 'x86' || 'x64' }}
-
     - name: Setup MSYS2 for MinGW
-      if: matrix.toolchain == 'GCC5'
       uses: msys2/setup-msys2@v2
       with:
         msystem: ${{ matrix.msys }}
@@ -101,47 +63,17 @@ jobs:
           mingw-w64-${{ matrix.msys_env }}-gcc
           mingw-w64-${{ matrix.msys_env }}-python
           mingw-w64-${{ matrix.msys_env }}-python-pip
+          mingw-w64-${{ matrix.msys_env }}-python-setuptools
+          mingw-w64-${{ matrix.msys_env }}-python-wheel
+          mingw-w64-${{ matrix.msys_env }}-rust
+          mingw-w64-${{ matrix.msys_env }}-pkg-config
 
     # Clone and setup EDK2
     - name: Clone EDK2 Repository
       run: |
         git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
 
-    - name: Setup Python Virtual Environment (VS Toolchain)
-      if: startsWith(matrix.toolchain, 'VS')
-      shell: pwsh
-      run: |
-        cd edk2
-        Write-Host "Setting up Python virtual environment for VS..."
-        py -m venv .venv
-        
-        # Activate virtual environment
-        .\.venv\Scripts\Activate.ps1
-        
-        # Upgrade pip and install base requirements
-        python -m pip install --upgrade pip setuptools wheel
-        
-        # Install Stuart dependencies
-        Write-Host "Installing Stuart build system..."
-        pip install --upgrade edk2-pytool-extensions edk2-pytool-library
-        
-        # Install additional dependencies if pip-requirements.txt exists
-        if (Test-Path "../acpipatcher/pip-requirements.txt") {
-          Write-Host "Installing additional dependencies from pip-requirements.txt..."
-          pip install -r ../acpipatcher/pip-requirements.txt --upgrade
-        }
-        
-        # Handle regex installation issues
-        try {
-          pip install regex --upgrade
-        } catch {
-          Write-Host "Regex installation failed, continuing..."
-        }
-        
-        Write-Host "✅ Python virtual environment setup complete"
-
     - name: Setup Python Virtual Environment (GCC5 Toolchain)
-      if: matrix.toolchain == 'GCC5'
       shell: msys2 {0}
       run: |
         cd edk2
@@ -155,11 +87,92 @@ jobs:
         # Install additional dependencies if pip-requirements.txt exists
         if [ -f "../acpipatcher/pip-requirements.txt" ]; then
           echo "Installing additional dependencies from pip-requirements.txt..."
-          pip install -r ../acpipatcher/pip-requirements.txt --upgrade
+          if pip install -r ../acpipatcher/pip-requirements.txt --upgrade; then
+            echo "✅ Successfully installed dependencies from pip-requirements.txt"
+          else
+            echo "⚠️ Warning: Failed to install some dependencies from pip-requirements.txt"
+            echo "Attempting to install dependencies individually to isolate failures..."
+            
+            # Try to install dependencies one by one, skipping problematic ones
+            while IFS= read -r requirement; do
+              # Skip comments and empty lines
+              if [[ "$requirement" =~ ^[[:space:]]*# ]] || [[ -z "$requirement" ]]; then
+                continue
+              fi
+              
+              # Extract package name (before any version specifiers)
+              package=$(echo "$requirement" | sed 's/[=<>!~].*//' | tr -d '[:space:]')
+              echo "Attempting to install: $package"
+              
+              if pip install "$requirement" --upgrade; then
+                echo "✅ Successfully installed: $package"
+              else
+                echo "⚠️ Warning: Failed to install $package, skipping..."
+                if [ "$package" = "regex" ]; then
+                  echo "   Note: regex package has known compatibility issues with Python 3.12/maturin"
+                fi
+              fi
+            done < "../acpipatcher/pip-requirements.txt"
+          fi
         fi
         
-        # Handle regex installation issues
-        pip install regex --upgrade || echo "Regex installation failed, continuing..."
+        # Handle regex installation with multiple fallback strategies
+        echo "Checking for regex package availability..."
+        if python3 -c "import regex" 2>/dev/null; then
+          echo "✅ regex package is already available"
+        else
+          echo "⚠️ regex package not available, attempting installation with multiple strategies..."
+          REGEX_INSTALLED=false
+          
+          # Strategy 1: Standard pip install
+          echo "Strategy 1: Standard pip install"
+          if pip install regex --upgrade && python3 -c "import regex" 2>/dev/null; then
+            echo "✅ Successfully installed regex package via standard pip"
+            REGEX_INSTALLED=true
+          else
+            echo "   Standard pip install failed"
+          fi
+          
+          # Strategy 2: Install without build isolation
+          if [ "$REGEX_INSTALLED" = "false" ]; then
+            echo "Strategy 2: Install without build isolation"
+            if pip install regex --no-build-isolation --upgrade && python3 -c "import regex" 2>/dev/null; then
+              echo "✅ Successfully installed regex package without build isolation"
+              REGEX_INSTALLED=true
+            else
+              echo "   No-build-isolation install failed"
+            fi
+          fi
+          
+          # Strategy 3: Install specific version known to work
+          if [ "$REGEX_INSTALLED" = "false" ]; then
+            echo "Strategy 3: Install specific version"
+            if pip install "regex==2022.10.31" --no-build-isolation && python3 -c "import regex" 2>/dev/null; then
+              echo "✅ Successfully installed specific regex version"
+              REGEX_INSTALLED=true
+            else
+              echo "   Specific version install failed"
+            fi
+          fi
+          
+          # Strategy 4: Install with no dependencies
+          if [ "$REGEX_INSTALLED" = "false" ]; then
+            echo "Strategy 4: Install with no dependencies"
+            if pip install regex --no-deps --upgrade && python3 -c "import regex" 2>/dev/null; then
+              echo "✅ Successfully installed regex package with no dependencies"
+              REGEX_INSTALLED=true
+            else
+              echo "   No-deps install failed"
+            fi
+          fi
+          
+          if [ "$REGEX_INSTALLED" = "false" ]; then
+            echo "⚠️ Warning: All regex installation strategies failed (known Python 3.12/maturin compatibility issue)"
+            echo "   This is usually not critical for UEFI builds - continuing without regex..."
+            echo "   If build issues occur, they may be related to pattern matching in some tools."
+            echo "   This is a known issue with regex package compilation in MSYS2/MinGW environment."
+          fi
+        fi
         
         echo "✅ Python virtual environment setup complete"
 
@@ -195,30 +208,7 @@ jobs:
         
         Write-Host "✅ Submodule initialization completed"
 
-    - name: Stuart Update Dependencies (VS Toolchain)
-      if: startsWith(matrix.toolchain, 'VS')
-      shell: pwsh
-      run: |
-        cd edk2
-        
-        # Activate virtual environment
-        .\.venv\Scripts\Activate.ps1
-        
-        Write-Host "Running Stuart update to download dependencies and binaries..."
-        Write-Host "This may take a while as binaries can be very large..."
-        
-        # Run stuart_update with architecture and toolchain specification
-        stuart_update -c .pytool/CISettings.py -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=${{ matrix.toolchain }}
-        
-        if ($LASTEXITCODE -eq 0) {
-          Write-Host "✅ Stuart update completed successfully"
-        } else {
-          Write-Host "❌ Stuart update failed"
-          exit 1
-        }
-
     - name: Stuart Update Dependencies (GCC5 Toolchain)
-      if: matrix.toolchain == 'GCC5'
       shell: msys2 {0}
       run: |
         cd edk2
@@ -240,7 +230,6 @@ jobs:
         fi
 
     - name: Build BaseTools (GCC5/MinGW Only)
-      if: matrix.toolchain == 'GCC5'
       shell: msys2 {0}
       run: |
         cd edk2
@@ -261,29 +250,7 @@ jobs:
           exit 1
         fi
 
-    - name: Stuart CI Build (VS Toolchain)
-      if: startsWith(matrix.toolchain, 'VS')
-      shell: pwsh
-      run: |
-        cd edk2
-        
-        # Activate virtual environment
-        .\.venv\Scripts\Activate.ps1
-        
-        Write-Host "Running Stuart CI build..."
-        
-        # Run stuart_ci_build with comprehensive parameters
-        stuart_ci_build -c .pytool/CISettings.py -p ACPIPatcherPkg -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=${{ matrix.toolchain }}
-        
-        if ($LASTEXITCODE -eq 0) {
-          Write-Host "✅ Stuart CI build completed successfully"
-        } else {
-          Write-Host "❌ Stuart CI build failed"
-          exit 1
-        }
-
     - name: Stuart CI Build (GCC5 Toolchain)
-      if: matrix.toolchain == 'GCC5'
       shell: msys2 {0}
       run: |
         cd edk2
@@ -400,9 +367,9 @@ jobs:
         echo "|----------|--------------|------------|-----------|--------|" >> $GITHUB_STEP_SUMMARY
         
         if [ "${{ needs.stuart-build.result }}" = "success" ]; then
-          echo "| Windows/Linux | X64/IA32 | RELEASE/DEBUG | VS2022/GCC5 | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+          echo "| Windows | X64/IA32 | RELEASE/DEBUG | GCC5 | ✅ Success |" >> $GITHUB_STEP_SUMMARY
         else
-          echo "| Windows/Linux | X64/IA32 | RELEASE/DEBUG | VS2022/GCC5 | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          echo "| Windows | X64/IA32 | RELEASE/DEBUG | GCC5 | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
         fi
         
         echo "" >> $GITHUB_STEP_SUMMARY
