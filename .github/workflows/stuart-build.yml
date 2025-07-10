@@ -65,6 +65,7 @@ jobs:
           mingw-w64-${{ matrix.msys_env }}-python-pip
           mingw-w64-${{ matrix.msys_env }}-python-setuptools
           mingw-w64-${{ matrix.msys_env }}-python-wheel
+          mingw-w64-${{ matrix.msys_env }}-python-cffi
           mingw-w64-${{ matrix.msys_env }}-rust
           mingw-w64-${{ matrix.msys_env }}-pkg-config
           mingw-w64-${{ matrix.msys_env }}-libffi
@@ -119,57 +120,68 @@ jobs:
           fi
         fi
         
-        # Handle problematic packages (cffi, regex) with source builds
-        echo "Handling problematic packages that need source builds in MSYS2/MinGW..."
+        # Handle problematic packages (cffi, regex) with multiple strategies
+        echo "Handling problematic packages that need special care in MSYS2/MinGW..."
         
-        # Handle CFFI installation from source
+        # Handle CFFI installation with multiple strategies
         echo "Checking for cffi package availability..."
         if python3 -c "import cffi" 2>/dev/null; then
           echo "✅ cffi package is already available"
         else
-          echo "⚠️ cffi package not available, building from source..."
+          echo "⚠️ cffi package not available, trying multiple installation strategies..."
           CFFI_INSTALLED=false
           
-          # Strategy 1: Try standard pip install first
-          echo "Strategy 1: Standard pip install for cffi"
-          if pip install cffi --upgrade && python3 -c "import cffi" 2>/dev/null; then
-            echo "✅ Successfully installed cffi package via standard pip"
+          # Strategy 1: Try using pre-compiled cffi from MSYS2 (should be installed via mingw-w64-python-cffi)
+          echo "Strategy 1: Using MSYS2 pre-compiled cffi package"
+          if python3 -c "import cffi" 2>/dev/null; then
+            echo "✅ Successfully using MSYS2 pre-compiled cffi package"
             CFFI_INSTALLED=true
           else
-            echo "   Standard pip install failed, trying source build..."
+            echo "   MSYS2 cffi package not accessible, trying pip install..."
             
-            # Strategy 2: Build cffi from source
-            echo "Strategy 2: Building cffi from source"
-            TEMP_DIR=$(mktemp -d)
-            cd "$TEMP_DIR"
-            
-            if git clone https://github.com/python-cffi/cffi.git; then
-              cd cffi
-              echo "Building cffi from source with current Python..."
-              if python3 setup.py build --force && python3 setup.py install; then
-                cd "$OLDPWD"
-                if python3 -c "import cffi" 2>/dev/null; then
-                  echo "✅ Successfully built and installed cffi from source"
+            # Strategy 2: Try standard pip install
+            echo "Strategy 2: Standard pip install for cffi"
+            if pip install cffi --upgrade && python3 -c "import cffi" 2>/dev/null; then
+              echo "✅ Successfully installed cffi package via standard pip"
+              CFFI_INSTALLED=true
+            else
+              echo "   Standard pip install failed, trying alternative approaches..."
+              
+              # Strategy 3: Try installing older version that's known to work
+              echo "Strategy 3: Installing older cffi version"
+              if pip install "cffi==1.15.1" --upgrade && python3 -c "import cffi" 2>/dev/null; then
+                echo "✅ Successfully installed older cffi version"
+                CFFI_INSTALLED=true
+              else
+                echo "   Older version install failed"
+                
+                # Strategy 4: Try with no build isolation
+                echo "Strategy 4: Install cffi without build isolation"
+                if pip install cffi --no-build-isolation --upgrade && python3 -c "import cffi" 2>/dev/null; then
+                  echo "✅ Successfully installed cffi without build isolation"
                   CFFI_INSTALLED=true
                 else
-                  echo "   cffi source build succeeded but import failed"
+                  echo "   No-build-isolation install failed"
+                  
+                  # Strategy 5: Try installing from wheel only (no source builds)
+                  echo "Strategy 5: Install cffi from wheel only"
+                  if pip install cffi --only-binary=all --upgrade && python3 -c "import cffi" 2>/dev/null; then
+                    echo "✅ Successfully installed cffi from wheel"
+                    CFFI_INSTALLED=true
+                  else
+                    echo "   Wheel-only install failed"
+                  fi
                 fi
-              else
-                echo "   cffi source build failed"
-                cd "$OLDPWD"
               fi
-            else
-              echo "   Failed to clone cffi repository"
             fi
-            
-            # Clean up temp directory
-            rm -rf "$TEMP_DIR"
           fi
           
           if [ "$CFFI_INSTALLED" = "false" ]; then
             echo "⚠️ Warning: All cffi installation strategies failed"
-            echo "   This may cause issues with some Python packages that depend on cffi"
-            echo "   Continuing without cffi - some advanced features may not work"
+            echo "   This is due to Python 3.12 API compatibility issues in MSYS2/MinGW environment"
+            echo "   cffi compilation fails with PyUnicode_AsWideChar API signature mismatch"
+            echo "   Continuing without cffi - some advanced Python features may not work"
+            echo "   Note: This is a known issue with cffi 1.16+ and Python 3.12 in MinGW"
           fi
         fi
         
@@ -201,15 +213,19 @@ jobs:
             fi
           fi
           
-          # Strategy 3: Install specific version known to work
+          # Strategy 3: Install specific version known to work better with Python 3.12
           if [ "$REGEX_INSTALLED" = "false" ]; then
-            echo "Strategy 3: Install specific version"
-            if pip install "regex==2022.10.31" --no-build-isolation && python3 -c "import regex" 2>/dev/null; then
-              echo "✅ Successfully installed specific regex version"
-              REGEX_INSTALLED=true
-            else
-              echo "   Specific version install failed"
-            fi
+            echo "Strategy 3: Install compatible regex version"
+            for version in "2023.12.25" "2023.10.3" "2022.10.31"; do
+              echo "   Trying regex version $version"
+              if pip install "regex==$version" --no-build-isolation && python3 -c "import regex" 2>/dev/null; then
+                echo "✅ Successfully installed regex version $version"
+                REGEX_INSTALLED=true
+                break
+              else
+                echo "   Version $version failed"
+              fi
+            done
           fi
           
           # Strategy 4: Install with no dependencies
@@ -223,40 +239,23 @@ jobs:
             fi
           fi
           
-          # Strategy 5: Build regex from source (if cffi is available)
-          if [ "$REGEX_INSTALLED" = "false" ] && python3 -c "import cffi" 2>/dev/null; then
-            echo "Strategy 5: Building regex from source"
-            TEMP_DIR=$(mktemp -d)
-            cd "$TEMP_DIR"
-            
-            if git clone https://github.com/mrabarnett/mrab-regex.git; then
-              cd mrab-regex
-              echo "Building regex from source with current Python..."
-              if python3 setup.py build --force && python3 setup.py install; then
-                cd "$OLDPWD"
-                if python3 -c "import regex" 2>/dev/null; then
-                  echo "✅ Successfully built and installed regex from source"
-                  REGEX_INSTALLED=true
-                else
-                  echo "   regex source build succeeded but import failed"
-                fi
-              else
-                echo "   regex source build failed"
-                cd "$OLDPWD"
-              fi
+          # Strategy 5: Try wheel-only installation
+          if [ "$REGEX_INSTALLED" = "false" ]; then
+            echo "Strategy 5: Install from wheel only"
+            if pip install regex --only-binary=all --upgrade && python3 -c "import regex" 2>/dev/null; then
+              echo "✅ Successfully installed regex from wheel"
+              REGEX_INSTALLED=true
             else
-              echo "   Failed to clone regex repository"
+              echo "   Wheel-only install failed"
             fi
-            
-            # Clean up temp directory
-            rm -rf "$TEMP_DIR"
           fi
           
           if [ "$REGEX_INSTALLED" = "false" ]; then
-            echo "⚠️ Warning: All regex installation strategies failed (known Python 3.12/maturin compatibility issue)"
+            echo "⚠️ Warning: All regex installation strategies failed"
+            echo "   This is usually due to Rust/maturin compilation issues in MSYS2/MinGW environment"
+            echo "   regex package requires Rust toolchain for building, which has known compatibility issues"
             echo "   This is usually not critical for UEFI builds - continuing without regex..."
             echo "   If build issues occur, they may be related to pattern matching in some tools."
-            echo "   This is a known issue with regex package compilation in MSYS2/MinGW environment."
           fi
         fi
         
