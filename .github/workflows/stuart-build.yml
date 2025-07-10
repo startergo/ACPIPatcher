@@ -101,13 +101,29 @@ jobs:
         python3 -m pip install --upgrade pip setuptools wheel
         echo "Installing Stuart build system..."
         
+        # Check if MSYS2 provided pre-built packages are available
+        echo "Checking for pre-installed MSYS2 packages..."
+        if python3 -c "import cryptography" 2>/dev/null; then
+          echo "✅ cryptography package is available via MSYS2"
+        else
+          echo "⚠️ cryptography package not available via MSYS2, will install via pip"
+        fi
+        
+        if python3 -c "import cffi" 2>/dev/null; then
+          echo "✅ cffi package is available via MSYS2"
+        else
+          echo "⚠️ cffi package not available via MSYS2, will install via pip"
+        fi
+        
         # Handle maturin dependency issues in MSYS2/MinGW environment
         echo "Pre-installing build dependencies for cryptography package..."
         
         # Strategy 1: Try to install maturin first (needed for cryptography)
         echo "Installing maturin (Rust-based Python build tool)..."
-        if pip install maturin --upgrade --no-build-isolation; then
-          echo "✅ Successfully installed maturin"
+        if python3 -c "import maturin" 2>/dev/null; then
+          echo "✅ maturin is already available via MSYS2"
+        elif pip install maturin --upgrade --no-build-isolation; then
+          echo "✅ Successfully installed maturin via pip"
         else
           echo "⚠️ Warning: Failed to install maturin, trying alternative approaches..."
           
@@ -116,7 +132,7 @@ jobs:
           if pip install "cryptography<40.0.0" --upgrade --no-build-isolation; then
             echo "✅ Successfully installed older cryptography version"
           else
-            echo "⚠️ Warning: Failed to install older cryptography, continuing anyway..."
+            echo "⚠️ Warning: Failed to install older cryptography, will try wheel-only later..."
           fi
         fi
         
@@ -133,8 +149,20 @@ jobs:
             if pip install --upgrade --only-binary=all edk2-pytool-extensions edk2-pytool-library; then
               echo "✅ Successfully installed Stuart build system (wheel-only)"
             else
-              echo "❌ Error: All Stuart installation strategies failed"
-              exit 1
+              echo "⚠️ Warning: Failed wheel-only, trying with older cryptography..."
+              # Try installing older cryptography explicitly before Stuart
+              if pip install "cryptography<40.0.0" --only-binary=all --upgrade; then
+                echo "✅ Successfully installed older cryptography (wheel-only)"
+                if pip install --upgrade --only-binary=all edk2-pytool-extensions edk2-pytool-library; then
+                  echo "✅ Successfully installed Stuart build system with older cryptography"
+                else
+                  echo "❌ Error: All Stuart installation strategies failed"
+                  exit 1
+                fi
+              else
+                echo "❌ Error: All Stuart installation strategies failed"
+                exit 1
+              fi
             fi
           fi
         fi
