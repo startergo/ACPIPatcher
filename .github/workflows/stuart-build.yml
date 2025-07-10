@@ -91,49 +91,14 @@ jobs:
     # UCRT cffi dependencies: mingw-w64-ucrt-x86_64-python, mingw-w64-ucrt-x86_64-libffi
     # We use regular MinGW: mingw-w64-x86_64-python, mingw-w64-x86_64-libffi
     # IA32 builds have no MSYS2 packages for python-cryptography, python-cffi, or python-maturin
-    # cffi will be installed via pip with comprehensive fallback strategies for all architectures
-
-    # Pre-install problematic packages using Windows Python before MSYS2 setup
-    - name: Pre-install cffi and cryptography using Windows Python
-      shell: pwsh
-      run: |
-        Write-Host "Pre-installing problematic packages using Windows Python..."
-        Write-Host "This avoids MSYS2/MinGW compilation issues with cffi/cryptography"
-        
-        # Install cffi using Windows Python (avoids MinGW compilation issues)
-        Write-Host "Installing cffi using Windows Python..."
-        if (pip install cffi --upgrade) {
-          Write-Host "✅ Successfully installed cffi via Windows Python"
-        } else {
-          Write-Host "⚠️ Warning: Failed to install cffi via Windows Python"
-        }
-        
-        # Install cryptography using Windows Python  
-        Write-Host "Installing cryptography using Windows Python..."
-        if (pip install cryptography --upgrade) {
-          Write-Host "✅ Successfully installed cryptography via Windows Python"
-        } else {
-          Write-Host "⚠️ Warning: Failed to install cryptography via Windows Python"
-        }
-        
-        # Install other potentially problematic packages
-        Write-Host "Installing other potentially problematic packages..."
-        $packages = @("setuptools", "wheel", "build", "maturin")
-        foreach ($package in $packages) {
-          Write-Host "Installing $package..."
-          if (pip install $package --upgrade) {
-            Write-Host "✅ Successfully installed $package"
-          } else {
-            Write-Host "⚠️ Warning: Failed to install $package"
-          }
-        }
+    # cffi will be installed via PowerShell into the MSYS2 virtual environment to avoid compilation issues
 
     # Clone and setup EDK2
     - name: Clone EDK2 Repository
       run: |
         git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
 
-    - name: Setup Python Virtual Environment (GCC5 Toolchain)
+    - name: Setup Python Virtual Environment and Install Problematic Packages (GCC5 Toolchain)
       shell: msys2 {0}
       run: |
         cd edk2
@@ -141,21 +106,46 @@ jobs:
         python3 -m venv .venv
         source .venv/bin/activate
         python3 -m pip install --upgrade pip setuptools wheel
-        echo "Installing Stuart build system..."
         
-        # Check if problematic packages were pre-installed via Windows Python
-        echo "Checking for pre-installed packages..."
+        echo "Installing problematic packages that have compilation issues in MSYS2..."
+        
+        # Strategy: Install cffi and cryptography using Windows pip, then copy to virtual environment
+        echo "Installing cffi using Windows Python (to avoid MinGW compilation issues)..."
+        
+        # Install cffi using system Windows Python first
+        /c/hostedtoolcache/windows/Python/*/x64/python.exe -m pip install cffi --upgrade --target .venv/lib/python3.12/site-packages/ --force-reinstall --no-deps
+        
         if python3 -c "import cffi" 2>/dev/null; then
-          echo "✅ cffi package is available (likely from Windows Python pre-install)"
+          echo "✅ Successfully installed cffi via Windows Python"
         else
-          echo "⚠️ cffi package not available, will attempt MSYS2 installation"
+          echo "⚠️ Warning: cffi installation via Windows Python failed, trying MSYS2 installation..."
+          
+          # Fallback to MSYS2 installation
+          if pip install cffi --upgrade --no-build-isolation; then
+            echo "✅ Successfully installed cffi via MSYS2 (fallback)"
+          else
+            echo "⚠️ Warning: cffi installation failed, continuing without it"
+          fi
         fi
+        
+        # Install cryptography using similar approach
+        echo "Installing cryptography using Windows Python..."
+        /c/hostedtoolcache/windows/Python/*/x64/python.exe -m pip install cryptography --upgrade --target .venv/lib/python3.12/site-packages/ --force-reinstall
         
         if python3 -c "import cryptography" 2>/dev/null; then
-          echo "✅ cryptography package is available (likely from Windows Python or MSYS2)"
+          echo "✅ Successfully installed cryptography via Windows Python"
         else
-          echo "⚠️ cryptography package not available, will attempt MSYS2 installation"
+          echo "⚠️ Warning: cryptography installation via Windows Python failed, trying MSYS2 installation..."
+          
+          # Fallback to MSYS2 installation
+          if pip install cryptography --upgrade --no-build-isolation; then
+            echo "✅ Successfully installed cryptography via MSYS2 (fallback)"
+          else
+            echo "⚠️ Warning: cryptography installation failed, continuing without it"
+          fi
         fi
+        
+        echo "Installing Stuart build system..."
         
         # Install Stuart build system with simplified approach since cffi is pre-installed
         echo "Installing Stuart build system..."
