@@ -81,10 +81,12 @@ jobs:
         install: >-
           mingw-w64-x86_64-python-cryptography
           mingw-w64-x86_64-python-maturin
+          mingw-w64-ucrt-x86_64-python-cffi
 
     # Note: python-cffi is only available in UCRT variant (mingw-w64-ucrt-x86_64-python-cffi)
-    # and there are no i686 packages for python-cryptography, python-cffi, or python-maturin
-    # These packages will be installed via pip with fallback strategies
+    # We install the UCRT cffi package which should be compatible with regular MinGW
+    # IA32 builds have no MSYS2 packages for python-cryptography, python-cffi, or python-maturin
+    # These packages will be installed via pip with fallback strategies for IA32
 
     # Clone and setup EDK2
     - name: Clone EDK2 Repository
