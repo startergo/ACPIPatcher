@@ -93,6 +93,41 @@ jobs:
     # IA32 builds have no MSYS2 packages for python-cryptography, python-cffi, or python-maturin
     # cffi will be installed via pip with comprehensive fallback strategies for all architectures
 
+    # Pre-install problematic packages using Windows Python before MSYS2 setup
+    - name: Pre-install cffi and cryptography using Windows Python
+      shell: pwsh
+      run: |
+        Write-Host "Pre-installing problematic packages using Windows Python..."
+        Write-Host "This avoids MSYS2/MinGW compilation issues with cffi/cryptography"
+        
+        # Install cffi using Windows Python (avoids MinGW compilation issues)
+        Write-Host "Installing cffi using Windows Python..."
+        if (pip install cffi --upgrade) {
+          Write-Host "✅ Successfully installed cffi via Windows Python"
+        } else {
+          Write-Host "⚠️ Warning: Failed to install cffi via Windows Python"
+        }
+        
+        # Install cryptography using Windows Python  
+        Write-Host "Installing cryptography using Windows Python..."
+        if (pip install cryptography --upgrade) {
+          Write-Host "✅ Successfully installed cryptography via Windows Python"
+        } else {
+          Write-Host "⚠️ Warning: Failed to install cryptography via Windows Python"
+        }
+        
+        # Install other potentially problematic packages
+        Write-Host "Installing other potentially problematic packages..."
+        $packages = @("setuptools", "wheel", "build", "maturin")
+        foreach ($package in $packages) {
+          Write-Host "Installing $package..."
+          if (pip install $package --upgrade) {
+            Write-Host "✅ Successfully installed $package"
+          } else {
+            Write-Host "⚠️ Warning: Failed to install $package"
+          }
+        }
+
     # Clone and setup EDK2
     - name: Clone EDK2 Repository
       run: |
@@ -108,43 +143,22 @@ jobs:
         python3 -m pip install --upgrade pip setuptools wheel
         echo "Installing Stuart build system..."
         
-        # Check if MSYS2 provided pre-built packages are available
-        echo "Checking for pre-installed MSYS2 packages..."
-        if python3 -c "import cryptography" 2>/dev/null; then
-          echo "✅ cryptography package is available via MSYS2"
-        else
-          echo "⚠️ cryptography package not available via MSYS2, will install via pip"
-        fi
-        
+        # Check if problematic packages were pre-installed via Windows Python
+        echo "Checking for pre-installed packages..."
         if python3 -c "import cffi" 2>/dev/null; then
-          echo "✅ cffi package is available via MSYS2"
+          echo "✅ cffi package is available (likely from Windows Python pre-install)"
         else
-          echo "⚠️ cffi package not available via MSYS2, will install via pip"
+          echo "⚠️ cffi package not available, will attempt MSYS2 installation"
         fi
         
-        # Handle maturin dependency issues in MSYS2/MinGW environment
-        echo "Pre-installing build dependencies for cryptography package..."
-        
-        # Strategy 1: Try to install maturin first (needed for cryptography)
-        echo "Installing maturin (Rust-based Python build tool)..."
-        if python3 -c "import maturin" 2>/dev/null; then
-          echo "✅ maturin is already available via MSYS2"
-        elif pip install maturin --upgrade --no-build-isolation; then
-          echo "✅ Successfully installed maturin via pip"
+        if python3 -c "import cryptography" 2>/dev/null; then
+          echo "✅ cryptography package is available (likely from Windows Python or MSYS2)"
         else
-          echo "⚠️ Warning: Failed to install maturin, trying alternative approaches..."
-          
-          # Try installing older version of cryptography that doesn't need maturin
-          echo "Installing older cryptography version to avoid maturin dependency..."
-          if pip install "cryptography<40.0.0" --upgrade --no-build-isolation; then
-            echo "✅ Successfully installed older cryptography version"
-          else
-            echo "⚠️ Warning: Failed to install older cryptography, will try wheel-only later..."
-          fi
+          echo "⚠️ cryptography package not available, will attempt MSYS2 installation"
         fi
         
-        # Now try to install Stuart with fallback strategies
-        echo "Installing Stuart build system with fallback strategies..."
+        # Install Stuart build system with simplified approach since cffi is pre-installed
+        echo "Installing Stuart build system..."
         if pip install --upgrade --no-build-isolation edk2-pytool-extensions edk2-pytool-library; then
           echo "✅ Successfully installed Stuart build system"
         else
@@ -156,20 +170,8 @@ jobs:
             if pip install --upgrade --only-binary=all edk2-pytool-extensions edk2-pytool-library; then
               echo "✅ Successfully installed Stuart build system (wheel-only)"
             else
-              echo "⚠️ Warning: Failed wheel-only, trying with older cryptography..."
-              # Try installing older cryptography explicitly before Stuart
-              if pip install "cryptography<40.0.0" --only-binary=all --upgrade; then
-                echo "✅ Successfully installed older cryptography (wheel-only)"
-                if pip install --upgrade --only-binary=all edk2-pytool-extensions edk2-pytool-library; then
-                  echo "✅ Successfully installed Stuart build system with older cryptography"
-                else
-                  echo "❌ Error: All Stuart installation strategies failed"
-                  exit 1
-                fi
-              else
-                echo "❌ Error: All Stuart installation strategies failed"
-                exit 1
-              fi
+              echo "❌ Error: All Stuart installation strategies failed"
+              exit 1
             fi
           fi
         fi
@@ -206,82 +208,12 @@ jobs:
           fi
         fi
         
-        # Handle problematic packages (cffi, regex) with multiple strategies
-        echo "Handling problematic packages that need special care in MSYS2/MinGW..."
-        
-        # Handle CFFI installation with multiple strategies
-        echo "Checking for cffi package availability..."
-        if python3 -c "import cffi" 2>/dev/null; then
-          echo "✅ cffi package is already available"
-        else
-          echo "⚠️ cffi package not available, trying multiple installation strategies..."
-          CFFI_INSTALLED=false
-          
-          # Strategy 1: Try standard pip install with no-build-isolation
-          echo "Strategy 1: Standard pip install for cffi (no-build-isolation)"
-          if pip install cffi --upgrade --no-build-isolation && python3 -c "import cffi" 2>/dev/null; then
-            echo "✅ Successfully installed cffi package via standard pip"
-            CFFI_INSTALLED=true
-          else
-            echo "   Standard pip install failed, trying alternative approaches..."
-            
-            # Strategy 2: Try installing older version that's known to work
-            echo "Strategy 2: Installing older cffi version (no-build-isolation)"
-            if pip install "cffi==1.15.1" --upgrade --no-build-isolation && python3 -c "import cffi" 2>/dev/null; then
-              echo "✅ Successfully installed older cffi version"
-              CFFI_INSTALLED=true
-            else
-              echo "   Older version install failed"
-              
-              # Strategy 3: Try with standard build isolation (fallback)
-              echo "Strategy 3: Install cffi with standard build isolation"
-              if pip install cffi --upgrade && python3 -c "import cffi" 2>/dev/null; then
-                echo "✅ Successfully installed cffi with standard build"
-                CFFI_INSTALLED=true
-              else
-                echo "   Standard build install failed"
-                
-                # Strategy 4: Try installing from wheel only (no source builds)
-                echo "Strategy 4: Install cffi from wheel only"
-                if pip install cffi --only-binary=all --upgrade && python3 -c "import cffi" 2>/dev/null; then
-                  echo "✅ Successfully installed cffi from wheel"
-                  CFFI_INSTALLED=true
-                else
-                  echo "   Wheel-only install failed"
-                  
-                  # Strategy 5: Try installing specific working versions for MinGW
-                  echo "Strategy 5: Install known working cffi versions for MinGW"
-                  for version in "1.15.0" "1.14.6" "1.14.5"; do
-                    echo "   Trying cffi version $version"
-                    if pip install "cffi==$version" --no-build-isolation && python3 -c "import cffi" 2>/dev/null; then
-                      echo "✅ Successfully installed cffi version $version"
-                      CFFI_INSTALLED=true
-                      break
-                    else
-                      echo "   Version $version failed"
-                    fi
-                  done
-                fi
-              fi
-            fi
-          fi
-          
-          if [ "$CFFI_INSTALLED" = "false" ]; then
-            echo "⚠️ Warning: All cffi installation strategies failed"
-            echo "   This is due to Python 3.12 API compatibility issues in MSYS2/MinGW environment"
-            echo "   cffi compilation fails with PyUnicode_AsWideChar API signature mismatch"
-            echo "   Continuing without cffi - some advanced Python features may not work"
-            echo "   Note: This is a known issue with cffi 1.16+ and Python 3.12 in MinGW"
-            echo "   The MSYS2 python-cffi package is not available for all architectures"
-          fi
-        fi
-        
-        # Handle regex installation with multiple fallback strategies
+        # Handle regex installation with fallback strategies (if not already installed)
         echo "Checking for regex package availability..."
         if python3 -c "import regex" 2>/dev/null; then
           echo "✅ regex package is already available"
         else
-          echo "⚠️ regex package not available, attempting installation with multiple strategies..."
+          echo "⚠️ regex package not available, attempting installation with fallback strategies..."
           REGEX_INSTALLED=false
           
           # Strategy 1: Standard pip install with no-build-isolation
@@ -319,20 +251,9 @@ jobs:
             done
           fi
           
-          # Strategy 4: Install with no dependencies
+          # Strategy 4: Try wheel-only installation
           if [ "$REGEX_INSTALLED" = "false" ]; then
-            echo "Strategy 4: Install with no dependencies"
-            if pip install regex --no-deps --upgrade && python3 -c "import regex" 2>/dev/null; then
-              echo "✅ Successfully installed regex package with no dependencies"
-              REGEX_INSTALLED=true
-            else
-              echo "   No-deps install failed"
-            fi
-          fi
-          
-          # Strategy 5: Try wheel-only installation
-          if [ "$REGEX_INSTALLED" = "false" ]; then
-            echo "Strategy 5: Install from wheel only"
+            echo "Strategy 4: Install from wheel only"
             if pip install regex --only-binary=all --upgrade && python3 -c "import regex" 2>/dev/null; then
               echo "✅ Successfully installed regex from wheel"
               REGEX_INSTALLED=true
