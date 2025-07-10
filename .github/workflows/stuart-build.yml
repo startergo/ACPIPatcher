@@ -65,11 +65,15 @@ jobs:
           mingw-w64-${{ matrix.msys_env }}-python-pip
           mingw-w64-${{ matrix.msys_env }}-python-setuptools
           mingw-w64-${{ matrix.msys_env }}-python-wheel
+          mingw-w64-${{ matrix.msys_env }}-python-build
+          mingw-w64-${{ matrix.msys_env }}-python-installer
           mingw-w64-${{ matrix.msys_env }}-rust
+          mingw-w64-${{ matrix.msys_env }}-pkgconf
           mingw-w64-${{ matrix.msys_env }}-pkg-config
           mingw-w64-${{ matrix.msys_env }}-libffi
           mingw-w64-${{ matrix.msys_env }}-make
           mingw-w64-${{ matrix.msys_env }}-openssl
+          mingw-w64-${{ matrix.msys_env }}-cc
           base-devel
 
     - name: Install additional MSYS2 packages for x64 builds only
