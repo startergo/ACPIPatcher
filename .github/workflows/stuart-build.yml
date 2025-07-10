@@ -507,18 +507,28 @@ jobs:
     - name: Copy ACPIPatcher to EDK2
       shell: pwsh
       run: |
-        Copy-Item -Recurse acpipatcher/ACPIPatcherPkg edk2/
+        # Copy ACPIPatcher package
+        Copy-Item -Recurse acpipatcher/ACPIPatcherPkg edk2/ -Force
+        Write-Host "✅ Copied ACPIPatcherPkg to EDK2"
         
-        # Copy Stuart configuration
+        # Copy Stuart configuration (overwrite if exists)
         if (Test-Path "acpipatcher/.pytool") {
+          if (Test-Path "edk2/.pytool") {
+            Remove-Item -Recurse -Force edk2/.pytool
+            Write-Host "Removed existing .pytool directory"
+          }
           Copy-Item -Recurse acpipatcher/.pytool edk2/
           Write-Host "✅ Copied Stuart configuration"
+        } else {
+          Write-Host "⚠️ No .pytool directory found in ACPIPatcher source"
         }
         
-        # Copy pip requirements
+        # Copy pip requirements (overwrite if exists)
         if (Test-Path "acpipatcher/pip-requirements.txt") {
-          Copy-Item acpipatcher/pip-requirements.txt edk2/
+          Copy-Item acpipatcher/pip-requirements.txt edk2/ -Force
           Write-Host "✅ Copied pip requirements"
+        } else {
+          Write-Host "⚠️ No pip-requirements.txt found in ACPIPatcher source"
         }
 
     - name: Initialize EDK2 Submodules
@@ -562,8 +572,8 @@ jobs:
       run: |
         cd edk2
         
-        # Activate virtual environment
-        source .venv/Scripts/activate
+        # Activate virtual environment (MSYS2 uses bin/activate, not Scripts/activate)
+        source .venv/bin/activate
         
         echo "Building BaseTools for GCC5 toolchain..."
         echo "This is required for GCC5/MinGW builds before running Stuart..."
