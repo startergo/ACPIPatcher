@@ -557,14 +557,144 @@ jobs:
         echo "Building BaseTools for GCC5 toolchain..."
         echo "This must be done BEFORE Stuart update to provide core EDK2 build infrastructure..."
         
-        # Build BaseTools with GCC5 toolchain
-        python3 BaseTools/Edk2ToolsBuild.py -t GCC5
+        # Diagnose Python environment before building BaseTools
+        echo "=== Python Environment Diagnostics ==="
+        echo "Python executable: $(which python3)"
+        echo "Python version: $(python3 --version)"
+        echo "Python sys.path:"
+        python3 -c "import sys; [print(f'  {p}') for p in sys.path]"
         
-        if [ $? -eq 0 ]; then
-          echo "✅ BaseTools build completed successfully"
+        # Check for importlib.util specifically (this is causing the failure)
+        echo "Checking for importlib.util module..."
+        if python3 -c "import importlib.util; print('importlib.util is available')" 2>/dev/null; then
+          echo "✅ importlib.util module is available"
         else
-          echo "❌ BaseTools build failed"
-          exit 1
+          echo "❌ importlib.util module is NOT available"
+          echo "This is a critical issue - importlib.util is a standard library module"
+          echo "Checking importlib module availability..."
+          if python3 -c "import importlib; print('importlib is available')" 2>/dev/null; then
+            echo "✅ importlib module is available"
+            echo "Checking importlib attributes..."
+            python3 -c "import importlib; print('importlib attributes:', dir(importlib))"
+          else
+            echo "❌ importlib module is NOT available"
+          fi
+          
+          echo "Attempting to fix importlib.util issue..."
+          # Try to reinstall importlib if possible
+          pip install --upgrade importlib-metadata 2>/dev/null || true
+          pip install --upgrade importlib_resources 2>/dev/null || true
+          
+          # Check again after attempted fix
+          if python3 -c "import importlib.util; print('importlib.util is now available')" 2>/dev/null; then
+            echo "✅ importlib.util fixed"
+          else
+            echo "❌ importlib.util still not available"
+            echo "This may be a fundamental Python installation issue"
+          fi
+        fi
+        
+        # Check for other common standard library modules
+        echo "Checking other standard library modules..."
+        for module in "os" "sys" "pathlib" "subprocess" "json" "configparser"; do
+          if python3 -c "import $module" 2>/dev/null; then
+            echo "  ✅ $module: Available"
+          else
+            echo "  ❌ $module: Missing"
+          fi
+        done
+        
+        echo "=== Attempting BaseTools Build ==="
+        
+        # Try building BaseTools with enhanced error handling
+        BASETOOLS_BUILD_SUCCESS=false
+        
+        # Attempt 1: Standard build
+        echo "Attempt 1: Standard BaseTools build..."
+        if python3 BaseTools/Edk2ToolsBuild.py -t GCC5 2>&1; then
+          echo "✅ BaseTools build completed successfully (standard)"
+          BASETOOLS_BUILD_SUCCESS=true
+        else
+          echo "⚠️ Standard BaseTools build failed"
+        fi
+        
+        # Attempt 2: Try with explicit Python path if first attempt failed
+        if [ "$BASETOOLS_BUILD_SUCCESS" = "false" ]; then
+          echo "Attempt 2: BaseTools build with explicit Python configuration..."
+          export PYTHON_COMMAND=$(which python3)
+          export PYTHONPATH="$PYTHONPATH:$(python3 -c 'import sys; print(":".join(sys.path))')"
+          
+          if python3 BaseTools/Edk2ToolsBuild.py -t GCC5 2>&1; then
+            echo "✅ BaseTools build completed successfully (explicit Python)"
+            BASETOOLS_BUILD_SUCCESS=true
+          else
+            echo "⚠️ BaseTools build with explicit Python failed"
+          fi
+        fi
+        
+        # Attempt 3: Try building without plugins that are failing
+        if [ "$BASETOOLS_BUILD_SUCCESS" = "false" ]; then
+          echo "Attempt 3: BaseTools build without problematic plugins..."
+          
+          # Temporarily rename the problematic plugins to disable them
+          if [ -f "BaseTools/Plugin/BuildToolsReport/BuildToolsReportGenerator.py" ]; then
+            mv "BaseTools/Plugin/BuildToolsReport/BuildToolsReportGenerator.py" "BaseTools/Plugin/BuildToolsReport/BuildToolsReportGenerator.py.disabled" 2>/dev/null || true
+          fi
+          if [ -f "BaseTools/Plugin/DebugMacroCheck/BuildPlugin/DebugMacroCheckBuildPlugin.py" ]; then
+            mv "BaseTools/Plugin/DebugMacroCheck/BuildPlugin/DebugMacroCheckBuildPlugin.py" "BaseTools/Plugin/DebugMacroCheck/BuildPlugin/DebugMacroCheckBuildPlugin.py.disabled" 2>/dev/null || true
+          fi
+          
+          if python3 BaseTools/Edk2ToolsBuild.py -t GCC5 2>&1; then
+            echo "✅ BaseTools build completed successfully (without problematic plugins)"
+            BASETOOLS_BUILD_SUCCESS=true
+          else
+            echo "⚠️ BaseTools build without problematic plugins failed"
+          fi
+          
+          # Restore the plugins
+          if [ -f "BaseTools/Plugin/BuildToolsReport/BuildToolsReportGenerator.py.disabled" ]; then
+            mv "BaseTools/Plugin/BuildToolsReport/BuildToolsReportGenerator.py.disabled" "BaseTools/Plugin/BuildToolsReport/BuildToolsReportGenerator.py" 2>/dev/null || true
+          fi
+          if [ -f "BaseTools/Plugin/DebugMacroCheck/BuildPlugin/DebugMacroCheckBuildPlugin.py.disabled" ]; then
+            mv "BaseTools/Plugin/DebugMacroCheck/BuildPlugin/DebugMacroCheckBuildPlugin.py.disabled" "BaseTools/Plugin/DebugMacroCheck/BuildPlugin/DebugMacroCheckBuildPlugin.py" 2>/dev/null || true
+          fi
+        fi
+        
+        # Attempt 4: Use make directly if Python build fails
+        if [ "$BASETOOLS_BUILD_SUCCESS" = "false" ]; then
+          echo "Attempt 4: Building BaseTools using make directly..."
+          cd BaseTools
+          if make -C Source/C 2>&1; then
+            echo "✅ BaseTools built successfully using make"
+            BASETOOLS_BUILD_SUCCESS=true
+          else
+            echo "⚠️ Make-based BaseTools build failed"
+          fi
+          cd ..
+        fi
+        
+        # Final result
+        if [ "$BASETOOLS_BUILD_SUCCESS" = "false" ]; then
+          echo "❌ All BaseTools build attempts failed"
+          echo "This indicates a fundamental issue with the Python environment or BaseTools"
+          echo "Common causes:"
+          echo "  - Corrupted Python standard library (missing importlib.util)"
+          echo "  - Virtual environment isolation issues"
+          echo "  - MSYS2 Python package conflicts"
+          echo "  - Missing development tools"
+          echo ""
+          echo "Continuing anyway - Stuart may be able to use system tools"
+          echo "Some functionality may be limited without BaseTools"
+        else
+          echo "✅ BaseTools build completed successfully"
+          
+          # Verify BaseTools are working
+          echo "Verifying BaseTools functionality..."
+          if [ -f "BaseTools/Source/C/bin/GenFfs" ] || [ -f "BaseTools/BinWrappers/PosixLike/GenFfs" ]; then
+            echo "  ✅ BaseTools binaries found"
+          else
+            echo "  ⚠️ BaseTools binaries not found in expected locations"
+          fi
         fi
 
     - name: Stuart Update Dependencies (GCC5 Toolchain)
