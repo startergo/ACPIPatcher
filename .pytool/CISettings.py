@@ -49,6 +49,25 @@ class Settings(CiBuildSettingsManager, UpdateSettingsManager, SetupSettingsManag
         rs = []
         return rs
 
+    def GetWorkspaceRoot(self):
+        ''' Return the workspace root relative to repo root '''
+        return "."
+
+    def GetDependencies(self):
+        ''' Return Git Repository Dependencies
+
+        Return an iterable of dictionary objects with the following fields
+        {
+        "Path": <required> Workspace relative path
+        "Url": <required> Url of git repo
+        "Commit": <optional> Commit to checkout of repo
+        "Branch": <optional> Branch to checkout (will checkout most recent commit in branch)
+        "Full": <optional> Boolean to do shallow or Full checkout.  (default is False)
+        "ReferencePath": <optional> Workspace relative path to git repo to use as "reference"
+        }
+        '''
+        return []
+
     def SetPackages(self, list_of_requested_packages):
         ''' Confirm the requested package list is valid and configure SettingsManager
         to build the requested packages.
@@ -169,3 +188,22 @@ class Settings(CiBuildSettingsManager, UpdateSettingsManager, SetupSettingsManag
             build_these_packages = self.GetPackagesSupported()
             
         return build_these_packages
+
+    # ####################################################################################### #
+    #                          Additional Required Methods                                    #
+    # ####################################################################################### #
+
+    def GetActiveScopes(self):
+        ''' Return tuple containing scopes that should be active for this process '''
+        scopes = ("edk2-build", "cibuild")
+        return scopes
+
+    def GetPlatformDscAndConfig(self) -> tuple:
+        ''' If a platform desires to provide its DSC then Policy 4 will evaluate if
+        any of the changes will be built in the dsc.
+
+        The tuple should be (<workspace relative path to dsc file>, <input dictionary of dsc key value pairs>)
+        '''
+        dsc = "ACPIPatcherPkg/ACPIPatcherPkg.dsc"
+        config = {}
+        return (dsc, config)
