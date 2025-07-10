@@ -67,6 +67,9 @@ jobs:
           mingw-w64-${{ matrix.msys_env }}-python-wheel
           mingw-w64-${{ matrix.msys_env }}-rust
           mingw-w64-${{ matrix.msys_env }}-pkg-config
+          mingw-w64-${{ matrix.msys_env }}-libffi
+          mingw-w64-${{ matrix.msys_env }}-make
+          base-devel
 
     # Clone and setup EDK2
     - name: Clone EDK2 Repository
@@ -116,6 +119,60 @@ jobs:
           fi
         fi
         
+        # Handle problematic packages (cffi, regex) with source builds
+        echo "Handling problematic packages that need source builds in MSYS2/MinGW..."
+        
+        # Handle CFFI installation from source
+        echo "Checking for cffi package availability..."
+        if python3 -c "import cffi" 2>/dev/null; then
+          echo "✅ cffi package is already available"
+        else
+          echo "⚠️ cffi package not available, building from source..."
+          CFFI_INSTALLED=false
+          
+          # Strategy 1: Try standard pip install first
+          echo "Strategy 1: Standard pip install for cffi"
+          if pip install cffi --upgrade && python3 -c "import cffi" 2>/dev/null; then
+            echo "✅ Successfully installed cffi package via standard pip"
+            CFFI_INSTALLED=true
+          else
+            echo "   Standard pip install failed, trying source build..."
+            
+            # Strategy 2: Build cffi from source
+            echo "Strategy 2: Building cffi from source"
+            TEMP_DIR=$(mktemp -d)
+            cd "$TEMP_DIR"
+            
+            if git clone https://github.com/python-cffi/cffi.git; then
+              cd cffi
+              echo "Building cffi from source with current Python..."
+              if python3 setup.py build --force && python3 setup.py install; then
+                cd "$OLDPWD"
+                if python3 -c "import cffi" 2>/dev/null; then
+                  echo "✅ Successfully built and installed cffi from source"
+                  CFFI_INSTALLED=true
+                else
+                  echo "   cffi source build succeeded but import failed"
+                fi
+              else
+                echo "   cffi source build failed"
+                cd "$OLDPWD"
+              fi
+            else
+              echo "   Failed to clone cffi repository"
+            fi
+            
+            # Clean up temp directory
+            rm -rf "$TEMP_DIR"
+          fi
+          
+          if [ "$CFFI_INSTALLED" = "false" ]; then
+            echo "⚠️ Warning: All cffi installation strategies failed"
+            echo "   This may cause issues with some Python packages that depend on cffi"
+            echo "   Continuing without cffi - some advanced features may not work"
+          fi
+        fi
+        
         # Handle regex installation with multiple fallback strategies
         echo "Checking for regex package availability..."
         if python3 -c "import regex" 2>/dev/null; then
@@ -125,7 +182,7 @@ jobs:
           REGEX_INSTALLED=false
           
           # Strategy 1: Standard pip install
-          echo "Strategy 1: Standard pip install"
+          echo "Strategy 1: Standard pip install for regex"
           if pip install regex --upgrade && python3 -c "import regex" 2>/dev/null; then
             echo "✅ Successfully installed regex package via standard pip"
             REGEX_INSTALLED=true
@@ -164,6 +221,35 @@ jobs:
             else
               echo "   No-deps install failed"
             fi
+          fi
+          
+          # Strategy 5: Build regex from source (if cffi is available)
+          if [ "$REGEX_INSTALLED" = "false" ] && python3 -c "import cffi" 2>/dev/null; then
+            echo "Strategy 5: Building regex from source"
+            TEMP_DIR=$(mktemp -d)
+            cd "$TEMP_DIR"
+            
+            if git clone https://github.com/mrabarnett/mrab-regex.git; then
+              cd mrab-regex
+              echo "Building regex from source with current Python..."
+              if python3 setup.py build --force && python3 setup.py install; then
+                cd "$OLDPWD"
+                if python3 -c "import regex" 2>/dev/null; then
+                  echo "✅ Successfully built and installed regex from source"
+                  REGEX_INSTALLED=true
+                else
+                  echo "   regex source build succeeded but import failed"
+                fi
+              else
+                echo "   regex source build failed"
+                cd "$OLDPWD"
+              fi
+            else
+              echo "   Failed to clone regex repository"
+            fi
+            
+            # Clean up temp directory
+            rm -rf "$TEMP_DIR"
           fi
           
           if [ "$REGEX_INSTALLED" = "false" ]; then
