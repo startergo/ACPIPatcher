@@ -116,14 +116,29 @@ jobs:
         Write-Host "Installing problematic packages into MSYS2 virtual environment..."
         Write-Host "This avoids MSYS2/MinGW compilation issues with cffi/cryptography"
         
-        # Get the Python executable path from the virtual environment
-        $venvPython = Resolve-Path ".\.venv\Scripts\python.exe" -ErrorAction SilentlyContinue
-        if (-not $venvPython) {
-          $venvPython = Resolve-Path ".\.venv\bin\python3" -ErrorAction SilentlyContinue
-          if (-not $venvPython) {
-            Write-Host "⚠️ Warning: Could not find virtual environment Python executable"
-            return
-          }
+        # MSYS2 virtual environments use Unix-style paths, so look for bin/python3 first
+        $venvPython = $null
+        
+        # Try Unix-style path first (MSYS2 style)
+        if (Test-Path ".\.venv\bin\python3.exe") {
+          $venvPython = ".\.venv\bin\python3.exe"
+        } elseif (Test-Path ".\.venv\bin\python3") {
+          $venvPython = ".\.venv\bin\python3"
+        } elseif (Test-Path ".\.venv\bin\python.exe") {
+          $venvPython = ".\.venv\bin\python.exe"
+        } elseif (Test-Path ".\.venv\bin\python") {
+          $venvPython = ".\.venv\bin\python"
+        } elseif (Test-Path ".\.venv\Scripts\python.exe") {
+          $venvPython = ".\.venv\Scripts\python.exe"
+        } else {
+          Write-Host "⚠️ Warning: Could not find virtual environment Python executable"
+          Write-Host "Attempting to use MSYS2 shell to install packages instead..."
+          
+          # Fallback: Use MSYS2 shell directly
+          $env:MSYSTEM = "MINGW64"
+          $msysCommand = "cd edk2 && source .venv/bin/activate && pip install cffi cryptography setuptools wheel build maturin --upgrade"
+          & "D:\a\_temp\msys64\usr\bin\bash.exe" -lc $msysCommand
+          return
         }
         
         Write-Host "Using virtual environment Python: $venvPython"
