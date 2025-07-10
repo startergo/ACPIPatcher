@@ -65,11 +65,23 @@ jobs:
           mingw-w64-${{ matrix.msys_env }}-python-pip
           mingw-w64-${{ matrix.msys_env }}-python-setuptools
           mingw-w64-${{ matrix.msys_env }}-python-wheel
+          mingw-w64-${{ matrix.msys_env }}-python-cryptography
+          mingw-w64-${{ matrix.msys_env }}-python-cffi
           mingw-w64-${{ matrix.msys_env }}-rust
           mingw-w64-${{ matrix.msys_env }}-pkg-config
           mingw-w64-${{ matrix.msys_env }}-libffi
           mingw-w64-${{ matrix.msys_env }}-make
+          mingw-w64-${{ matrix.msys_env }}-openssl
           base-devel
+
+    - name: Install additional MSYS2 packages for x64 builds
+      if: matrix.arch == 'X64'
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: ${{ matrix.msys }}
+        update: false
+        install: >-
+          mingw-w64-x86_64-python-maturin
 
     # Clone and setup EDK2
     - name: Clone EDK2 Repository
@@ -85,7 +97,44 @@ jobs:
         source .venv/bin/activate
         python3 -m pip install --upgrade pip setuptools wheel
         echo "Installing Stuart build system..."
-        pip install --upgrade --no-build-isolation edk2-pytool-extensions edk2-pytool-library
+        
+        # Handle maturin dependency issues in MSYS2/MinGW environment
+        echo "Pre-installing build dependencies for cryptography package..."
+        
+        # Strategy 1: Try to install maturin first (needed for cryptography)
+        echo "Installing maturin (Rust-based Python build tool)..."
+        if pip install maturin --upgrade --no-build-isolation; then
+          echo "✅ Successfully installed maturin"
+        else
+          echo "⚠️ Warning: Failed to install maturin, trying alternative approaches..."
+          
+          # Try installing older version of cryptography that doesn't need maturin
+          echo "Installing older cryptography version to avoid maturin dependency..."
+          if pip install "cryptography<40.0.0" --upgrade --no-build-isolation; then
+            echo "✅ Successfully installed older cryptography version"
+          else
+            echo "⚠️ Warning: Failed to install older cryptography, continuing anyway..."
+          fi
+        fi
+        
+        # Now try to install Stuart with fallback strategies
+        echo "Installing Stuart build system with fallback strategies..."
+        if pip install --upgrade --no-build-isolation edk2-pytool-extensions edk2-pytool-library; then
+          echo "✅ Successfully installed Stuart build system"
+        else
+          echo "⚠️ Warning: Failed with no-build-isolation, trying standard installation..."
+          if pip install --upgrade edk2-pytool-extensions edk2-pytool-library; then
+            echo "✅ Successfully installed Stuart build system (standard build)"
+          else
+            echo "⚠️ Warning: Failed standard installation, trying wheel-only..."
+            if pip install --upgrade --only-binary=all edk2-pytool-extensions edk2-pytool-library; then
+              echo "✅ Successfully installed Stuart build system (wheel-only)"
+            else
+              echo "❌ Error: All Stuart installation strategies failed"
+              exit 1
+            fi
+          fi
+        fi
         
         # Install additional dependencies if pip-requirements.txt exists
         if [ -f "../acpipatcher/pip-requirements.txt" ]; then
