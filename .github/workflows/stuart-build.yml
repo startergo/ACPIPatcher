@@ -103,173 +103,137 @@ jobs:
       run: |
         cd edk2
         echo "Setting up Python virtual environment for GCC5/MinGW..."
-        python3 -m venv .venv
+        
+        # Create virtual environment with system site packages access
+        python3 -m venv .venv --system-site-packages
         source .venv/bin/activate
+        
+        echo "Virtual environment created with system site packages access"
+        echo "This allows access to MSYS2 pre-built packages while maintaining isolation"
+        
+        # Upgrade core packages in virtual environment
         python3 -m pip install --upgrade pip setuptools wheel
-        echo "✅ Python virtual environment created"
+        
+        # Verify that MSYS2 packages are accessible
+        echo "Checking access to MSYS2 packages from virtual environment..."
+        if python3 -c "import cffi; print(f'cffi version: {cffi.__version__}')" 2>/dev/null; then
+          echo "✅ cffi accessible from virtual environment"
+        else
+          echo "⚠️ cffi not accessible from virtual environment"
+        fi
+        
+        if python3 -c "import cryptography; print(f'cryptography version: {cryptography.__version__}')" 2>/dev/null; then
+          echo "✅ cryptography accessible from virtual environment"
+        else
+          echo "⚠️ cryptography not accessible from virtual environment"
+        fi
+        
+        echo "✅ Python virtual environment created with MSYS2 package access"
 
-    # Install build tools and dependencies (with advanced cffi strategies)
-    - name: Install build tools and dependencies (with cffi compilation fixes)
+    # Install build tools and dependencies (ensure virtual environment compatibility)
+    - name: Install build tools and dependencies (virtual environment compatible)
       shell: msys2 {0}
       run: |
         cd edk2
         source .venv/bin/activate
         
-        echo "Installing build tools and dependencies..."
-        echo "Using advanced strategies to handle cffi compilation issues in MSYS2/MinGW"
+        echo "Installing build tools and dependencies in virtual environment..."
+        echo "Virtual environment should have access to MSYS2 system packages"
         
-        # Set up proper MinGW environment for cffi compilation
+        # Set up proper MinGW environment for any compilation needs
         export PATH="/mingw64/bin:$PATH"
         export PKG_CONFIG_PATH="/mingw64/lib/pkgconfig:$PKG_CONFIG_PATH"
         export LIBFFI_DIR="/mingw64"
         export CFLAGS="-I/mingw64/include"
         export LDFLAGS="-L/mingw64/lib"
         
-        echo "MinGW environment configured for cffi compilation:"
-        echo "  PATH: $PATH"
-        echo "  PKG_CONFIG_PATH: $PKG_CONFIG_PATH"
-        echo "  LIBFFI_DIR: $LIBFFI_DIR"
-        echo "  CFLAGS: $CFLAGS"
-        echo "  LDFLAGS: $LDFLAGS"
+        echo "MinGW environment configured for any compilation needs"
         
-        # Install essential build packages first
-        echo "Installing essential build packages..."
+        # Install essential build packages in virtual environment
+        echo "Installing essential build packages in virtual environment..."
         for package in "setuptools" "wheel" "build"; do
           echo "Installing $package..."
-          if pip install "$package" --upgrade --only-binary=all 2>/dev/null; then
-            echo "✅ Successfully installed $package (wheel)"
-          elif pip install "$package" --upgrade --no-build-isolation 2>/dev/null; then
-            echo "✅ Successfully installed $package (no-build-isolation)"
-          elif pip install "$package" --upgrade 2>/dev/null; then
-            echo "✅ Successfully installed $package (standard)"
+          if pip install "$package" --upgrade 2>/dev/null; then
+            echo "✅ Successfully installed $package in virtual environment"
           else
-            echo "⚠️ Warning: Failed to install $package"
+            echo "⚠️ Warning: Failed to install $package in virtual environment"
           fi
         done
         
-        # Advanced cffi installation with multiple strategies
-        echo "Attempting cffi installation with advanced MinGW compatibility strategies..."
-        CFFI_INSTALLED=false
-        
-        # Strategy 1: Wheel-only installation (fastest, most reliable)
-        echo "Strategy 1: Installing cffi from wheel only..."
-        if pip install --only-binary=:all: cffi 2>/dev/null && python3 -c "import cffi" 2>/dev/null; then
-          echo "✅ Successfully installed cffi (wheel-only)"
-          CFFI_INSTALLED=true
+        # Check if cffi is accessible (should be from system site packages)
+        echo "Checking cffi availability in virtual environment..."
+        if python3 -c "import cffi; print(f'cffi {cffi.__version__} available')" 2>/dev/null; then
+          echo "✅ cffi available from system site packages"
         else
-          echo "   Wheel-only installation failed or not available"
-        fi
-        
-        # Strategy 2: Install with proper MinGW build flags
-        if [ "$CFFI_INSTALLED" = "false" ]; then
-          echo "Strategy 2: Installing cffi with MinGW build flags..."
-          if pip install cffi --global-option=build_ext --global-option="-I/mingw64/include" --global-option="-L/mingw64/lib" 2>/dev/null && python3 -c "import cffi" 2>/dev/null; then
-            echo "✅ Successfully installed cffi (MinGW build flags)"
+          echo "⚠️ cffi not available, attempting installation in virtual environment..."
+          
+          # Try installing cffi in virtual environment with multiple strategies
+          CFFI_INSTALLED=false
+          
+          # Strategy 1: Wheel-only installation
+          if pip install --only-binary=:all: cffi 2>/dev/null && python3 -c "import cffi" 2>/dev/null; then
+            echo "✅ Successfully installed cffi (wheel-only)"
             CFFI_INSTALLED=true
-          else
-            echo "   MinGW build flags installation failed"
-          fi
-        fi
-        
-        # Strategy 3: Install with no build isolation
-        if [ "$CFFI_INSTALLED" = "false" ]; then
-          echo "Strategy 3: Installing cffi with no-build-isolation..."
-          if pip install cffi --upgrade --no-build-isolation 2>/dev/null && python3 -c "import cffi" 2>/dev/null; then
+          # Strategy 2: No build isolation
+          elif pip install cffi --upgrade --no-build-isolation 2>/dev/null && python3 -c "import cffi" 2>/dev/null; then
             echo "✅ Successfully installed cffi (no-build-isolation)"
             CFFI_INSTALLED=true
+          # Strategy 3: Standard installation
+          elif pip install cffi --upgrade 2>/dev/null && python3 -c "import cffi" 2>/dev/null; then
+            echo "✅ Successfully installed cffi (standard)"
+            CFFI_INSTALLED=true
           else
-            echo "   No-build-isolation installation failed"
+            echo "⚠️ Warning: All cffi installation strategies failed"
+            echo "   Stuart may still work without cffi for basic operations"
           fi
         fi
         
-        # Strategy 4: Install specific cffi version known to work better
-        if [ "$CFFI_INSTALLED" = "false" ]; then
-          echo "Strategy 4: Installing compatible cffi version..."
-          for version in "1.16.0" "1.15.1" "1.14.6"; do
-            echo "   Trying cffi version $version"
-            if pip install "cffi==$version" --no-build-isolation 2>/dev/null && python3 -c "import cffi" 2>/dev/null; then
-              echo "✅ Successfully installed cffi version $version"
-              CFFI_INSTALLED=true
-              break
-            else
-              echo "   Version $version failed"
-            fi
-          done
-        fi
-        
-        if [ "$CFFI_INSTALLED" = "false" ]; then
-          echo "⚠️ Warning: All cffi installation strategies failed"
-          echo "   This may cause issues with some cryptography or SSL operations"
-          echo "   However, many UEFI builds can proceed without cffi"
-          echo "   If Stuart fails, this will be a likely cause"
-        fi
-        
-        # Try cryptography installation with advanced strategies
-        echo "Attempting cryptography installation with advanced strategies..."
-        CRYPTOGRAPHY_INSTALLED=false
-        
-        # For X64 builds, check if MSYS2 pre-built cryptography package is available
-        if [ "${{ matrix.arch }}" = "X64" ]; then
-          echo "Checking if MSYS2 cryptography package is available for X64..."
-          if python3 -c "import cryptography" 2>/dev/null; then
-            echo "✅ cryptography package is available via MSYS2"
-            CRYPTOGRAPHY_INSTALLED=true
-          else
-            echo "⚠️ MSYS2 cryptography package not found in virtual environment"
-          fi
-        fi
-        
-        if [ "$CRYPTOGRAPHY_INSTALLED" = "false" ]; then
-          # Strategy 1: Wheel-only installation
-          echo "Strategy 1: Installing cryptography from wheel only..."
-          if pip install --only-binary=:all: cryptography 2>/dev/null && python3 -c "import cryptography" 2>/dev/null; then
-            echo "✅ Successfully installed cryptography (wheel)"
-            CRYPTOGRAPHY_INSTALLED=true
-          else
-            echo "   Wheel-only installation failed"
-          fi
-          
-          # Strategy 2: No build isolation (if wheel failed)
-          if [ "$CRYPTOGRAPHY_INSTALLED" = "false" ]; then
-            echo "Strategy 2: Installing cryptography with no-build-isolation..."
-            if pip install cryptography --upgrade --no-build-isolation 2>/dev/null && python3 -c "import cryptography" 2>/dev/null; then
-              echo "✅ Successfully installed cryptography (no-build-isolation)"
-              CRYPTOGRAPHY_INSTALLED=true
-            else
-              echo "   No-build-isolation installation failed"
-            fi
-          fi
-          
-          if [ "$CRYPTOGRAPHY_INSTALLED" = "false" ]; then
-            echo "⚠️ Warning: All cryptography installation strategies failed"
-            echo "   Continuing without cryptography - Stuart may work without it"
-          fi
-        fi
-        
-        # Try maturin installation with wheel preference
-        echo "Attempting maturin installation..."
-        MATURIN_INSTALLED=false
-        
-        if python3 -c "import maturin" 2>/dev/null; then
-          echo "✅ maturin already available (likely from MSYS2 package)"
-          MATURIN_INSTALLED=true
-        elif pip install --only-binary=:all: maturin 2>/dev/null && python3 -c "import maturin" 2>/dev/null; then
-          echo "✅ Successfully installed maturin (wheel)"
-          MATURIN_INSTALLED=true
-        elif pip install maturin --upgrade --no-build-isolation 2>/dev/null && python3 -c "import maturin" 2>/dev/null; then
-          echo "✅ Successfully installed maturin (no-build-isolation)"
-          MATURIN_INSTALLED=true
+        # Check if cryptography is accessible (should be from system site packages for X64)
+        echo "Checking cryptography availability in virtual environment..."
+        if python3 -c "import cryptography; print(f'cryptography {cryptography.__version__} available')" 2>/dev/null; then
+          echo "✅ cryptography available from system site packages"
         else
-          echo "⚠️ maturin not available - some Rust-based packages may fail to build"
+          echo "⚠️ cryptography not available, attempting installation in virtual environment..."
+          
+          # Try installing cryptography in virtual environment
+          CRYPTOGRAPHY_INSTALLED=false
+          
+          # Strategy 1: Wheel-only installation
+          if pip install --only-binary=:all: cryptography 2>/dev/null && python3 -c "import cryptography" 2>/dev/null; then
+            echo "✅ Successfully installed cryptography (wheel-only)"
+            CRYPTOGRAPHY_INSTALLED=true
+          # Strategy 2: No build isolation
+          elif pip install cryptography --upgrade --no-build-isolation 2>/dev/null && python3 -c "import cryptography" 2>/dev/null; then
+            echo "✅ Successfully installed cryptography (no-build-isolation)"
+            CRYPTOGRAPHY_INSTALLED=true
+          else
+            echo "⚠️ Warning: cryptography installation failed"
+            echo "   Stuart may work with limited functionality"
+          fi
+        fi
+        
+        # Check if maturin is accessible
+        echo "Checking maturin availability in virtual environment..."
+        if python3 -c "import maturin; print(f'maturin {maturin.__version__} available')" 2>/dev/null; then
+          echo "✅ maturin available from system site packages"
+        else
+          echo "⚠️ maturin not available, attempting installation in virtual environment..."
+          if pip install --only-binary=:all: maturin 2>/dev/null && python3 -c "import maturin" 2>/dev/null; then
+            echo "✅ Successfully installed maturin (wheel-only)"
+          elif pip install maturin --upgrade --no-build-isolation 2>/dev/null && python3 -c "import maturin" 2>/dev/null; then
+            echo "✅ Successfully installed maturin (no-build-isolation)"
+          else
+            echo "⚠️ maturin installation failed - some Rust packages may not build"
+          fi
         fi
         
         echo "✅ Build tools and dependencies installation completed"
-        echo "Package installation summary:"
+        echo "Final package availability check in virtual environment:"
         for package in "cffi" "cryptography" "maturin" "setuptools" "wheel" "build"; do
           if python3 -c "import $package" 2>/dev/null; then
-            echo "  ✅ $package: Available"
+            echo "  ✅ $package: Available in virtual environment"
           else
-            echo "  ❌ $package: Not available"
+            echo "  ❌ $package: Not available in virtual environment"
           fi
         done
 
@@ -279,70 +243,130 @@ jobs:
         cd edk2
         source .venv/bin/activate
         
-        # Check package availability (informational and for debugging)
-        echo "Checking for package availability in virtual environment..."
+        echo "Installing Stuart build system with enhanced virtual environment support..."
+        
+        # Pre-installation diagnostic check
+        echo "Pre-installation package availability check:"
         for package in "cffi" "cryptography" "setuptools" "wheel" "build" "maturin"; do
           if python3 -c "import $package" 2>/dev/null; then
-            echo "✅ $package package is available"
+            version=$(python3 -c "import $package; print(getattr($package, '__version__', 'unknown'))" 2>/dev/null || echo "unknown")
+            echo "  ✅ $package: Available (version: $version)"
           else
-            echo "⚠️ $package package not available"
+            echo "  ❌ $package: Not available"
           fi
         done
-        
-        echo "Installing Stuart build system with advanced dependency handling..."
         
         # Install Stuart build system with multiple fallback strategies
         STUART_INSTALLED=false
         
         # Strategy 1: Wheel-only installation (fastest, most reliable)
+        echo ""
         echo "Strategy 1: Installing Stuart with wheel-only packages..."
-        if pip install --upgrade --only-binary=:all: edk2-pytool-extensions edk2-pytool-library 2>/dev/null; then
+        if pip install --upgrade --only-binary=:all: edk2-pytool-extensions edk2-pytool-library 2>&1; then
           echo "✅ Successfully installed Stuart build system (wheel-only)"
           STUART_INSTALLED=true
         else
           echo "   Wheel-only installation failed, trying fallback strategies..."
         fi
         
-        # Strategy 2: No build isolation (if wheel-only failed)
+        # Strategy 2: Install with explicit dependency resolution
         if [ "$STUART_INSTALLED" = "false" ]; then
-          echo "Strategy 2: Installing Stuart with no-build-isolation..."
-          if pip install --upgrade --no-build-isolation edk2-pytool-extensions edk2-pytool-library 2>/dev/null; then
-            echo "✅ Successfully installed Stuart build system (no-build-isolation)"
+          echo ""
+          echo "Strategy 2: Installing Stuart with explicit dependency resolution..."
+          
+          # First install dependencies that are known to be problematic
+          echo "Installing Stuart dependencies individually..."
+          for dep in "packaging" "pyyaml" "gitpython" "pyopenssl" "requests"; do
+            echo "  Installing $dep..."
+            if pip install "$dep" --upgrade --only-binary=:all: 2>/dev/null; then
+              echo "    ✅ $dep installed (wheel)"
+            elif pip install "$dep" --upgrade --no-build-isolation 2>/dev/null; then
+              echo "    ✅ $dep installed (no-build-isolation)"
+            elif pip install "$dep" --upgrade 2>/dev/null; then
+              echo "    ✅ $dep installed (standard)"
+            else
+              echo "    ⚠️ $dep installation failed"
+            fi
+          done
+          
+          # Now try Stuart installation
+          if pip install --upgrade edk2-pytool-extensions edk2-pytool-library 2>&1; then
+            echo "✅ Successfully installed Stuart build system (explicit dependencies)"
             STUART_INSTALLED=true
           else
-            echo "   No-build-isolation installation failed, trying standard build..."
+            echo "   Explicit dependency installation failed"
           fi
         fi
         
-        # Strategy 3: Standard installation (fallback)
+        # Strategy 3: Install without cryptography dependency if needed
         if [ "$STUART_INSTALLED" = "false" ]; then
-          echo "Strategy 3: Installing Stuart with standard build..."
-          if pip install --upgrade edk2-pytool-extensions edk2-pytool-library 2>/dev/null; then
-            echo "✅ Successfully installed Stuart build system (standard build)"
+          echo ""
+          echo "Strategy 3: Installing Stuart without cryptography dependency..."
+          
+          # Try installing older version that might have fewer dependencies
+          if pip install "edk2-pytool-extensions<0.25.0" "edk2-pytool-library<0.15.0" --upgrade 2>&1; then
+            echo "✅ Successfully installed Stuart build system (older version)"
             STUART_INSTALLED=true
           else
-            echo "   Standard installation failed"
+            echo "   Older version installation failed"
           fi
         fi
         
+        # Strategy 4: Install from source if all else fails
         if [ "$STUART_INSTALLED" = "false" ]; then
+          echo ""
+          echo "Strategy 4: Installing Stuart from source with no build isolation..."
+          if pip install --upgrade --no-build-isolation --no-deps edk2-pytool-extensions edk2-pytool-library 2>&1; then
+            echo "✅ Successfully installed Stuart build system (source, no deps)"
+            STUART_INSTALLED=true
+          else
+            echo "   Source installation failed"
+          fi
+        fi
+        
+        # Final verification
+        if [ "$STUART_INSTALLED" = "false" ]; then
+          echo ""
           echo "❌ Error: All Stuart installation strategies failed"
-          echo "This may be due to missing build dependencies or compilation issues"
-          echo "Common causes:"
-          echo "  - Missing cffi/cryptography dependencies (should be installed above)"
-          echo "  - Missing Rust toolchain (should be installed via MSYS2 packages)"
-          echo "  - Missing C compiler dependencies"
-          echo "  - Network connectivity issues"
+          echo ""
+          echo "Detailed diagnostics:"
+          echo "Current Python environment:"
+          python3 -c "import sys; print(f'Python: {sys.executable}'); print(f'Version: {sys.version}'); print(f'Path: {sys.path[:3]}...')"
+          echo ""
+          echo "Available packages in virtual environment:"
+          pip list --format=freeze | head -20
           echo ""
           echo "Final package availability check:"
           for package in "cffi" "cryptography" "setuptools" "wheel" "build" "maturin"; do
             if python3 -c "import $package" 2>/dev/null; then
-              echo "  ✅ $package: Available"
+              version=$(python3 -c "import $package; print(getattr($package, '__version__', 'unknown'))" 2>/dev/null || echo "unknown")
+              echo "  ✅ $package: Available (version: $version)"
             else
               echo "  ❌ $package: Missing"
             fi
           done
+          echo ""
+          echo "This indicates a fundamental issue with the Python environment or package dependencies."
+          echo "Common causes:"
+          echo "  - Virtual environment isolation preventing access to system packages"
+          echo "  - Missing core build dependencies despite installation attempts"
+          echo "  - Network or package repository issues"
+          echo "  - Incompatible package versions"
           exit 1
+        else
+          echo ""
+          echo "✅ Stuart build system installed successfully"
+          echo "Verifying Stuart commands are available..."
+          if command -v stuart_update >/dev/null 2>&1; then
+            echo "  ✅ stuart_update command available"
+          else
+            echo "  ⚠️ stuart_update command not found in PATH"
+          fi
+          if command -v stuart_ci_build >/dev/null 2>&1; then
+            echo "  ✅ stuart_ci_build command available"
+          else
+            echo "  ⚠️ stuart_ci_build command not found in PATH"
+          fi
         fi
         
         # Install additional dependencies if pip-requirements.txt exists
