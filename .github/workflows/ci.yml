@@ -117,6 +117,10 @@ jobs:
       with:
         python-version: '3.11'
 
+    # NASM Setup (all platforms)
+    - name: Setup NASM
+      uses: ilammy/setup-nasm@v1
+
     # macOS Prerequisites
     - name: Setup macOS Build Tools
       if: matrix.os == 'macos'
