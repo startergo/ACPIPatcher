@@ -273,8 +273,8 @@ echo Setting up EDK2 workspace...
 REM Check for existing EDK2 installations
 set "EDK2_PATH="
 
-REM Check multiple common EDK2 locations
-for %%D in ("%USERPROFILE%\Downloads\edk2" "temp_edk2" "%SystemDrive%\edk2" "%USERPROFILE%\edk2" "%USERPROFILE%\Desktop\edk2" "%CD%\edk2") do (
+REM Check multiple common EDK2 locations (prefer edk2 to match CI)
+for %%D in ("%USERPROFILE%\Downloads\edk2" "edk2" "temp_edk2" "%SystemDrive%\edk2" "%USERPROFILE%\edk2" "%USERPROFILE%\Desktop\edk2" "%CD%\edk2") do (
     if exist "%%~D" (
         echo [OK] Found existing EDK2 at %%~D
         set "EDK2_PATH=%%~D"
@@ -282,16 +282,16 @@ for %%D in ("%USERPROFILE%\Downloads\edk2" "temp_edk2" "%SystemDrive%\edk2" "%US
     )
 )
 
-REM If no existing EDK2 found, clone fresh copy
+REM If no existing EDK2 found, clone fresh copy (use edk2 name to match CI)
 echo No existing EDK2 found. Cloning fresh copy...
 echo This may take a while for the first time...
-git clone --depth 1 --single-branch https://github.com/tianocore/edk2.git temp_edk2
+git clone --depth 1 --single-branch https://github.com/tianocore/edk2.git edk2
 if errorlevel 1 (
     echo ERROR: Failed to clone EDK2 repository.
     if %CI_MODE%==0 pause
     exit /b 1
 )
-set "EDK2_PATH=%CD%\temp_edk2"
+set "EDK2_PATH=%CD%\edk2"
 
 :edk2_found
 

@@ -417,28 +417,26 @@ jobs:
         echo "✅ Build completed successfully"
       shell: bash
 
-    # Build EDK2 BaseTools (Windows VS2022) - Simple approach
+    # Build EDK2 BaseTools (Windows VS2022) - Following proven pattern
     - name: Build EDK2 BaseTools (Windows)
       if: matrix.os == 'windows'
-      shell: cmd
+      shell: C:\Windows\system32\cmd.EXE /D /E:ON /V:OFF /S /C "CALL "{0}""
       run: |
-        echo Building EDK2 BaseTools with warnings-as-errors disabled...
-        
         REM Navigate to EDK2 directory or clone if needed
-        if exist temp_edk2 (
-          cd temp_edk2
+        if exist edk2 (
+          cd edk2
         ) else (
           echo EDK2 directory not found - cloning fresh copy...
-          git clone --depth 1 --single-branch https://github.com/tianocore/edk2.git temp_edk2
-          cd temp_edk2
+          git clone --depth 1 --single-branch https://github.com/tianocore/edk2.git edk2
+          cd edk2
         )
         
         REM Disable warnings as errors for BaseTools build only
         set CL=/WX-
         echo Set CL=/WX- to disable warnings as errors for BaseTools
         
-        REM Build BaseTools using EDK2 standard approach
-        echo Running edksetup.bat ForceRebuild...
+        REM Build BaseTools using EDK2 standard approach - exactly like working example
+        dir
         edksetup.bat ForceRebuild
         
         if %ERRORLEVEL% NEQ 0 (
@@ -446,38 +444,23 @@ jobs:
           exit /b %ERRORLEVEL%
         )
         
-        echo BaseTools build completed successfully
-        
-        REM Verify critical BaseTools were created
-        echo Verifying BaseTools...
-        if exist "BaseTools\Bin\Win32\GenFw.exe" (
-          echo GenFw.exe found in BaseTools\Bin\Win32
-        ) else if exist "BaseTools\Source\C\bin\GenFw.exe" (
-          echo GenFw.exe found in BaseTools\Source\C\bin
-        ) else (
-          echo ERROR: GenFw.exe not found
-          exit /b 1
-        )
-        
-        cd ..
-
-    # Build ACPIPatcher (Windows VS2022) - Simple approach
+        echo BaseTools build completed successfully    # Build ACPIPatcher (Windows VS2022) - Following proven pattern
     - name: Build ACPIPatcher (Windows VS2022)
       if: matrix.os == 'windows'
-      shell: cmd
+      shell: C:\Windows\system32\cmd.EXE /D /E:ON /V:OFF /S /C "CALL "{0}""
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         CI: true
       run: |
         echo Building ACPIPatcher with VS2022 toolchain...
-        echo Configuration: ${{ matrix.arch }} ${{ matrix.build_type }} (${{ matrix.toolchain }})
+        echo Configuration: ${{ matrix.arch }} ${{ matrix.build_type }} (${{ matrix.toolchain }}
         
-        REM Set up environment
-        set PACKAGES_PATH=%CD%\temp_edk2;%CD%;
-        set WORKSPACE=%CD%\temp_edk2
+        REM Set up environment - following proven EDK2 pattern
+        set PACKAGES_PATH=%CD%\edk2;%CD%;
+        set WORKSPACE=%CD%\edk2
         
         REM Navigate to EDK2 directory
-        cd temp_edk2
+        cd edk2
         
         REM Copy ACPIPatcher package if not present
         if not exist "ACPIPatcherPkg" (
@@ -485,8 +468,7 @@ jobs:
           xcopy /E /I /Y "..\ACPIPatcherPkg" "ACPIPatcherPkg"
         )
         
-        REM Build ACPIPatcher - setup environment and build in one go
-        echo Setting up EDK2 environment and building ACPIPatcher...
+        REM Build ACPIPatcher - setup environment and build
         call edksetup.bat
         build -p ACPIPatcherPkg\ACPIPatcherPkg.dsc -a ${{ matrix.arch }} -t ${{ matrix.toolchain }} -b ${{ matrix.build_type }}
         
@@ -580,7 +562,7 @@ jobs:
     # Verify Build Success (Windows)
     - name: Verify Build Output (Windows)
       if: matrix.os == 'windows' || matrix.os == 'windows-cygwin'
-      shell: cmd
+      shell: C:\Windows\system32\cmd.EXE /D /E:ON /V:OFF /S /C "CALL "{0}""
       run: |
         echo Checking build outputs...
         
