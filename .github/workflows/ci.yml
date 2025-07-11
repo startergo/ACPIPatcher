@@ -417,115 +417,96 @@ jobs:
         echo "✅ Build completed successfully"
       shell: bash
 
-    # Build EDK2 BaseTools (Windows VS2022) - Separate step for better control
+    # Build EDK2 BaseTools (Windows VS2022) - Simple approach
     - name: Build EDK2 BaseTools (Windows)
       if: matrix.os == 'windows'
+      shell: cmd
       run: |
-        Write-Host "Building EDK2 BaseTools with warnings-as-errors disabled..."
+        echo Building EDK2 BaseTools with warnings-as-errors disabled...
         
-        # Navigate to EDK2 directory
-        if (Test-Path "temp_edk2") {
+        REM Navigate to EDK2 directory or clone if needed
+        if exist temp_edk2 (
           cd temp_edk2
-        } else {
-          Write-Host "EDK2 directory not found - cloning fresh copy..."
+        ) else (
+          echo EDK2 directory not found - cloning fresh copy...
           git clone --depth 1 --single-branch https://github.com/tianocore/edk2.git temp_edk2
           cd temp_edk2
-        }
+        )
         
-        # Disable warnings as errors for BaseTools build only
-        $env:CL = "/WX-"
-        Write-Host "Set CL=/WX- to disable warnings as errors for BaseTools"
+        REM Disable warnings as errors for BaseTools build only
+        set CL=/WX-
+        echo Set CL=/WX- to disable warnings as errors for BaseTools
         
-        # Build BaseTools using EDK2 standard approach
-        Write-Host "Running edksetup.bat ForceRebuild..."
-        cmd /c "edksetup.bat ForceRebuild"
+        REM Build BaseTools using EDK2 standard approach
+        echo Running edksetup.bat ForceRebuild...
+        edksetup.bat ForceRebuild
         
-        if ($LASTEXITCODE -eq 0) {
-          Write-Host "✅ BaseTools build completed successfully"
-        } else {
-          Write-Host "❌ BaseTools build failed with exit code $LASTEXITCODE"
-          exit $LASTEXITCODE
-        }
+        if %ERRORLEVEL% NEQ 0 (
+          echo BaseTools build failed with exit code %ERRORLEVEL%
+          exit /b %ERRORLEVEL%
+        )
         
-        # Verify critical BaseTools were created
-        $requiredTools = @("GenFw.exe", "GenFv.exe", "GenFfs.exe", "GenSec.exe")
-        $toolsFound = 0
+        echo BaseTools build completed successfully
         
-        foreach ($tool in $requiredTools) {
-          $toolPath = ""
-          if (Test-Path "BaseTools\Bin\Win32\$tool") {
-            $toolPath = "BaseTools\Bin\Win32\$tool"
-            $toolsFound++
-          } elseif (Test-Path "BaseTools\Source\C\bin\$tool") {
-            $toolPath = "BaseTools\Source\C\bin\$tool"
-            $toolsFound++
-          }
-          
-          if ($toolPath) {
-            Write-Host "✅ $tool found at $toolPath"
-          } else {
-            Write-Host "❌ $tool not found"
-          }
-        }
-        
-        Write-Host "BaseTools verification: $toolsFound/$($requiredTools.Count) tools found"
+        REM Verify critical BaseTools were created
+        echo Verifying BaseTools...
+        if exist "BaseTools\Bin\Win32\GenFw.exe" (
+          echo GenFw.exe found in BaseTools\Bin\Win32
+        ) else if exist "BaseTools\Source\C\bin\GenFw.exe" (
+          echo GenFw.exe found in BaseTools\Source\C\bin
+        ) else (
+          echo ERROR: GenFw.exe not found
+          exit /b 1
+        )
         
         cd ..
-      shell: pwsh
 
-    # Build with Traditional EDK2 (Windows VS2022)
-    - name: Build with EDK2 (Windows VS2022)
+    # Build ACPIPatcher (Windows VS2022) - Simple approach
+    - name: Build ACPIPatcher (Windows VS2022)
       if: matrix.os == 'windows'
+      shell: cmd
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         CI: true
       run: |
-        Write-Host "Building ACPIPatcher with VS2022 toolchain..."
-        Write-Host "Configuration: ${{ matrix.arch }} ${{ matrix.build_type }} (${{ matrix.toolchain }})"
+        echo Building ACPIPatcher with VS2022 toolchain...
+        echo Configuration: ${{ matrix.arch }} ${{ matrix.build_type }} (${{ matrix.toolchain }})
         
-        # Ensure NASM is in PATH
-        $env:PATH = "C:\Program Files\NASM;" + $env:PATH
+        REM Set up environment
+        set PACKAGES_PATH=%CD%\temp_edk2;%CD%;
+        set WORKSPACE=%CD%\temp_edk2
         
-        # Verify tools are available
-        Write-Host "Checking tools..."
-        & nasm -v
-        & cl 2>&1 | Select-Object -First 1
-        & link 2>&1 | Select-Object -First 1
-        
-        # Navigate to EDK2 directory and set up environment
+        REM Navigate to EDK2 directory
         cd temp_edk2
         
-        # Copy ACPIPatcher package
-        if (-not (Test-Path "ACPIPatcherPkg")) {
-          Write-Host "Copying ACPIPatcherPkg..."
-          Copy-Item -Recurse -Force "..\ACPIPatcherPkg" "ACPIPatcherPkg"
-        }
+        REM Copy ACPIPatcher package if not present
+        if not exist "ACPIPatcherPkg" (
+          echo Copying ACPIPatcherPkg...
+          xcopy /E /I /Y "..\ACPIPatcherPkg" "ACPIPatcherPkg"
+        )
         
-        # Build ACPIPatcher - combine environment setup and build in single cmd call
-        Write-Host "Setting up EDK2 environment and building ACPIPatcher package..."
-        $buildCmd = "edksetup.bat && build -p ACPIPatcherPkg\ACPIPatcherPkg.dsc -a ${{ matrix.arch }} -t ${{ matrix.toolchain }} -b ${{ matrix.build_type }}"
-        Write-Host "Build command: $buildCmd"
+        REM Build ACPIPatcher - setup environment and build in one go
+        echo Setting up EDK2 environment and building ACPIPatcher...
+        call edksetup.bat
+        build -p ACPIPatcherPkg\ACPIPatcherPkg.dsc -a ${{ matrix.arch }} -t ${{ matrix.toolchain }} -b ${{ matrix.build_type }}
         
-        cmd /c $buildCmd
+        if %ERRORLEVEL% NEQ 0 (
+          echo ACPIPatcher build failed with exit code %ERRORLEVEL%
+          exit /b %ERRORLEVEL%
+        )
         
-        if ($LASTEXITCODE -eq 0) {
-          Write-Host "✅ ACPIPatcher build completed successfully"
-          
-          # Copy built files back to root directory
-          $buildDir = "Build\ACPIPatcher\${{ matrix.build_type }}_${{ matrix.toolchain }}\${{ matrix.arch }}"
-          if (Test-Path "$buildDir\ACPIPatcher.efi") {
-            Copy-Item "$buildDir\ACPIPatcher.efi" "..\ACPIPatcher.efi"
-            Write-Host "✅ ACPIPatcher.efi copied"
-          }
-          if (Test-Path "$buildDir\ACPIPatcherDxe.efi") {
-            Copy-Item "$buildDir\ACPIPatcherDxe.efi" "..\ACPIPatcherDxe.efi"
-            Write-Host "✅ ACPIPatcherDxe.efi copied"
-          }
-        } else {
-          Write-Host "❌ ACPIPatcher build failed with exit code $LASTEXITCODE"
-          exit $LASTEXITCODE
-        }
-      shell: pwsh
+        echo ACPIPatcher build completed successfully
+        
+        REM Copy built files back to root directory
+        set BUILD_DIR=Build\ACPIPatcher\${{ matrix.build_type }}_${{ matrix.toolchain }}\${{ matrix.arch }}
+        if exist "%BUILD_DIR%\ACPIPatcher.efi" (
+          copy "%BUILD_DIR%\ACPIPatcher.efi" "..\ACPIPatcher.efi"
+          echo ACPIPatcher.efi copied
+        )
+        if exist "%BUILD_DIR%\ACPIPatcherDxe.efi" (
+          copy "%BUILD_DIR%\ACPIPatcherDxe.efi" "..\ACPIPatcherDxe.efi"
+          echo ACPIPatcherDxe.efi copied
+        )
 
     # Build with Traditional EDK2 (Windows Cygwin)
     - name: Build with EDK2 (Windows Cygwin)
@@ -596,30 +577,30 @@ jobs:
       shell: pwsh
       continue-on-error: true
 
-    # Verify Build Success
-    - name: Verify Build Output
-      run: |
-        echo "Checking build outputs..."
-        
-        # Check for ACPIPatcher.efi
-        if (Test-Path "ACPIPatcher.efi") {
-          $size = (Get-Item "ACPIPatcher.efi").Length
-          Write-Host "✅ ACPIPatcher.efi found ($size bytes)"
-        } else {
-          Write-Host "❌ ACPIPatcher.efi not found"
-        }
-        
-        # Check for ACPIPatcherDxe.efi
-        if (Test-Path "ACPIPatcherDxe.efi") {
-          $size = (Get-Item "ACPIPatcherDxe.efi").Length
-          Write-Host "✅ ACPIPatcherDxe.efi found ($size bytes)"
-        } else {
-          Write-Host "❌ ACPIPatcherDxe.efi not found"
-        }
-        
-        Write-Host "Build verification completed"
-      shell: pwsh
+    # Verify Build Success (Windows)
+    - name: Verify Build Output (Windows)
       if: matrix.os == 'windows' || matrix.os == 'windows-cygwin'
+      shell: cmd
+      run: |
+        echo Checking build outputs...
+        
+        REM Check for ACPIPatcher.efi
+        if exist "ACPIPatcher.efi" (
+          echo ACPIPatcher.efi found
+          dir ACPIPatcher.efi
+        ) else (
+          echo ACPIPatcher.efi not found
+        )
+        
+        REM Check for ACPIPatcherDxe.efi
+        if exist "ACPIPatcherDxe.efi" (
+          echo ACPIPatcherDxe.efi found
+          dir ACPIPatcherDxe.efi
+        ) else (
+          echo ACPIPatcherDxe.efi not found
+        )
+        
+        echo Build verification completed
 
     # Verify Build Success (Linux/macOS)
     - name: Verify Build Output (Linux/macOS)
