@@ -495,19 +495,15 @@ jobs:
         # Navigate to EDK2 directory and set up environment
         cd temp_edk2
         
-        # Set up EDK2 environment (BaseTools already built in previous step)
-        Write-Host "Setting up EDK2 environment..."
-        cmd /c "edksetup.bat"
-        
         # Copy ACPIPatcher package
         if (-not (Test-Path "ACPIPatcherPkg")) {
           Write-Host "Copying ACPIPatcherPkg..."
           Copy-Item -Recurse -Force "..\ACPIPatcherPkg" "ACPIPatcherPkg"
         }
         
-        # Build ACPIPatcher
-        Write-Host "Building ACPIPatcher package..."
-        $buildCmd = "build -p ACPIPatcherPkg\ACPIPatcherPkg.dsc -a ${{ matrix.arch }} -t ${{ matrix.toolchain }} -b ${{ matrix.build_type }}"
+        # Build ACPIPatcher - combine environment setup and build in single cmd call
+        Write-Host "Setting up EDK2 environment and building ACPIPatcher package..."
+        $buildCmd = "edksetup.bat && build -p ACPIPatcherPkg\ACPIPatcherPkg.dsc -a ${{ matrix.arch }} -t ${{ matrix.toolchain }} -b ${{ matrix.build_type }}"
         Write-Host "Build command: $buildCmd"
         
         cmd /c $buildCmd
