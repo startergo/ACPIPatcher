@@ -528,6 +528,40 @@ jobs:
           }
         }
         
+        # Set up BaseTools PATH environment variable for the build process
+        Write-Host "Setting up BaseTools PATH environment variable..."
+        $baseToolsPaths = @(
+          "$PWD\temp_edk2\BaseTools\Source\C\bin",
+          "$PWD\temp_edk2\BaseTools\Bin\Win32",
+          "$PWD\temp_edk2\BaseTools\Bin\Win64"
+        )
+        
+        # Add BaseTools paths to environment PATH
+        $currentPath = $env:PATH
+        foreach ($path in $baseToolsPaths) {
+          if (Test-Path $path) {
+            Write-Host "Adding to PATH: $path"
+            $currentPath = "$path;$currentPath"
+          } else {
+            Write-Host "BaseTools path not found: $path"
+          }
+        }
+        
+        # Set the PATH for the runner
+        echo "PATH=$currentPath" >> $env:GITHUB_ENV
+        $env:PATH = $currentPath
+        
+        Write-Host "BaseTools PATH setup completed"
+        
+        # Verify GenFw is accessible
+        Write-Host "Verifying GenFw accessibility..."
+        try {
+          $genFwPath = Get-Command GenFw -ErrorAction Stop
+          Write-Host "✓ GenFw found at: $($genFwPath.Source)"
+        } catch {
+          Write-Host "⚠ GenFw not found in PATH, but will be available after BaseTools build"
+        }
+        
         # Run our automated setup and build script with parameters
         & .\setup_and_build.bat ${{ matrix.arch }} ${{ matrix.build_type }}
         

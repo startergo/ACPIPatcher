@@ -414,70 +414,59 @@ echo === Step 6: Building BaseTools ===
 
 cd /d "%EDK2_ROOT%"
 
-echo Running EDK2 setup with ForceRebuild...
-call edksetup.bat ForceRebuild
+echo Running EDK2 setup...
+call edksetup.bat
 
 if !errorlevel! neq 0 (
-    echo ERROR: BaseTools build failed! Attempting manual build...
+    echo ERROR: EDK2 setup failed! Attempting recovery...
     
-    REM Try manual BaseTools build
-    pushd BaseTools
+    REM Try to set up basic environment manually
+    set "WORKSPACE=%EDK2_ROOT%"
+    set "EDK_TOOLS_PATH=%EDK2_ROOT%\BaseTools"
+    set "CONF_PATH=%EDK2_ROOT%\Conf"
     
-    REM Set up Python path properly for BaseTools build
-    set "PYTHON_COMMAND=python"
-    python --version >nul 2>&1
-    if errorlevel 1 (
-        set "PYTHON_COMMAND=py"
-        py --version >nul 2>&1
-        if errorlevel 1 (
-            set "PYTHON_COMMAND=python3"
-        )
-    )
+    REM Create Conf directory if it doesn't exist
+    if not exist "Conf" mkdir "Conf"
     
-    REM Build BaseTools with proper environment
-    if defined BASETOOLS_CYGWIN_BUILD (
-        echo Building BaseTools with Cygwin...
-        
-        REM Set HOST_ARCH explicitly for Cygwin build
-        set "HOST_ARCH=X64"
-        echo [DEBUG] HOST_ARCH set to: %HOST_ARCH%
-        
-        REM Set additional environment variables for Cygwin
-        set "EDK_TOOLS_PATH=%CD%"
-        
-        REM Set PATH to include Cygwin tools
-        set "PATH=%BASETOOLS_CYGWIN_PATH%\bin;!PATH!"
-        
-        REM Try make first
-        make -C Source/C HOST_ARCH=X64
-        if errorlevel 1 (
-            echo Cygwin make failed, trying alternative build method...
-            REM Fall back to toolsetup.bat
-            call toolsetup.bat
-        )
-        
-        REM Create Bin directory structure if it doesn't exist
-        if not exist "Bin\Win64" mkdir "Bin\Win64"
-        if not exist "Bin\Win32" mkdir "Bin\Win32"
-        
-        REM Copy built tools to proper bin directories
-        if exist "Source\C\bin\*" (
-            copy "Source\C\bin\*" "Bin\Win64\" >nul 2>&1
-            copy "Source\C\bin\*" "Bin\Win32\" >nul 2>&1
-        )
+    echo [WARNING] Using minimal EDK2 environment setup
+)
+
+REM Now build BaseTools explicitly
+echo Building BaseTools C utilities...
+pushd BaseTools
+
+REM Build using toolsetup.bat which handles the VS environment setup
+echo Building BaseTools using toolsetup.bat...
+call toolsetup.bat
+
+if errorlevel 1 (
+    echo ERROR: BaseTools build via toolsetup.bat failed!
+    echo Attempting recovery by rebuilding BaseTools manually...
+    
+    echo [DEBUG] Cleaning BaseTools build environment...
+    if exist "Source\C\bin" rmdir /s /q "Source\C\bin" 2>nul
+    if exist "Bin" rmdir /s /q "Bin" 2>nul
+    
+    echo [DEBUG] Rebuilding BaseTools using nmake...
+    if exist "Source\C\Makefile" (
+        pushd Source\C
+        nmake clean >nul 2>&1
+        nmake
+        popd
     ) else (
-        echo Building BaseTools with toolsetup.bat...
+        echo [DEBUG] Trying toolsetup.bat again...
         call toolsetup.bat
     )
     
     if errorlevel 1 (
-        echo ERROR: Manual BaseTools build also failed.
+        echo ERROR: All BaseTools build attempts failed!
         popd
         if %CI_MODE%==0 pause
         exit /b 1
     )
-    popd
 )
+
+popd
 
 REM Verify BaseTools were created
 set "BASETOOLS_PATH=%EDK2_ROOT%\BaseTools"
@@ -679,9 +668,40 @@ if errorlevel 1 (
 build -p ACPIPatcherPkg\ACPIPatcherPkg.dsc -a !TARGET_ARCH! -t !TOOL_CHAIN_TAG! -b !BUILD_TYPE!
 if errorlevel 1 (
     echo.
-    echo ERROR: Build failed. Check the output above for details.
-    if %CI_MODE%==0 pause
-    exit /b 1
+    echo ERROR: Standard build failed. Trying with explicit BaseTools setup...
+    
+    REM Try again with explicit PATH and environment setup
+    echo [DEBUG] Setting up complete EDK2 environment for retry...
+    
+    REM Ensure all EDK2 environment variables are properly set
+    set "WORKSPACE=%EDK2_ROOT%"
+    set "EDK_TOOLS_PATH=%EDK2_ROOT%\BaseTools"
+    set "CONF_PATH=%EDK2_ROOT%\Conf"
+    set "PYTHON_COMMAND=python"
+    
+    REM Add BaseTools to PATH with highest priority
+    set "PATH=%EDK_TOOLS_PATH%\Source\C\bin;%EDK_TOOLS_PATH%\Bin\Win32;%EDK_TOOLS_PATH%\Bin\Win64;%PATH%"
+    
+    REM Call edksetup again to refresh environment
+    call edksetup.bat
+    
+    REM Retry build with fresh environment
+    build -p ACPIPatcherPkg\ACPIPatcherPkg.dsc -a !TARGET_ARCH! -t !TOOL_CHAIN_TAG! -b !BUILD_TYPE!
+    if errorlevel 1 (
+        echo.
+        echo ERROR: Build failed even with explicit environment setup.
+        echo Checking if BaseTools were built correctly...
+        
+        if exist "%EDK_TOOLS_PATH%\Source\C\bin\GenFw.exe" (
+            echo GenFw exists at: %EDK_TOOLS_PATH%\Source\C\bin\GenFw.exe
+        ) else (
+            echo ERROR: GenFw.exe not found in expected location
+        )
+        
+        echo Build diagnostics complete.
+        if %CI_MODE%==0 pause
+        exit /b 1
+    )
 )
 
 echo.
