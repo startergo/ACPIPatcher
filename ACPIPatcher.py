@@ -108,7 +108,9 @@ class ACPIPatcherBuilder:
                     if system == "Darwin":  # macOS
                         return 'XCODE5'
                     else:
-                        return 'CLANG38'
+                        # For Linux, prefer GCC5 over CLANG38 as it's more reliable
+                        logging.info("Preferring GCC5 over CLANG for Linux builds")
+                        return 'GCC5'
             except FileNotFoundError:
                 pass
                 
@@ -249,16 +251,16 @@ class ACPIPatcherBuilder:
                     logging.info(f"Copied {template} to {target}")
                     
             # Run the build
-            build_cmd = [
-                'build',
-                '-a', self.arch,
-                '-b', self.build_type, 
-                '-t', toolchain,
-                '-p', 'ACPIPatcherPkg/ACPIPatcherPkg.dsc'
-            ]
-            
-            logging.info(f"Running: {' '.join(build_cmd)}")
-            result = subprocess.run(build_cmd, cwd=self.edk2_path)
+            if os.name == 'nt':  # Windows
+                # Use edksetup.bat and then build
+                build_cmd = f'call edksetup.bat && build -a {self.arch} -b {self.build_type} -t {toolchain} -p ACPIPatcherPkg/ACPIPatcherPkg.dsc'
+                logging.info(f"Running: {build_cmd}")
+                result = subprocess.run(build_cmd, shell=True, cwd=self.edk2_path)
+            else:  # Unix/Linux/macOS
+                # Use edksetup.sh and then build
+                build_cmd = f'source edksetup.sh && build -a {self.arch} -b {self.build_type} -t {toolchain} -p ACPIPatcherPkg/ACPIPatcherPkg.dsc'
+                logging.info(f"Running: {build_cmd}")
+                result = subprocess.run(build_cmd, shell=True, executable='/bin/bash', cwd=self.edk2_path)
             
             if result.returncode != 0:
                 logging.error("Build failed")

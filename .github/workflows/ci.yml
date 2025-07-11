@@ -212,13 +212,24 @@ jobs:
         Write-Host "Building ACPIPatcher with Cygwin GCC toolchain..."
         Write-Host "Configuration: ${{ matrix.arch }} ${{ matrix.build_type }} (${{ matrix.toolchain }})"
         
-        # Set up environment for Cygwin build - put Cygwin tools first
-        $env:PATH = "C:\tools\cygwin\bin;C:\Program Files\NASM;" + $env:PATH
+        # Force refresh PATH and add NASM
+        $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH","User")
+        $env:PATH = "C:\tools\cygwin\bin;C:\Program Files\NASM;C:\ProgramData\chocolatey\lib\nasm\tools\nasm-2.16.03;" + $env:PATH
         
         # Verify tools are available
         Write-Host "Checking tools..."
-        & nasm -v
+        Get-Command nasm -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "NASM found: $($_.Source)" }
+        if (Test-Path "C:\Program Files\NASM\nasm.exe") { 
+          Write-Host "NASM version:"
+          & "C:\Program Files\NASM\nasm.exe" -v 
+        } elseif (Test-Path "C:\ProgramData\chocolatey\lib\nasm\tools\nasm-2.16.03\nasm.exe") {
+          Write-Host "NASM version:"
+          & "C:\ProgramData\chocolatey\lib\nasm\tools\nasm-2.16.03\nasm.exe" -v
+        }
         & C:\tools\cygwin\bin\gcc.exe --version | Select-Object -First 1
+        
+        # Set Cygwin build flag
+        $env:BASETOOLS_CYGWIN_BUILD = "TRUE"
         
         # Run our automated setup and build script with parameters
         & .\setup_and_build.bat ${{ matrix.arch }} ${{ matrix.build_type }}

@@ -88,10 +88,18 @@ if command_exists gcc; then
 elif command_exists clang; then
     clang_version=$(clang --version | head -n1)
     echo "✓ Clang found: $clang_version"
-    echo "  - Using Clang as GCC alternative"
-    export TOOLCHAIN="CLANG38"
-    export CC=clang
-    export CXX=clang++
+    
+    # Check if we're on macOS or Linux
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        echo "  - Using Xcode toolchain for macOS"
+        export TOOLCHAIN="XCODE5"
+    else
+        echo "  - Using Clang as GCC alternative on Linux"
+        # For better EDK2 compatibility, prefer GCC5 toolchain even with clang
+        export TOOLCHAIN="GCC5"
+        export CC=clang
+        export CXX=clang++
+    fi
 else
     echo "WARNING: No C compiler found (GCC or Clang)."
     echo "Please install a compiler for building:"
@@ -218,8 +226,8 @@ echo
 
 # Step 5: Run build
 echo "Step 5: Running build..."
-echo "Running: python3 ACPIPatcher.py --build"
-python3 ACPIPatcher.py --build
+echo "Running: python3 ACPIPatcher.py --build --arch ${TARGET_ARCH} --build-type ${BUILD_TYPE}"
+python3 ACPIPatcher.py --build --arch "${TARGET_ARCH}" --build-type "${BUILD_TYPE}"
 if [ $? -ne 0 ]; then
     echo
     echo "================================================================"
@@ -231,7 +239,12 @@ if [ $? -ne 0 ]; then
     # Auto-detect available toolchain
     TOOLCHAIN="GCC5"
     if command_exists clang; then
-        TOOLCHAIN="CLANG38"
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            TOOLCHAIN="XCODE5"
+        else
+            # For Linux, prefer GCC5 over CLANG38 for better compatibility
+            TOOLCHAIN="GCC5"
+        fi
     fi
     
     echo "Using toolchain: $TOOLCHAIN"
