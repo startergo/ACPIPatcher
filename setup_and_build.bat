@@ -414,59 +414,16 @@ echo === Step 6: Building BaseTools ===
 
 cd /d "%EDK2_ROOT%"
 
-echo Running EDK2 setup...
-call edksetup.bat
+echo Running EDK2 setup with ForceRebuild to build BaseTools...
+call edksetup.bat ForceRebuild
 
 if !errorlevel! neq 0 (
-    echo ERROR: EDK2 setup failed! Attempting recovery...
-    
-    REM Try to set up basic environment manually
-    set "WORKSPACE=%EDK2_ROOT%"
-    set "EDK_TOOLS_PATH=%EDK2_ROOT%\BaseTools"
-    set "CONF_PATH=%EDK2_ROOT%\Conf"
-    
-    REM Create Conf directory if it doesn't exist
-    if not exist "Conf" mkdir "Conf"
-    
-    echo [WARNING] Using minimal EDK2 environment setup
+    echo ERROR: edksetup.bat ForceRebuild failed!
+    if %CI_MODE%==0 pause
+    exit /b 1
 )
 
-REM Now build BaseTools explicitly
-echo Building BaseTools C utilities...
-pushd BaseTools
-
-REM Build using toolsetup.bat which handles the VS environment setup
-echo Building BaseTools using toolsetup.bat...
-call toolsetup.bat
-
-if errorlevel 1 (
-    echo ERROR: BaseTools build via toolsetup.bat failed!
-    echo Attempting recovery by rebuilding BaseTools manually...
-    
-    echo [DEBUG] Cleaning BaseTools build environment...
-    if exist "Source\C\bin" rmdir /s /q "Source\C\bin" 2>nul
-    if exist "Bin" rmdir /s /q "Bin" 2>nul
-    
-    echo [DEBUG] Rebuilding BaseTools using nmake...
-    if exist "Source\C\Makefile" (
-        pushd Source\C
-        nmake clean >nul 2>&1
-        nmake
-        popd
-    ) else (
-        echo [DEBUG] Trying toolsetup.bat again...
-        call toolsetup.bat
-    )
-    
-    if errorlevel 1 (
-        echo ERROR: All BaseTools build attempts failed!
-        popd
-        if %CI_MODE%==0 pause
-        exit /b 1
-    )
-)
-
-popd
+echo [OK] BaseTools build completed
 
 REM Verify BaseTools were created
 set "BASETOOLS_PATH=%EDK2_ROOT%\BaseTools"
@@ -474,20 +431,44 @@ set "BASETOOLS_BIN=%BASETOOLS_PATH%\Bin\Win32"
 set "REQUIRED_TOOLS=GenFv.exe GenFfs.exe GenFw.exe GenSec.exe VfrCompile.exe"
 
 echo Verifying BaseTools...
+set "TOOLS_FOUND=0"
 for %%T in (%REQUIRED_TOOLS%) do (
-    if not exist "%BASETOOLS_BIN%\%%T" (
+    if exist "%BASETOOLS_BIN%\%%T" (
+        echo [OK] %%T verified in %BASETOOLS_BIN%
+        set /a TOOLS_FOUND+=1
+    ) else (
         echo WARNING: Required tool not found: %%T in %BASETOOLS_BIN%
         REM Check alternative locations
         if exist "%BASETOOLS_PATH%\Bin\Win64\%%T" (
             echo Found %%T in Win64 directory
+            set /a TOOLS_FOUND+=1
         ) else if exist "%BASETOOLS_PATH%\Source\C\bin\%%T" (
             echo Found %%T in Source\C\bin directory
+            set /a TOOLS_FOUND+=1
         ) else (
             echo ERROR: %%T not found in any expected location
         )
-    ) else (
-        echo [OK] %%T verified in %BASETOOLS_BIN%
     )
+)
+
+echo [DEBUG] Found %TOOLS_FOUND% out of 5 required BaseTools
+if %TOOLS_FOUND% LSS 3 (
+    echo ERROR: Critical BaseTools missing. Build will likely fail.
+    echo Expected locations:
+    echo   - %BASETOOLS_PATH%\Bin\Win32\
+    echo   - %BASETOOLS_PATH%\Bin\Win64\
+    echo   - %BASETOOLS_PATH%\Source\C\bin\
+    
+    REM List what actually exists
+    echo Checking what actually exists:
+    if exist "%BASETOOLS_PATH%\Source\C\bin" (
+        echo   Source\C\bin directory exists, listing contents:
+        dir "%BASETOOLS_PATH%\Source\C\bin" /b
+    ) else (
+        echo   Source\C\bin directory does not exist
+    )
+) else (
+    echo [OK] Sufficient BaseTools found for build
 )
 
 REM Add BaseTools to PATH immediately after verification
