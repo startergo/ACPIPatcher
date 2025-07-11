@@ -88,7 +88,28 @@ class ACPIPatcherBuilder:
                     os.environ['BASETOOLS_CYGWIN_PATH'] = os.path.dirname(os.path.dirname(gcc_path))
                     return 'GCC5'
                     
-        else:  # Linux/macOS
+        elif system == "Darwin":  # macOS
+            # On macOS, prefer XCODE5 toolchain first
+            try:
+                result = subprocess.run(['clang', '--version'], capture_output=True, text=True)
+                if result.returncode == 0:
+                    logging.info("✓ Clang found - using XCODE5 toolchain for macOS")
+                    os.environ['CC'] = 'clang'
+                    os.environ['CXX'] = 'clang++'
+                    return 'XCODE5'
+            except FileNotFoundError:
+                pass
+                
+            # Fall back to checking if GCC is available (Homebrew GCC)
+            try:
+                result = subprocess.run(['gcc', '--version'], capture_output=True, text=True)
+                if result.returncode == 0 and 'Apple clang' not in result.stdout:
+                    logging.info("✓ Real GCC found (not Apple Clang)")
+                    return 'GCC5'
+            except FileNotFoundError:
+                pass
+                
+        else:  # Linux
             # Check for GCC
             try:
                 result = subprocess.run(['gcc', '--version'], capture_output=True, text=True)
@@ -105,12 +126,9 @@ class ACPIPatcherBuilder:
                     logging.info("✓ Clang found")
                     os.environ['CC'] = 'clang'
                     os.environ['CXX'] = 'clang++'
-                    if system == "Darwin":  # macOS
-                        return 'XCODE5'
-                    else:
-                        # For Linux, prefer GCC5 over CLANG38 as it's more reliable
-                        logging.info("Preferring GCC5 over CLANG for Linux builds")
-                        return 'GCC5'
+                    # For Linux, prefer GCC5 over CLANG38 as it's more reliable
+                    logging.info("Preferring GCC5 over CLANG for Linux builds")
+                    return 'GCC5'
             except FileNotFoundError:
                 pass
                 
