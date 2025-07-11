@@ -415,13 +415,27 @@ echo === Step 6: Building BaseTools ===
 cd /d "%EDK2_ROOT%"
 
 echo Running EDK2 setup with ForceRebuild to build BaseTools...
+echo [DEBUG] Setting MSVC compiler flags to avoid treating warnings as errors...
+
+REM Temporarily disable warnings as errors for BaseTools build
+set "ORIGINAL_CL=%CL%"
+set "CL=%CL% /WX-"
+
+REM Also try setting EDK2 build variables to avoid warnings as errors
+set "BUILD_RULE_CONF=%WORKSPACE%\BaseTools\Conf\build_rule.template"
+
 call edksetup.bat ForceRebuild
 
 if !errorlevel! neq 0 (
     echo ERROR: edksetup.bat ForceRebuild failed!
+    REM Restore original compiler settings
+    set "CL=%ORIGINAL_CL%"
     if %CI_MODE%==0 pause
     exit /b 1
 )
+
+REM Restore original compiler settings
+set "CL=%ORIGINAL_CL%"
 
 echo [OK] BaseTools build completed
 
