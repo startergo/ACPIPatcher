@@ -147,6 +147,40 @@ else
     echo "✓ NASM found in PATH."
 fi
 
+# Check for iasl (Intel ASL Compiler) - critical for EDK2 builds
+if ! command_exists iasl; then
+    echo "WARNING: Intel ASL Compiler (iasl) not found in PATH."
+    echo "iasl is required for ACPI compilation in EDK2."
+    echo "Installing iasl..."
+    
+    # Try to install iasl using package manager
+    if command_exists apt-get; then
+        echo "Using apt-get to install iasl..."
+        sudo apt-get update && sudo apt-get install -y iasl acpica-tools
+    elif command_exists yum; then
+        echo "Using yum to install iasl..."
+        sudo yum install -y iasl acpica-tools
+    elif command_exists dnf; then
+        echo "Using dnf to install iasl..."
+        sudo dnf install -y iasl acpica-tools
+    elif command_exists brew; then
+        echo "Using brew to install iasl..."
+        brew install acpica
+    elif command_exists pacman; then
+        echo "Using pacman to install iasl..."
+        sudo pacman -S --noconfirm iasl
+    else
+        echo "WARNING: Could not install iasl automatically."
+        echo "Please install Intel ASL Compiler (iasl) manually."
+        echo "  Ubuntu/Debian: sudo apt-get install iasl acpica-tools"
+        echo "  CentOS/RHEL: sudo yum install iasl acpica-tools"
+        echo "  macOS: brew install acpica"
+        echo "Build may fail for ACPI compilation."
+    fi
+else
+    echo "✓ Intel ASL Compiler (iasl) found in PATH."
+fi
+
 echo "Prerequisites check completed."
 echo
 
@@ -216,43 +250,51 @@ if [ ${#missing_tools[@]} -ne 0 ]; then
     exit 1
 fi
 
-# Set up EDK2 environment 
-echo "Setting up EDK2 environment..."
-source edksetup.sh BaseTools
+# Build BaseTools FIRST (before setting up environment) - this is the proper EDK2 sequence
+echo "Building BaseTools C utilities (following EDK2 documentation sequence)..."
+echo "Step 1: Build BaseTools using make -C BaseTools"
+make -C BaseTools
 if [ $? -ne 0 ]; then
-    echo "WARNING: edksetup.sh had issues, continuing with manual build..."
-fi
-
-# Build C tools explicitly - this is crucial for GenFw and other tools
-echo "Building BaseTools C utilities..."
-make -C BaseTools/Source/C
-if [ $? -ne 0 ]; then
-    echo "WARNING: Initial C build failed, trying alternative approaches..."
-    
-    # Try building in the C directory directly
-    if [ -d "BaseTools/Source/C" ]; then
-        echo "Trying direct make in BaseTools C directory..."
-        cd BaseTools/Source/C
-        make
-        build_result=$?
-        cd ../../..
-        
-        if [ $build_result -ne 0 ]; then
-            # Try make with specific targets
-            echo "Trying to build specific BaseTools targets..."
+    echo "WARNING: 'make -C BaseTools' failed, trying alternative approach..."
+    # Try the Source/C approach as fallback
+    make -C BaseTools/Source/C
+    # Try the Source/C approach as fallback
+    make -C BaseTools/Source/C
+    if [ $? -ne 0 ]; then
+        echo "WARNING: BaseTools/Source/C build also failed, trying comprehensive rebuild..."
+        # Try building in the C directory directly
+        if [ -d "BaseTools/Source/C" ]; then
+            echo "Trying direct make in BaseTools C directory..."
             cd BaseTools/Source/C
-            for target in GenFv GenFfs GenFw GenSec VfrCompile; do
-                echo "Building $target..."
-                make "$target"
-                if [ $? -eq 0 ]; then
-                    echo "✓ $target built successfully"
-                else
-                    echo "WARNING: Failed to build $target"
-                fi
-            done
+            make clean
+            make
+            build_result=$?
             cd ../../..
+            
+            if [ $build_result -ne 0 ]; then
+                # Try make with specific targets
+                echo "Trying to build specific BaseTools targets..."
+                cd BaseTools/Source/C
+                for target in GenFv GenFfs GenFw GenSec VfrCompile; do
+                    echo "Building $target..."
+                    make "$target"
+                    if [ $? -eq 0 ]; then
+                        echo "✓ $target built successfully"
+                    else
+                        echo "WARNING: Failed to build $target"
+                    fi
+                done
+                cd ../../..
+            fi
         fi
     fi
+fi
+
+echo "Step 2: Source edksetup.sh to set up environment"
+# NOW set up EDK2 environment after BaseTools are built
+source edksetup.sh
+if [ $? -ne 0 ]; then
+    echo "WARNING: edksetup.sh had issues, but BaseTools should already be built..."
 fi
 
 # Verify that GenFw and other critical tools are available
@@ -391,10 +433,13 @@ echo "Configuration: $TARGET_ARCH $BUILD_TYPE ($TOOLCHAIN)"
 # Change to EDK2 directory for build
 cd temp_edk2
 
-# Set up EDK2 environment again to ensure everything is properly configured
-source edksetup.sh BaseTools
-if [ $? -ne 0 ]; then
-    echo "WARNING: edksetup.sh had issues, but continuing..."
+# Set up EDK2 environment for build (should already be done, but ensure it's set)
+echo "Ensuring EDK2 environment is properly set up..."
+if [ -z "$EDK_TOOLS_PATH" ]; then
+    echo "EDK_TOOLS_PATH not set, sourcing edksetup.sh..."
+    source edksetup.sh
+else
+    echo "EDK2 environment already configured"
 fi
 
 # Ensure configuration files are set up
@@ -500,27 +545,41 @@ else
         exit 1
     fi
     
-    # Build BaseTools if GenFw is not available
+    # Build BaseTools if GenFw is not available (following proper EDK2 sequence)
     if [ ! -f "BaseTools/Source/C/bin/GenFw" ] && [ ! -f "BaseTools/BinWrappers/PosixLike/GenFw" ]; then
-        echo "Building BaseTools C utilities..."
-        make -C BaseTools/Source/C
+        echo "Building BaseTools using proper EDK2 sequence..."
+        
+        # First: make -C BaseTools (this is the recommended approach)
+        echo "Step 1: Building BaseTools with 'make -C BaseTools'"
+        make -C BaseTools
         if [ $? -ne 0 ]; then
-            echo "WARNING: BaseTools C compilation failed, trying alternative..."
-            cd BaseTools/Source/C
-            make clean
-            make
+            echo "WARNING: 'make -C BaseTools' failed, trying Source/C fallback..."
+            # Fallback: make -C BaseTools/Source/C
+            make -C BaseTools/Source/C
             if [ $? -ne 0 ]; then
-                echo "Trying to build specific tools..."
-                for target in GenFv GenFfs GenFw GenSec VfrCompile; do
-                    echo "Building $target..."
-                    make "$target"
-                    if [ $? -eq 0 ]; then
-                        echo "✓ $target built successfully"
-                    fi
-                done
+                echo "WARNING: BaseTools/Source/C build also failed, trying comprehensive rebuild..."
+                cd BaseTools/Source/C
+                make clean
+                make
+                if [ $? -ne 0 ]; then
+                    echo "Trying to build specific tools..."
+                    for target in GenFv GenFfs GenFw GenSec VfrCompile; do
+                        echo "Building $target..."
+                        make "$target"
+                        if [ $? -eq 0 ]; then
+                            echo "✓ $target built successfully"
+                        fi
+                    done
+                fi
+                cd ../../..
             fi
-            cd ../../..
         fi
+        
+        echo "Step 2: Setting up EDK2 environment after BaseTools build"
+        source edksetup.sh
+    else
+        echo "BaseTools already available, just setting up environment"
+        source edksetup.sh
     fi
     
     # Verify critical tools are available

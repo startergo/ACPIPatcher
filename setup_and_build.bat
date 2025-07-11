@@ -352,6 +352,7 @@ set "SUBMODULES_OK=1"
 if not exist "BaseTools\Source\C\BrotliCompress\brotli\c" set "SUBMODULES_OK=0"
 if not exist "CryptoPkg\Library\OpensslLib\openssl\include" set "SUBMODULES_OK=0"
 if not exist "MdeModulePkg\Library\BrotliCustomDecompressLib\brotli\c" set "SUBMODULES_OK=0"
+if not exist "MdePkg\Library\MipiSysTLib\mipisyst\library\include" set "SUBMODULES_OK=0"
 
 if !SUBMODULES_OK!==1 (
     echo [OK] Essential submodules already available.
@@ -366,6 +367,7 @@ if !SUBMODULES_OK!==1 (
         timeout /t 60 git -c credential.helper= submodule update --init BaseTools/Source/C/BrotliCompress/brotli >nul 2>&1
         timeout /t 60 git -c credential.helper= submodule update --init CryptoPkg/Library/OpensslLib/openssl >nul 2>&1
         timeout /t 60 git -c credential.helper= submodule update --init MdeModulePkg/Library/BrotliCustomDecompressLib/brotli >nul 2>&1
+        timeout /t 60 git -c credential.helper= submodule update --init MdePkg/Library/MipiSysTLib >nul 2>&1
         echo Continuing with available submodules...
     ) else (
         echo [OK] All submodules initialized successfully.

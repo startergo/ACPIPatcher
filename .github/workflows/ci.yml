@@ -219,27 +219,121 @@ jobs:
         Write-Host "NASM installation completed"
       shell: pwsh
 
-    # Setup Cygwin for GCC builds
-    - name: Setup Cygwin (Windows Cygwin builds)
-      if: matrix.os == 'windows-cygwin'
+    # Build Essentials (Linux only)
+    - name: Install Build Essentials
+      if: matrix.os == 'linux'
       run: |
-        Write-Host "Installing Cygwin with GCC..."
-        choco install cygwin -y
-        
-        # Install required Cygwin packages
-        $cygwinSetup = "C:\tools\cygwin\cygwinsetup.exe"
-        $packages = "gcc-core,gcc-g++,make,binutils,autoconf,automake,libtool,pkg-config"
-        & $cygwinSetup -qnNdO -R "C:/tools/cygwin" -s "http://cygwin.mirror.constant.com" -l "C:/tools/cygwin/var/cache/setup" -P $packages
-        
-        # Verify Cygwin GCC installation
-        & C:\tools\cygwin\bin\bash.exe -c "gcc --version"
-        Write-Host "Cygwin GCC installation completed"
-      shell: pwsh
+        echo "Installing build-essential package..."
+        sudo apt-get update
+        sudo apt-get install -y build-essential
+      shell: bash
 
-    # Note: Other prerequisites are handled by our setup scripts
+    # Linux Prerequisites (EDK2 build requirements)
+    - name: Setup Linux Build Tools (EDK2 Requirements)
+      if: matrix.os == 'linux'
+      run: |
+        echo "Installing EDK2 build prerequisites for Linux..."
+        
+        # Update package list
+        sudo apt-get update
+        
+        # Install essential EDK2 build tools as per TianoCore documentation
+        sudo apt-get install -y \
+          build-essential \
+          uuid-dev \
+          iasl \
+          git \
+          nasm \
+          python-is-python3 \
+          python3-distutils \
+          acpica-tools
+        
+        # Verify critical tools are installed
+        echo "Verifying installed tools..."
+        iasl -v || echo "WARNING: iasl not properly installed"
+        nasm -v || echo "WARNING: nasm not properly installed"
+        gcc --version | head -n1
+        make --version | head -n1
+        python3 --version
+        
+        echo "✓ Linux EDK2 build prerequisites installed"
+      shell: bash
 
-    # Note: EDK2 cloning and project setup are handled automatically 
-    # by our setup scripts
+    # Linux Prerequisites (missing iasl and other EDK2 tools)
+    - name: Setup Linux EDK2 Prerequisites
+      if: matrix.os == 'linux'
+      run: |
+        echo "Installing EDK2 prerequisites for Linux..."
+        
+        # Update package lists
+        sudo apt-get update
+        
+        # Install essential EDK2 build tools
+        sudo apt-get install -y \
+          build-essential \
+          uuid-dev \
+          iasl \
+          acpica-tools \
+          git \
+          nasm \
+          python3-distutils \
+          python-is-python3
+        
+        echo "✓ Linux EDK2 prerequisites installed"
+        
+        # Verify critical tools
+        echo "Verifying installed tools..."
+        gcc --version | head -n1
+        nasm -v
+        iasl -v || echo "iasl version check failed but tool is present"
+        python3 --version
+        
+        echo "✓ Linux prerequisites setup completed"
+      shell: bash
+
+    # Ensure EDK2 submodules are properly initialized (all platforms)
+    - name: Initialize EDK2 Submodules
+      run: |
+        echo "Ensuring EDK2 submodules are properly initialized..."
+        
+        # The checkout action should have done this, but let's be explicit
+        git submodule status | head -10
+        
+        # Check if critical submodules exist
+        if [ ! -d "temp_edk2" ]; then
+          echo "temp_edk2 directory not found yet - this will be created by build scripts"
+        else
+          echo "Checking EDK2 submodules in temp_edk2..."
+          cd temp_edk2
+          
+          # Check for critical missing submodules
+          missing_submodules=()
+          
+          if [ ! -d "MdePkg/Library/MipiSysTLib/mipisyst" ]; then
+            missing_submodules+=("MipiSysTLib")
+          fi
+          
+          if [ ! -d "BaseTools/Source/C/BrotliCompress/brotli" ]; then
+            missing_submodules+=("BrotliCompress")
+          fi
+          
+          if [ ! -d "CryptoPkg/Library/OpensslLib/openssl" ]; then
+            missing_submodules+=("OpensslLib")
+          fi
+          
+          if [ ${#missing_submodules[@]} -ne 0 ]; then
+            echo "Missing submodules detected: ${missing_submodules[*]}"
+            echo "Initializing missing submodules..."
+            git submodule update --init --recursive --progress
+          else
+            echo "✓ All critical submodules are present"
+          fi
+          
+          cd ..
+        fi
+        
+        echo "✓ Submodule check completed"
+      shell: bash
 
     # Build with Traditional EDK2 (Linux/macOS)
     - name: Build with EDK2 (Linux/macOS)
@@ -276,6 +370,34 @@ jobs:
         & nasm -v
         & cl 2>&1 | Select-Object -First 1
         & link 2>&1 | Select-Object -First 1
+        
+        # Verify submodules are properly initialized before build
+        Write-Host "Verifying EDK2 submodules before build..."
+        if (Test-Path "temp_edk2") {
+          $missingSubmodules = @()
+          
+          if (-not (Test-Path "temp_edk2\MdePkg\Library\MipiSysTLib\mipisyst")) {
+            $missingSubmodules += "MipiSysTLib"
+          }
+          
+          if (-not (Test-Path "temp_edk2\BaseTools\Source\C\BrotliCompress\brotli")) {
+            $missingSubmodules += "BrotliCompress"
+          }
+          
+          if (-not (Test-Path "temp_edk2\CryptoPkg\Library\OpensslLib\openssl")) {
+            $missingSubmodules += "OpensslLib"
+          }
+          
+          if ($missingSubmodules.Count -gt 0) {
+            Write-Host "Missing submodules detected: $($missingSubmodules -join ', ')"
+            Write-Host "Initializing missing submodules..."
+            cd temp_edk2
+            git submodule update --init --recursive --progress
+            cd ..
+          } else {
+            Write-Host "✓ All critical submodules are present"
+          }
+        }
         
         # Run our automated setup and build script with parameters
         & .\setup_and_build.bat ${{ matrix.arch }} ${{ matrix.build_type }}
