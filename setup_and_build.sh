@@ -213,24 +213,24 @@ if [ ! -d "temp_edk2" ]; then
     fi
     
     echo "Downloading submodules (this may take a few minutes)..."
-    timeout 300 git submodule update --init --recursive --progress
+    git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 submodule update --init --recursive --progress
     if [ $? -ne 0 ]; then
-        echo "WARNING: Some submodules failed to initialize. This is often due to authentication or timeout."
+        echo "WARNING: Some submodules failed to initialize. This is often due to authentication issues."
         echo "Retrying with individual critical submodules..."
         
         # Try individual critical submodules
         echo "Initializing critical submodules individually..."
         echo "  - Initializing BrotliCompress..."
-        timeout 60 git submodule update --init --recursive BaseTools/Source/C/BrotliCompress
+        git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 submodule update --init --recursive BaseTools/Source/C/BrotliCompress
         
         echo "  - Initializing OpensslLib..."
-        timeout 60 git submodule update --init --recursive CryptoPkg/Library/OpensslLib
+        git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 submodule update --init --recursive CryptoPkg/Library/OpensslLib
         
         echo "  - Initializing MipiSysTLib..."
-        timeout 60 git submodule update --init --recursive MdePkg/Library/MipiSysTLib
+        git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 submodule update --init --recursive MdePkg/Library/MipiSysTLib
         
         echo "  - Initializing BrotliCustomDecompressLib..."
-        timeout 60 git submodule update --init --recursive MdeModulePkg/Library/BrotliCustomDecompressLib
+        git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 submodule update --init --recursive MdeModulePkg/Library/BrotliCustomDecompressLib
         
         echo "Individual submodule initialization completed."
     else

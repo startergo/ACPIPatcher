@@ -340,20 +340,20 @@ jobs:
             git config --local url."https://github.com/".insteadOf "git@github.com:"
             git config --local url."https://".insteadOf "git://"
             
-            # Initialize with timeout and progress
-            timeout 300 git submodule update --init --recursive --progress || {
-              echo "Submodule initialization timed out, trying individual submodules..."
+            # Initialize with Git's built-in HTTP timeout settings
+            git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 submodule update --init --recursive --progress || {
+              echo "Submodule initialization failed, trying individual submodules..."
               for submodule in "${missing_submodules[@]}"; do
                 echo "Initializing $submodule..."
                 case $submodule in
                   "MipiSysTLib")
-                    timeout 60 git submodule update --init --recursive MdePkg/Library/MipiSysTLib || echo "Failed to init MipiSysTLib"
+                    git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 submodule update --init --recursive MdePkg/Library/MipiSysTLib || echo "Failed to init MipiSysTLib"
                     ;;
                   "BrotliCompress")
-                    timeout 60 git submodule update --init --recursive BaseTools/Source/C/BrotliCompress || echo "Failed to init BrotliCompress"
+                    git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 submodule update --init --recursive BaseTools/Source/C/BrotliCompress || echo "Failed to init BrotliCompress"
                     ;;
                   "OpensslLib")
-                    timeout 60 git submodule update --init --recursive CryptoPkg/Library/OpensslLib || echo "Failed to init OpensslLib"
+                    git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=30 submodule update --init --recursive CryptoPkg/Library/OpensslLib || echo "Failed to init OpensslLib"
                     ;;
                 esac
               done
