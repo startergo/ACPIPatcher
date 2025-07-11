@@ -496,8 +496,14 @@ for %%T in (%REQUIRED_TOOLS%) do (
         ) else (
             echo ERROR: %%T not found in any expected location
         )
+    ) else (
+        echo [OK] %%T verified in %BASETOOLS_BIN%
     )
 )
+
+REM Add BaseTools to PATH immediately after verification
+echo [DEBUG] Adding BaseTools to PATH after build...
+set "PATH=%BASETOOLS_PATH%\Source\C\bin;%BASETOOLS_PATH%\Bin\Win32;%BASETOOLS_PATH%\Bin\Win64;%PATH%"
 
 echo BaseTools build completed!
 
@@ -644,6 +650,31 @@ echo Building ACPIPatcher Package
 echo ================================================================
 echo Target: !TARGET_ARCH! !BUILD_TYPE! (!TOOL_CHAIN_TAG!)
 echo.
+
+REM Ensure BaseTools are in PATH for build process
+echo [DEBUG] Ensuring BaseTools are in PATH for build...
+set "PATH=%EDK_TOOLS_PATH%\Source\C\bin;%EDK_TOOLS_PATH%\Bin\Win32;%EDK_TOOLS_PATH%\Bin\Win64;%PATH%"
+
+REM Verify GenFw is accessible before build
+where GenFw >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] GenFw not found in PATH. Checking BaseTools locations...
+    if exist "%EDK_TOOLS_PATH%\Source\C\bin\GenFw.exe" (
+        echo [OK] Found GenFw at %EDK_TOOLS_PATH%\Source\C\bin\GenFw.exe
+        set "PATH=%EDK_TOOLS_PATH%\Source\C\bin;%PATH%"
+    ) else if exist "%EDK_TOOLS_PATH%\Bin\Win32\GenFw.exe" (
+        echo [OK] Found GenFw at %EDK_TOOLS_PATH%\Bin\Win32\GenFw.exe
+        set "PATH=%EDK_TOOLS_PATH%\Bin\Win32;%PATH%"
+    ) else if exist "%EDK_TOOLS_PATH%\Bin\Win64\GenFw.exe" (
+        echo [OK] Found GenFw at %EDK_TOOLS_PATH%\Bin\Win64\GenFw.exe
+        set "PATH=%EDK_TOOLS_PATH%\Bin\Win64;%PATH%"
+    ) else (
+        echo [ERROR] GenFw not found in any BaseTools location!
+        echo This will cause build failure.
+    )
+) else (
+    echo [OK] GenFw found in PATH
+)
 
 build -p ACPIPatcherPkg\ACPIPatcherPkg.dsc -a !TARGET_ARCH! -t !TOOL_CHAIN_TAG! -b !BUILD_TYPE!
 if errorlevel 1 (
