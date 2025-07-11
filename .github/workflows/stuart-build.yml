@@ -181,34 +181,92 @@ jobs:
         echo "Installing Stuart build system using system Python..."
         echo "This avoids virtual environment isolation issues with importlib.util"
         
-        # Install Stuart build system directly to system Python user directory
-        echo "Installing Stuart to system Python user directory..."
-        if python3 -m pip install --user --upgrade edk2-pytool-extensions edk2-pytool-library 2>&1; then
-          echo "✅ Successfully installed Stuart build system"
+        # Try installing Stuart with system packages flag to avoid PEP 668 restrictions
+        echo "Installing Stuart to system Python with --break-system-packages flag..."
+        if python3 -m pip install --break-system-packages --upgrade edk2-pytool-extensions edk2-pytool-library 2>&1; then
+          echo "✅ Successfully installed Stuart build system (system packages)"
         else
-          echo "❌ Stuart installation failed"
-          exit 1
+          echo "⚠️ System packages installation failed, trying user installation..."
+          if python3 -m pip install --user --upgrade edk2-pytool-extensions edk2-pytool-library 2>&1; then
+            echo "✅ Successfully installed Stuart build system (user packages)"
+          else
+            echo "❌ Stuart installation failed completely"
+            exit 1
+          fi
+        fi
+        
+        # Find where Stuart was installed and add to PATH
+        echo "Locating Stuart installation directory..."
+        STUART_BIN_DIR=""
+        
+        # Check common installation locations (system and user)
+        POTENTIAL_PATHS=(
+          "/mingw64/bin"
+          "/usr/bin"
+          "$HOME/.local/bin"
+          "/c/Users/runneradmin/.local/bin" 
+          "/c/Users/runneradmin/AppData/Roaming/Python/Python312/Scripts"
+          "$(python3 -c 'import sys; print(sys.prefix)')/bin"
+          "$(python3 -c 'import sys; print(sys.prefix)')/Scripts"
+          "$(python3 -m site --user-base)/bin" 
+          "$(python3 -c 'import site; print(site.USER_BASE)')/bin"
+        )
+        
+        for path in "${POTENTIAL_PATHS[@]}"; do
+          if [ -d "$path" ] && ([ -f "$path/stuart_update" ] || [ -f "$path/stuart_update.exe" ]); then
+            STUART_BIN_DIR="$path"
+            echo "Found Stuart commands in: $STUART_BIN_DIR"
+            break
+          fi
+        done
+        
+        if [ -z "$STUART_BIN_DIR" ]; then
+          echo "⚠️ Stuart commands not found in standard locations"
+          echo "Searching entire system for Stuart executables..."
+          
+          # Comprehensive search
+          STUART_LOCATIONS=$(find /mingw64 /usr /c/Users/runneradmin -name "stuart_update*" 2>/dev/null | head -10)
+          if [ -n "$STUART_LOCATIONS" ]; then
+            echo "Found Stuart executables at:"
+            echo "$STUART_LOCATIONS"
+            # Use the first found location
+            FIRST_STUART=$(echo "$STUART_LOCATIONS" | head -1)
+            STUART_BIN_DIR=$(dirname "$FIRST_STUART")
+            echo "Using Stuart from: $STUART_BIN_DIR"
+          else
+            echo "❌ Could not find Stuart executables anywhere"
+            echo "Checking what was actually installed..."
+            python3 -m pip list | grep edk2 || echo "No EDK2 packages found"
+            python3 -c "import edk2toolext.edk2_invocable; print('Stuart modules can be imported')" 2>/dev/null || echo "Stuart modules not importable"
+          fi
+        fi
+        
+        # Add Stuart directory to PATH and export for subsequent steps
+        if [ -n "$STUART_BIN_DIR" ]; then
+          export PATH="$STUART_BIN_DIR:$PATH"
+          echo "PATH=$STUART_BIN_DIR:$PATH" >> $GITHUB_ENV
+          echo "Added Stuart directory to PATH: $STUART_BIN_DIR"
         fi
         
         # Verify Stuart commands are available
         echo "Verifying Stuart commands are available..."
         if command -v stuart_update >/dev/null 2>&1; then
-          echo "  ✅ stuart_update command available"
+          echo "  ✅ stuart_update command available at: $(which stuart_update)"
         else
-          echo "  ⚠️ stuart_update command not found in PATH"
-          echo "  Adding Python user bin to PATH..."
-          export PATH="$HOME/.local/bin:$PATH"
-          if command -v stuart_update >/dev/null 2>&1; then
-            echo "  ✅ stuart_update command now available"
-          else
-            echo "  ❌ stuart_update still not found"
-          fi
+          echo "  ❌ stuart_update command not found"
+          echo "  Current PATH: $PATH"
+        fi
+        
+        if command -v stuart_build >/dev/null 2>&1; then
+          echo "  ✅ stuart_build command available at: $(which stuart_build)"
+        else
+          echo "  ⚠️ stuart_build command not found"
         fi
         
         if command -v stuart_ci_build >/dev/null 2>&1; then
-          echo "  ✅ stuart_ci_build command available"
+          echo "  ✅ stuart_ci_build command available at: $(which stuart_ci_build)"
         else
-          echo "  ⚠️ stuart_ci_build command not found in PATH"
+          echo "  ⚠️ stuart_ci_build command not found"
         fi
         
         echo "✅ Stuart installation completed"
@@ -373,10 +431,10 @@ jobs:
               echo "This is a known issue where EDK2's CommonLib.h conflicts with MSYS2's io.h"
               echo "Attempting to patch the header conflict..."
               
-              # Look for the problematic header file
-              conflict_file="Source/C/Include/Common/BaseTypes.h"
+              # Look for the problematic header file (CommonLib.h not BaseTypes.h)
+              conflict_file="Source/C/Include/Common/CommonLib.h"
               if [ -f "$conflict_file" ]; then
-                echo "Found BaseTypes.h, checking for _filelength declaration..."
+                echo "Found CommonLib.h, checking for _filelength declaration..."
                 if grep -q "_filelength" "$conflict_file"; then
                   echo "Creating backup and patching _filelength conflict..."
                   cp "$conflict_file" "${conflict_file}.backup"
@@ -401,9 +459,36 @@ jobs:
                   echo "No _filelength declaration found in $conflict_file"
                 fi
               else
-                echo "BaseTypes.h not found at expected location"
+                echo "CommonLib.h not found at expected location"
                 echo "Looking for alternative conflict locations..."
                 find Source/C -name "*.h" -exec grep -l "_filelength" {} \; 2>/dev/null || echo "No files with _filelength found"
+                
+                # Try alternative approach - look for any header with _filelength
+                CONFLICT_FILES=$(find Source/C -name "*.h" -exec grep -l "_filelength" {} \; 2>/dev/null)
+                if [ -n "$CONFLICT_FILES" ]; then
+                  echo "Found _filelength declarations in:"
+                  echo "$CONFLICT_FILES"
+                  
+                  for file in $CONFLICT_FILES; do
+                    echo "Patching $file..."
+                    cp "$file" "${file}.backup"
+                    sed -i 's/^.*_filelength.*$/\/\/ &/' "$file" || true
+                  done
+                  
+                  echo "Retrying build after patching all _filelength declarations..."
+                  if make clean && make -C Source/C; then
+                    echo "✅ BaseTools build succeeded after comprehensive header patch"
+                    BASETOOLS_BUILD_SUCCESS=true
+                  else
+                    echo "❌ BaseTools build still failed after comprehensive patching"
+                    # Restore all original files
+                    for file in $CONFLICT_FILES; do
+                      if [ -f "${file}.backup" ]; then
+                        mv "${file}.backup" "$file"
+                      fi
+                    done
+                  fi
+                fi
               fi
             fi
             
@@ -464,8 +549,21 @@ jobs:
         # Set PYTHON_COMMAND to use system Python
         export PYTHON_COMMAND=python3
         
-        # Ensure stuart commands are in PATH
-        export PATH="$HOME/.local/bin:$PATH"
+        # Ensure stuart commands are in PATH (from previous step)
+        echo "Current PATH: $PATH"
+        if ! command -v stuart_update >/dev/null 2>&1; then
+          echo "⚠️ stuart_update not found in PATH, attempting to locate..."
+          # Re-search for Stuart if not in PATH
+          STUART_LOCATIONS=$(find /mingw64 /usr /c/Users/runneradmin -name "stuart_update*" 2>/dev/null | head -1)
+          if [ -n "$STUART_LOCATIONS" ]; then
+            STUART_BIN_DIR=$(dirname "$STUART_LOCATIONS")
+            export PATH="$STUART_BIN_DIR:$PATH"
+            echo "Added Stuart directory to PATH: $STUART_BIN_DIR"
+          else
+            echo "❌ Cannot find stuart_update command"
+            exit 1
+          fi
+        fi
         
         # Run stuart_update with architecture and toolchain specification
         # Add retry logic for Windows path issues
@@ -516,8 +614,20 @@ jobs:
         # Set PYTHON_COMMAND to use system Python
         export PYTHON_COMMAND=python3
         
-        # Ensure stuart commands are in PATH
-        export PATH="$HOME/.local/bin:$PATH"
+        # Ensure stuart commands are in PATH (from previous step)
+        echo "Current PATH: $PATH"
+        if ! command -v stuart_build >/dev/null 2>&1; then
+          echo "⚠️ stuart_build not found in PATH, attempting to locate..."
+          # Re-search for Stuart if not in PATH
+          STUART_LOCATIONS=$(find /mingw64 /usr /c/Users/runneradmin -name "stuart_build*" 2>/dev/null | head -1)
+          if [ -n "$STUART_LOCATIONS" ]; then
+            STUART_BIN_DIR=$(dirname "$STUART_LOCATIONS")
+            export PATH="$STUART_BIN_DIR:$PATH"
+            echo "Added Stuart directory to PATH: $STUART_BIN_DIR"
+          else
+            echo "⚠️ Cannot find stuart_build command, will try stuart_ci_build"
+          fi
+        fi
         
         # Use stuart_build as the primary build command for actual compilation
         # stuart_ci_build is only for validation/testing, not for generating EFI files
