@@ -431,36 +431,65 @@ jobs:
             Write-Host "Initializing missing submodules with HTTPS authentication..."
             cd temp_edk2
             
-            # Try full recursive init with timeout
-            $initJob = Start-Job -ScriptBlock {
-              git submodule update --init --recursive --progress
-            }
+            # Configure local git settings for this repository
+            git config --local url."https://github.com/".insteadOf "git@github.com:"
+            git config --local url."https://".insteadOf "git://"
+            git config --local http.lowSpeedLimit 1000
+            git config --local http.lowSpeedTime 60
             
-            if (Wait-Job $initJob -Timeout 300) {
-              Receive-Job $initJob
-              Remove-Job $initJob
-              Write-Host "✓ Submodules initialized successfully"
-            } else {
-              Write-Host "Submodule initialization timed out, trying individual submodules..."
-              Stop-Job $initJob
-              Remove-Job $initJob
-              
-              # Try individual submodules
-              foreach ($submodule in $missingSubmodules) {
-                Write-Host "Initializing $submodule..."
+            # Try individual submodules first for better success rate
+            $successCount = 0
+            foreach ($submodule in $missingSubmodules) {
+              Write-Host "Initializing $submodule..."
+              try {
                 switch ($submodule) {
                   "MipiSysTLib" {
-                    git submodule update --init --recursive MdePkg/Library/MipiSysTLib
+                    Write-Host "  Updating MdePkg/Library/MipiSysTLib..."
+                    $result = git submodule update --init --recursive MdePkg/Library/MipiSysTLib 2>&1
+                    Write-Host "  Git output: $result"
+                    if (Test-Path "MdePkg\Library\MipiSysTLib\mipisyst\library\include") {
+                      Write-Host "  ✓ MipiSysTLib initialized successfully"
+                      $successCount++
+                    } else {
+                      Write-Host "  ⚠ MipiSysTLib path still missing after init"
+                    }
                   }
                   "BrotliCompress" {
-                    git submodule update --init --recursive BaseTools/Source/C/BrotliCompress
+                    Write-Host "  Updating BaseTools/Source/C/BrotliCompress..."
+                    $result = git submodule update --init --recursive BaseTools/Source/C/BrotliCompress 2>&1
+                    Write-Host "  Git output: $result"
+                    if (Test-Path "BaseTools\Source\C\BrotliCompress\brotli") {
+                      Write-Host "  ✓ BrotliCompress initialized successfully"
+                      $successCount++
+                    } else {
+                      Write-Host "  ⚠ BrotliCompress path still missing after init"
+                    }
                   }
                   "OpensslLib" {
-                    git submodule update --init --recursive CryptoPkg/Library/OpensslLib
+                    Write-Host "  Updating CryptoPkg/Library/OpensslLib..."
+                    $result = git submodule update --init --recursive CryptoPkg/Library/OpensslLib 2>&1
+                    Write-Host "  Git output: $result"
+                    if (Test-Path "CryptoPkg\Library\OpensslLib\openssl") {
+                      Write-Host "  ✓ OpensslLib initialized successfully"
+                      $successCount++
+                    } else {
+                      Write-Host "  ⚠ OpensslLib path still missing after init"
+                    }
                   }
                 }
+              } catch {
+                Write-Host "  ❌ Error initializing $submodule : $_"
               }
             }
+            
+            Write-Host "Submodule initialization completed: $successCount/$($missingSubmodules.Count) successful"
+            
+            # Final verification
+            Write-Host "Final submodule status check:"
+            Write-Host "  MipiSysTLib: $(Test-Path "MdePkg\Library\MipiSysTLib\mipisyst\library\include")"
+            Write-Host "  BrotliCompress: $(Test-Path "BaseTools\Source\C\BrotliCompress\brotli")"
+            Write-Host "  OpensslLib: $(Test-Path "CryptoPkg\Library\OpensslLib\openssl")"
+            
             cd ..
           } else {
             Write-Host "✓ All critical submodules are present"

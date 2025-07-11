@@ -360,17 +360,51 @@ if !SUBMODULES_OK!==1 (
     echo Initializing required EDK2 submodules...
     echo Note: Using anonymous access with timeout protection
     echo [DEBUG] Starting submodule initialization with 300 second timeout...
-    timeout /t 300 git -c credential.helper= submodule update --init --recursive --depth 1 --jobs 1 >nul 2>&1
+    timeout /t 300 git -c credential.helper= submodule update --init --recursive --depth 1 --jobs 1
     if errorlevel 1 (
         echo WARNING: Submodule initialization timed out or failed. Trying essential ones only...
         echo Initializing critical submodules for BaseTools...
-        timeout /t 60 git -c credential.helper= submodule update --init BaseTools/Source/C/BrotliCompress/brotli >nul 2>&1
-        timeout /t 60 git -c credential.helper= submodule update --init CryptoPkg/Library/OpensslLib/openssl >nul 2>&1
-        timeout /t 60 git -c credential.helper= submodule update --init MdeModulePkg/Library/BrotliCustomDecompressLib/brotli >nul 2>&1
-        timeout /t 60 git -c credential.helper= submodule update --init MdePkg/Library/MipiSysTLib >nul 2>&1
+        echo [DEBUG] Initializing BrotliCompress...
+        timeout /t 60 git -c credential.helper= submodule update --init BaseTools/Source/C/BrotliCompress/brotli
+        echo [DEBUG] Initializing OpensslLib...
+        timeout /t 60 git -c credential.helper= submodule update --init CryptoPkg/Library/OpensslLib/openssl
+        echo [DEBUG] Initializing BrotliCustomDecompressLib...
+        timeout /t 60 git -c credential.helper= submodule update --init MdeModulePkg/Library/BrotliCustomDecompressLib/brotli
+        echo [DEBUG] Initializing MipiSysTLib...
+        timeout /t 60 git -c credential.helper= submodule update --init MdePkg/Library/MipiSysTLib
         echo Continuing with available submodules...
     ) else (
         echo [OK] All submodules initialized successfully.
+    )
+    
+    REM Verify critical submodules after initialization
+    echo [DEBUG] Verifying submodule status after initialization...
+    if exist "BaseTools\Source\C\BrotliCompress\brotli\c" (
+        echo [OK] BrotliCompress submodule verified
+    ) else (
+        echo [WARNING] BrotliCompress submodule missing
+    )
+    if exist "CryptoPkg\Library\OpensslLib\openssl\include" (
+        echo [OK] OpensslLib submodule verified
+    ) else (
+        echo [WARNING] OpensslLib submodule missing
+    )
+    if exist "MdeModulePkg\Library\BrotliCustomDecompressLib\brotli\c" (
+        echo [OK] BrotliCustomDecompressLib submodule verified
+    ) else (
+        echo [WARNING] BrotliCustomDecompressLib submodule missing
+    )
+    if exist "MdePkg\Library\MipiSysTLib\mipisyst\library\include" (
+        echo [OK] MipiSysTLib submodule verified
+    ) else (
+        echo [ERROR] MipiSysTLib submodule missing - this will cause build failures
+        echo [DEBUG] Attempting direct MipiSysTLib initialization...
+        git submodule update --init --recursive MdePkg/Library/MipiSysTLib
+        if exist "MdePkg\Library\MipiSysTLib\mipisyst\library\include" (
+            echo [OK] MipiSysTLib submodule now verified after direct init
+        ) else (
+            echo [ERROR] MipiSysTLib submodule still missing after direct init
+        )
     )
 )
 
