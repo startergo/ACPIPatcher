@@ -62,22 +62,22 @@ jobs:
           
           # Windows builds with VS2022
           - os: windows
-            runner: windows-latest
+            runner: windows-2022
             arch: X64
             build_type: RELEASE
             toolchain: VS2022
           - os: windows
-            runner: windows-latest
+            runner: windows-2022
             arch: X64
             build_type: DEBUG
             toolchain: VS2022
           - os: windows
-            runner: windows-latest
+            runner: windows-2022
             arch: IA32
             build_type: RELEASE
             toolchain: VS2022
           - os: windows
-            runner: windows-latest
+            runner: windows-2022
             arch: IA32
             build_type: DEBUG
             toolchain: VS2022
@@ -85,22 +85,22 @@ jobs:
           # Windows builds with Cygwin GCC (DISABLED - PATH issues with NASM)
           # Re-enable after fixing NASM PATH refresh in CI environment
           # - os: windows-cygwin
-          #   runner: windows-latest
+          #   runner: windows-2022
           #   arch: X64
           #   build_type: RELEASE
           #   toolchain: GCC5
           # - os: windows-cygwin
-          #   runner: windows-latest
+          #   runner: windows-2022
           #   arch: X64
           #   build_type: DEBUG
           #   toolchain: GCC5
           # - os: windows-cygwin
-          #   runner: windows-latest
+          #   runner: windows-2022
           #   arch: IA32
           #   build_type: RELEASE
           #   toolchain: GCC5
           # - os: windows-cygwin
-          #   runner: windows-latest
+          #   runner: windows-2022
           #   arch: IA32
           #   build_type: DEBUG
           #   toolchain: GCC5
@@ -168,6 +168,11 @@ jobs:
       uses: ilammy/msvc-dev-cmd@v1
       with:
         arch: ${{ matrix.arch == 'IA32' && 'x86' || 'x64' }}
+
+    # Setup MSBuild for Windows builds
+    - name: Setup MSBuild (Windows)
+      if: matrix.os == 'windows'
+      uses: microsoft/setup-msbuild@v2
 
     # Setup NASM for Windows builds
     - name: Setup NASM (Windows)
