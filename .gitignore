@@ -3,3 +3,43 @@ ACPIPatcher/.DS_Store
 
 # Specstory directory (development artifacts)
 .specstory/
+
+# Build artifacts and temporary files
+temp_edk2/
+Build/
+Conf/
+*.efi
+*.dxe
+*.pei
+*.uefi
+*.ffs
+*.sec
+*.map
+*.debug
+*.log
+*.inf~
+*.dec~
+*.dsc~
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Temporary files
+*.tmp
+*.temp
+*~
+*.bak
+*.orig
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+Thumbs.db
+Desktop.ini

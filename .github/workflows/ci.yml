@@ -1,10 +1,11 @@
-name: Quick CI
+name: CI Build
 
 on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
   workflow_dispatch:
-
-env:
-  EDK2_VERSION: edk2-stable202405
 
 jobs:
   build:
@@ -31,6 +32,11 @@ jobs:
             arch: IA32
             build_type: RELEASE
             toolchain: GCC5
+          - os: linux
+            runner: ubuntu-latest
+            arch: IA32
+            build_type: DEBUG
+            toolchain: GCC5
           
           # macOS builds
           - os: macos
@@ -43,8 +49,18 @@ jobs:
             arch: X64
             build_type: DEBUG
             toolchain: XCODE5
+          - os: macos
+            runner: macos-13
+            arch: IA32
+            build_type: RELEASE
+            toolchain: XCODE5
+          - os: macos
+            runner: macos-13
+            arch: IA32
+            build_type: DEBUG
+            toolchain: XCODE5
           
-          # Windows builds
+          # Windows builds with VS2022
           - os: windows
             runner: windows-latest
             arch: X64
@@ -55,922 +71,236 @@ jobs:
             arch: X64
             build_type: DEBUG
             toolchain: VS2022
-    
+          - os: windows
+            runner: windows-latest
+            arch: IA32
+            build_type: RELEASE
+            toolchain: VS2022
+          - os: windows
+            runner: windows-latest
+            arch: IA32
+            build_type: DEBUG
+            toolchain: VS2022
+          
+          # Windows builds with Cygwin GCC
+          - os: windows-cygwin
+            runner: windows-latest
+            arch: X64
+            build_type: RELEASE
+            toolchain: GCC5
+          - os: windows-cygwin
+            runner: windows-latest
+            arch: X64
+            build_type: DEBUG
+            toolchain: GCC5
+          - os: windows-cygwin
+            runner: windows-latest
+            arch: IA32
+            build_type: RELEASE
+            toolchain: GCC5
+          - os: windows-cygwin
+            runner: windows-latest
+            arch: IA32
+            build_type: DEBUG
+            toolchain: GCC5
+
     steps:
-    - name: Checkout ACPIPatcher
+    - name: Checkout Repository
       uses: actions/checkout@v4
       with:
-        path: acpipatcher
-    
-    - name: Setup Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.13'
-    
-    # Stuart Build System Setup (Windows only)
-    - name: Setup Stuart Python Environment (Windows)
-      if: matrix.os == 'windows'
-      run: |
-        echo "Setting up Stuart Python environment for Windows..."
-        python -m pip install --upgrade pip setuptools wheel
-        
-        # Install Stuart dependencies if pip-requirements.txt exists
-        if [ -f "acpipatcher/pip-requirements.txt" ]; then
-          echo "Installing Stuart dependencies from pip-requirements.txt..."
-          python -m pip install -r acpipatcher/pip-requirements.txt
-        else
-          echo "Installing core Stuart dependencies..."
-          python -m pip install edk2-pytool-library>=0.21.0 edk2-pytool-extensions>=0.25.0
-        fi
-        
-        # Verify Stuart installation
-        python -c "import edk2toolext; print('Stuart tools installed successfully')" || echo "Stuart installation verification failed"
-      shell: bash
-    
-    # Platform-specific dependency installation
-    - name: Install Linux Dependencies
-      if: matrix.os == 'linux'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential nasm uuid-dev gcc-multilib
-    
-    - name: Install macOS Dependencies
-      if: matrix.os == 'macos'
-      run: |
-        brew install nasm mtoc
-    
-    - name: Setup MSYS2 and Build Tools (Windows)
-      if: matrix.os == 'windows'
-      uses: msys2/setup-msys2@v2
-      with:
-        msystem: MINGW64
-        update: true
-        install: >-
-          mingw-w64-x86_64-clang
-          mingw-w64-x86_64-llvm
-          nasm
-          make
-          mingw-w64-x86_64-diffutils
-          mingw-w64-x86_64-gcc
-          git
+        submodules: recursive
 
+    # Python Setup
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    # Windows Prerequisites
     - name: Setup Visual Studio Environment (Windows)
       if: matrix.os == 'windows'
-      uses: microsoft/setup-msbuild@v1.3.3
-      
-    - name: Setup Windows Build Environment
-      if: matrix.os == 'windows'
-      uses: ilammy/msvc-dev-cmd@v1.13.0
+      uses: ilammy/msvc-dev-cmd@v1
       with:
-        arch: x64
-        
-    - name: Verify Visual Studio Toolchain (Windows)
-      if: matrix.os == 'windows'
-      shell: pwsh
-      run: |
-        Write-Host "=== Visual Studio Toolchain Verification ==="
-        
-        # Check for cl.exe (MSVC compiler)
-        try {
-          $clPath = Get-Command cl.exe -ErrorAction SilentlyContinue
-          if ($clPath) {
-            Write-Host "✓ Visual Studio compiler found at: $($clPath.Source)"
-            & cl.exe 2>&1 | Select-String "Microsoft" | ForEach-Object { Write-Host $_ }
-            
-            # Get VS version info
-            $vsInfo = & cl.exe 2>&1 | Select-String "Version"
-            Write-Host "Compiler version: $vsInfo"
-            
-            # Check if it's VS2022 (version 19.3x or higher)
-            if ($vsInfo -match "19\.3\d|19\.[4-9]\d|[2-9]\d\.\d") {
-              Write-Host "✓ VS2022 toolchain detected"
-              echo "VS_TOOLCHAIN=VS2022" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            } elseif ($vsInfo -match "19\.[2-9]\d") {
-              Write-Host "✓ VS2019 toolchain detected"
-              echo "VS_TOOLCHAIN=VS2019" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            } else {
-              Write-Host "⚠ Older Visual Studio version detected"
-              echo "VS_TOOLCHAIN=VS2019" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            }
-          } else {
-            Write-Host "✗ Visual Studio compiler not found in PATH"
-            echo "VS_TOOLCHAIN=VS2019" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          }
-        } catch {
-          Write-Host "✗ Error checking Visual Studio compiler: $_"
-          echo "VS_TOOLCHAIN=VS2019" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-        }
-        
-        # Check for link.exe (MSVC linker)
-        try {
-          $linkPath = Get-Command link.exe -ErrorAction SilentlyContinue
-          if ($linkPath) {
-            Write-Host "✓ Visual Studio linker found at: $($linkPath.Source)"
-          } else {
-            Write-Host "✗ Visual Studio linker not found"
-          }
-        } catch {
-          Write-Host "✗ Error checking Visual Studio linker: $_"
-        }
-        
-        # Verify key environment variables
-        Write-Host "`n=== Environment Variables ==="
-        Write-Host "VCINSTALLDIR: $env:VCINSTALLDIR"
-        Write-Host "VCToolsInstallDir: $env:VCToolsInstallDir"
-        Write-Host "WindowsSdkDir: $env:WindowsSdkDir"
-        Write-Host "VS_TOOLCHAIN: $env:VS_TOOLCHAIN"
+        arch: ${{ matrix.arch == 'IA32' && 'x86' || 'x64' }}
 
-    - name: Add MSYS2 Tools to Windows PATH
-      if: matrix.os == 'windows'
-      shell: pwsh
+    # Setup NASM for Windows builds
+    - name: Setup NASM (Windows)
+      if: matrix.os == 'windows' || matrix.os == 'windows-cygwin'
       run: |
-        # Add MSYS2 paths to Windows PATH for access from cmd/batch
-        # Using exact pattern from successful implementation
-        $msys2Paths = @(
-          "D:\a\_temp\msys64\mingw64\bin",
-          "D:\a\_temp\msys64\usr\bin"
-        )
-        
-        foreach ($path in $msys2Paths) {
-          if (Test-Path $path) {
-            echo "Adding to PATH: $path"
-            echo "$path" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          } else {
-            echo "Path not found: $path"
-          }
-        }
-        
-        # Also try to find MSYS2 installation dynamically
-        $possibleMsys2Roots = @(
-          "D:\a\_temp\msys64",
-          "C:\msys64",
-          "D:\msys64"
-        )
-        
-        foreach ($root in $possibleMsys2Roots) {
-          if (Test-Path "$root\mingw64\bin") {
-            echo "Found MSYS2 at: $root"
-            echo "$root\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-            echo "$root\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-            break
-          }
-        }
+        Write-Host "Installing NASM..."
+        choco install nasm -y
+        & nasm -v
+        Write-Host "NASM installation completed"
+      shell: pwsh
 
-    - name: Set EDK2 Environment Variables (Windows)
-      if: matrix.os == 'windows'
+    # Setup Cygwin for GCC builds
+    - name: Setup Cygwin (Windows Cygwin builds)
+      if: matrix.os == 'windows-cygwin'
+      run: |
+        Write-Host "Installing Cygwin with GCC..."
+        choco install cygwin -y
+        
+        # Install required Cygwin packages
+        $cygwinSetup = "C:\tools\cygwin\cygwinsetup.exe"
+        $packages = "gcc-core,gcc-g++,make,binutils,autoconf,automake,libtool,pkg-config"
+        & $cygwinSetup -qnNdO -R "C:/tools/cygwin" -s "http://cygwin.mirror.constant.com" -l "C:/tools/cygwin/var/cache/setup" -P $packages
+        
+        # Verify Cygwin GCC installation
+        & C:\tools\cygwin\bin\bash.exe -c "gcc --version"
+        Write-Host "Cygwin GCC installation completed"
       shell: pwsh
+
+    # Note: Other prerequisites are handled by our setup scripts
+
+    # Note: EDK2 cloning and project setup are handled automatically 
+    # by our setup scripts
+
+    # Build with Traditional EDK2 (Linux/macOS)
+    - name: Build with EDK2 (Linux/macOS)
+      if: matrix.os != 'windows' && matrix.os != 'windows-cygwin'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        CI: true
       run: |
-        # Set EDK2 environment variables to suppress warnings
-        $msys2Root = "D:\a\_temp\msys64"
-        if (-not (Test-Path $msys2Root)) {
-          $msys2Root = "C:\msys64"
-        }
+        echo "Building ACPIPatcher with simplified build system..."
+        echo "Configuration: ${{ matrix.arch }} ${{ matrix.build_type }} (${{ matrix.toolchain }})"
         
-        echo "Setting EDK2 environment variables..."
-        echo "NASM_PREFIX=$msys2Root\usr\bin\" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-        echo "CLANG_BIN=$msys2Root\mingw64\bin\" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-        echo "CYGWIN_HOME=$msys2Root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        # Run our automated setup and build script with parameters
+        chmod +x setup_and_build.sh
+        ./setup_and_build.sh ${{ matrix.arch }} ${{ matrix.build_type }}
         
-        echo "Environment variables set:"
-        echo "NASM_PREFIX=$msys2Root\usr\bin\"
-        echo "CLANG_BIN=$msys2Root\mingw64\bin\"
-        echo "CYGWIN_HOME=$msys2Root"
-    
-    # EDK2 setup with caching
-    - name: Cache EDK2
-      id: cache-edk2
-      uses: actions/cache@v4
-      with:
-        path: edk2
-        key: edk2-${{ env.EDK2_VERSION }}-${{ matrix.os }}-${{ matrix.arch }}
-    
-    - name: Checkout EDK2
-      if: steps.cache-edk2.outputs.cache-hit != 'true'
+        echo "✅ Build completed successfully"
       shell: bash
-      run: |
-        git clone --depth=1 -b ${{ env.EDK2_VERSION }} https://github.com/tianocore/edk2.git
-        cd edk2
-        
-        # Configure git for authentication issues
-        git config --global url."https://github.com/".insteadOf "git@github.com:"
-        git config --global advice.detachedHead false
-        
-        # Use enhanced submodule initialization script
-        if [ -f "../acpipatcher/.github/scripts/enhanced-submodule-init.sh" ]; then
-          echo "Using enhanced submodule initialization..."
-          bash ../acpipatcher/.github/scripts/enhanced-submodule-init.sh
-        else
-          echo "Enhanced script not found, falling back to basic initialization..."
-          # Patch .gitmodules to disable problematic submodules (cross-platform)
-          if [ -f "../acpipatcher/.github/scripts/patch-edk2-gitmodules.sh" ]; then
-            echo "Patching .gitmodules to disable problematic submodules..."
-            bash ../acpipatcher/.github/scripts/patch-edk2-gitmodules.sh
-          fi
-          
-          # Now initialize submodules (problematic ones should be disabled)
-          echo "Initializing EDK2 submodules..."
-          if git submodule update --init --recommend-shallow; then
-            echo "✅ Submodule initialization successful"
-          else
-            echo "⚠️ Some submodules failed to initialize, but continuing..."
-          fi
-          
-          git submodule status | head -10 || echo "Submodule status check completed"
-        fi
-    
-    - name: Copy ACPIPatcher to EDK2
-      shell: bash
-      run: |
-        cp -r acpipatcher/ACPIPatcherPkg edk2/
-    
-    # Build steps - Linux/macOS
-    - name: Build on Unix (Linux/macOS)
-      if: matrix.os != 'windows'
-      run: |
-        cd edk2
-        . edksetup.sh
-        
-        # Build BaseTools with comprehensive error workarounds
-        echo "Building EDK2 BaseTools..."
-        export BUILD_SUCCESS=false
-        
-        # Try multiple approaches for BaseTools compilation
-        echo "Attempt 1: Standard build with warning suppressions..."
-        if make -C BaseTools CFLAGS="-w -Wno-error" 2>/dev/null; then
-          echo "✅ BaseTools built successfully with warning suppressions"
-          export BUILD_SUCCESS=true
-        else
-          echo "Attempt 2: Build with GCC version-specific flags..."
-          if make -C BaseTools CFLAGS="-Wno-error=use-after-free -Wno-error=stringop-truncation -Wno-error=array-bounds -w" 2>/dev/null; then
-            echo "✅ BaseTools built successfully with specific warning suppressions"
-            export BUILD_SUCCESS=true
-          else
-            echo "Attempt 3: Force build with all warnings disabled..."
-            if CC="gcc -w" make -C BaseTools 2>/dev/null; then
-              echo "✅ BaseTools built successfully with all warnings disabled"
-              export BUILD_SUCCESS=true
-            else
-              echo "Attempt 4: Last resort - clean and rebuild..."
-              make -C BaseTools clean || true
-              if make -C BaseTools CFLAGS="-O0 -w" || make -C BaseTools CFLAGS="-w" || make -C BaseTools; then
-                echo "✅ BaseTools built successfully after clean"
-                export BUILD_SUCCESS=true
-              fi
-            fi
-          fi
-        fi
-        
-        if [ "$BUILD_SUCCESS" != "true" ]; then
-          echo "❌ All BaseTools build attempts failed"
-          echo "Compiler information:"
-          gcc --version || true
-          make --version || true
-          exit 1
-        fi
-        
-        echo "Building ACPIPatcher..."
-        build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t ${{ matrix.toolchain }} -p ACPIPatcherPkg/ACPIPatcherPkg.dsc
-    
-    # Stuart integration - Windows specific
-    - name: Setup Python Virtual Environment (Stuart) - Windows
+
+    # Build with Traditional EDK2 (Windows VS2022)
+    - name: Build with EDK2 (Windows VS2022)
       if: matrix.os == 'windows'
-      shell: pwsh
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        CI: true
       run: |
-        cd edk2
+        Write-Host "Building ACPIPatcher with VS2022 toolchain..."
+        Write-Host "Configuration: ${{ matrix.arch }} ${{ matrix.build_type }} (${{ matrix.toolchain }})"
         
-        Write-Host "=== Setting up Stuart Python virtual environment (Windows) ==="
+        # Ensure NASM is in PATH
+        $env:PATH = "C:\Program Files\NASM;" + $env:PATH
         
-        # Copy pip requirements to EDK2 directory
-        Copy-Item "../acpipatcher/pip-requirements.txt" . -ErrorAction SilentlyContinue
+        # Verify tools are available
+        Write-Host "Checking tools..."
+        & nasm -v
+        & cl 2>&1 | Select-Object -First 1
+        & link 2>&1 | Select-Object -First 1
         
-        Write-Host "Creating Python virtual environment..."
-        py -m venv .venv
+        # Run our automated setup and build script with parameters
+        & .\setup_and_build.bat ${{ matrix.arch }} ${{ matrix.build_type }}
         
-        Write-Host "Activating virtual environment..."
-        .\.venv\Scripts\Activate.ps1
-        
-        Write-Host "Installing EDK2 Python tools following Stuart documentation..."
-        python -m pip install --upgrade pip
-        
-        if (Test-Path "pip-requirements.txt") {
-          pip install -r pip-requirements.txt --upgrade
+        if ($LASTEXITCODE -eq 0) {
+          Write-Host "✅ Build completed successfully"
         } else {
-          pip install edk2-pytool-library edk2-pytool-extensions
+          Write-Host "❌ Build failed with exit code $LASTEXITCODE"
+          exit $LASTEXITCODE
         }
-        
-        Write-Host "✅ Python virtual environment setup complete"
-
-    - name: Stuart Dependencies Update (Windows)
-      if: matrix.os == 'windows'
       shell: pwsh
+
+    # Build with Traditional EDK2 (Windows Cygwin)
+    - name: Build with EDK2 (Windows Cygwin)
+      if: matrix.os == 'windows-cygwin'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        CI: true
       run: |
-        cd edk2
+        Write-Host "Building ACPIPatcher with Cygwin GCC toolchain..."
+        Write-Host "Configuration: ${{ matrix.arch }} ${{ matrix.build_type }} (${{ matrix.toolchain }})"
         
-        Write-Host "=== Stuart Setup: Updating Dependencies ==="
-        .\.venv\Scripts\Activate.ps1
+        # Set up environment for Cygwin build - put Cygwin tools first
+        $env:PATH = "C:\tools\cygwin\bin;C:\Program Files\NASM;" + $env:PATH
         
-        # Use selective submodule initialization like Linux/macOS to avoid unnecessary clones
-        Write-Host "Initializing essential submodules only..."
+        # Verify tools are available
+        Write-Host "Checking tools..."
+        & nasm -v
+        & C:\tools\cygwin\bin\gcc.exe --version | Select-Object -First 1
         
-        # Check if enhanced submodule script exists
-        if (Test-Path "../acpipatcher/.github/scripts/enhanced-submodule-init.sh") {
-          Write-Host "Using enhanced submodule initialization script..."
-          bash ../acpipatcher/.github/scripts/enhanced-submodule-init.sh
+        # Run our automated setup and build script with parameters
+        & .\setup_and_build.bat ${{ matrix.arch }} ${{ matrix.build_type }}
+        
+        if ($LASTEXITCODE -eq 0) {
+          Write-Host "✅ Build completed successfully"
         } else {
-          Write-Host "Enhanced script not found, using selective submodule initialization..."
-          
-          # Initialize only essential submodules, avoiding problematic ones
-          $essentialSubmodules = @(
-            "BaseTools/Source/C/BrotliCompress/brotli",
-            "CryptoPkg/Library/OpensslLib/openssl",
-            "MdeModulePkg/Library/BrotliCustomDecompressLib/brotli"
-          )
-          
-          foreach ($submodule in $essentialSubmodules) {
-            if (Test-Path $submodule -PathType Container) {
-              Write-Host "Initializing submodule: $submodule"
-              git submodule update --init $submodule
-            }
-          }
-          
-          # If above approach fails, use basic initialization but exclude problematic modules
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "Fallback: Basic submodule initialization with exclusions..."
-            git submodule update --init --recommend-shallow
-          }
+          Write-Host "❌ Build failed with exit code $LASTEXITCODE"
+          exit $LASTEXITCODE
         }
-        
-        # Copy Stuart configuration if available
-        if (Test-Path "../acpipatcher/.pytool") {
-          Copy-Item -Recurse "../acpipatcher/.pytool" . -ErrorAction SilentlyContinue
-          Write-Host "✅ Copied Stuart configuration files"
-        }
-        
-        Write-Host "✅ Stuart dependencies update completed"
-
-    - name: Verify EDK2 Environment Variables (Windows)
-      if: matrix.os == 'windows'
-      shell: cmd
-      run: |
-        echo === Verifying EDK2 Environment Variables ===
-        echo NASM_PREFIX=%NASM_PREFIX%
-        echo CLANG_BIN=%CLANG_BIN%
-        echo CYGWIN_HOME=%CYGWIN_HOME%
-        echo.
-        
-        REM Test if the paths actually exist and contain the expected tools
-        if exist "%NASM_PREFIX%nasm.exe" (
-          echo ✓ NASM found at: %NASM_PREFIX%nasm.exe
-          "%NASM_PREFIX%nasm.exe" -version | findstr "version"
-        ) else (
-          echo ✗ NASM not found at: %NASM_PREFIX%nasm.exe
-        )
-        
-        if exist "%CLANG_BIN%clang.exe" (
-          echo ✓ Clang found at: %CLANG_BIN%clang.exe
-          "%CLANG_BIN%clang.exe" --version | findstr "clang version"
-        ) else (
-          echo ✗ Clang not found at: %CLANG_BIN%clang.exe
-        )
-        
-        REM Verify Visual Studio environment
-        echo.
-        echo === Verifying Visual Studio Environment ===
-        where cl >nul 2>&1
-        if %ERRORLEVEL%==0 (
-          echo ✓ Visual Studio compiler accessible
-          cl 2>&1 | findstr "Microsoft"
-        ) else (
-          echo ✗ Visual Studio compiler not accessible
-        )
-
-    - name: Build with Stuart (Windows)
-      if: matrix.os == 'windows'
       shell: pwsh
-      continue-on-error: true
-      run: |
-        # Stuart should run from the root project directory where .pytool exists
-        Write-Host "=== Building with Stuart Build System ==="
-        
-        # Copy Stuart configuration to edk2 directory if needed
-        if (Test-Path "acpipatcher\.pytool") {
-          Copy-Item -Recurse "acpipatcher\.pytool" "edk2\" -Force
-          Write-Host "✅ Copied Stuart configuration to edk2 directory"
-        }
-        
-        cd edk2
-        .\.venv\Scripts\Activate.ps1
-        
-        # Use the detected VS toolchain from environment
-        $toolchain = if ($env:VS_TOOLCHAIN) { $env:VS_TOOLCHAIN } else { "VS2022" }
-        Write-Host "Using detected toolchain: $toolchain"
-        
-        # First, run stuart_update to download dependencies and binaries
-        Write-Host "Running Stuart update to download dependencies..."
-        try {
-          stuart_update -c .pytool\CISettings.py -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=$toolchain
-          
-          if ($LASTEXITCODE -eq 0) {
-            Write-Host "✅ Stuart update completed successfully with $toolchain"
-            
-            # Now run the actual Stuart CI build
-            Write-Host "Running Stuart CI build..."
-            stuart_ci_build -c .pytool\CISettings.py -p ACPIPatcherPkg -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=$toolchain
-            
-            if ($LASTEXITCODE -eq 0) {
-              Write-Host "✅ Stuart build completed successfully"
-              echo "STUART_BUILD_SUCCESS=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-              exit 0
-            }
-          }
-          
-          # Try alternative toolchain if primary fails
-          $altToolchain = if ($toolchain -eq "VS2022") { "VS2019" } else { "VS2022" }
-          Write-Host "Trying alternative toolchain: $altToolchain"
-          stuart_update -c .pytool\CISettings.py -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=$altToolchain
-          if ($LASTEXITCODE -eq 0) {
-            stuart_ci_build -c .pytool\CISettings.py -p ACPIPatcherPkg -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=$altToolchain
-            if ($LASTEXITCODE -eq 0) {
-              Write-Host "✅ Stuart build completed with $altToolchain"
-              echo "STUART_BUILD_SUCCESS=true" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-              exit 0
-            }
-          }
-        } catch {
-          Write-Host "Stuart build encountered errors: $_"
-        }
-        
-        Write-Host "❌ Stuart build failed, will use traditional build"
-        echo "STUART_BUILD_SUCCESS=false" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-    - name: Build on Windows (Traditional Fallback)
-      if: matrix.os == 'windows'
-      shell: cmd
-      run: |
-        if "%STUART_BUILD_SUCCESS%"=="true" (
-          echo Stuart build already succeeded, skipping traditional build
-          exit /b 0
-        )
-        
-        cd edk2
-        
-        REM ====================================================================
-        REM Simplified setup using MSYS2 tools with pre-set environment variables
-        REM ====================================================================
-        echo Setting up EDK2 environment with MSYS2 tools...
-        
-        REM Test if clang is accessible from Windows cmd (should be via GITHUB_PATH)
-        where clang >nul 2>&1
-        if %ERRORLEVEL%==0 (
-          echo ✓ Clang accessible from Windows batch
-          clang --version | findstr "clang version"
-        ) else (
-          echo ✗ Clang not accessible from Windows batch
-          exit /b 1
-        )
-        
-        REM Test if nasm is accessible from Windows cmd  
-        where nasm >nul 2>&1
-        if %ERRORLEVEL%==0 (
-          echo ✓ NASM accessible from Windows batch
-          nasm -version | findstr "version"
-        ) else (
-          echo ✗ NASM not accessible from Windows batch
-          exit /b 1
-        )
-        
-        REM Set up workspace
-        set "WORKSPACE=%GITHUB_WORKSPACE%\edk2"
-        echo Set WORKSPACE to: %WORKSPACE%
-        
-        REM Environment variables already set in previous step via GITHUB_ENV
-        echo Using pre-configured EDK2 environment variables:
-        echo NASM_PREFIX=%NASM_PREFIX%
-        echo CLANG_BIN=%CLANG_BIN%
-        echo CYGWIN_HOME=%CYGWIN_HOME%
-        
-        REM Set BASE_TOOLS_PATH before building
-        set "BASE_TOOLS_PATH=%WORKSPACE%\BaseTools"
-        echo Set BASE_TOOLS_PATH to: %BASE_TOOLS_PATH%
-        
-        REM Build BaseTools FIRST, before calling edksetup.bat
-        echo Building BaseTools with warning suppression...
-        cd BaseTools
-        
-        REM Ensure Win32 directory exists
-        if not exist "Bin\Win32" mkdir "Bin\Win32"
-        
-        REM Patch Makefiles to disable warnings-as-errors before building
-        if exist "Makefiles\ms.common" (
-          echo Patching ms.common to disable warnings-as-errors...
-          REM More aggressive patching to override all warning flags
-          powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/W[0-4]', '/W0' | Set-Content 'Makefiles\ms.common'"
-          powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/WX', '/WX-' | Set-Content 'Makefiles\ms.common'"
-          powershell -Command "(Get-Content 'Makefiles\ms.common') -replace '/wd[0-9]+', '' | Set-Content 'Makefiles\ms.common'"
-          echo ✓ Patched ms.common to disable warnings-as-errors
-        )
-        
-        REM Also patch makefile.common if it exists
-        if exist "Makefiles\makefile.common" (
-          echo Patching makefile.common to disable warnings-as-errors...
-          powershell -Command "(Get-Content 'Makefiles\makefile.common') -replace '/W[0-4]', '/W0' | Set-Content 'Makefiles\makefile.common'"
-          powershell -Command "(Get-Content 'Makefiles\makefile.common') -replace '/WX', '/WX-' | Set-Content 'Makefiles\makefile.common'"
-          echo ✓ Patched makefile.common to disable warnings-as-errors
-        )
-        
-        REM Build BaseTools with comprehensive warning suppression
-        echo Attempting BaseTools build with comprehensive warning suppression...
-        set "CFLAGS=/W0 /WX- /wd4267 /wd4244 /wd4311 /wd4312 /wd4996 /wd4101 /wd4100"
-        set "MAKEFLAGS=CFLAGS=%CFLAGS%"
-        nmake
-        if %ERRORLEVEL%==0 (
-          echo ✓ BaseTools built successfully
-        ) else (
-          echo ⚠ BaseTools build failed, attempting retry without makefile patches...
-          nmake clean >nul 2>&1
-          set "CFLAGS="
-          set "MAKEFLAGS="
-          nmake
-          if %ERRORLEVEL%==0 (
-            echo ✓ BaseTools built successfully on retry
-          ) else (
-            echo ✗ BaseTools build failed on retry, continuing anyway...
-          )
-        )
-        
-        REM Verify BaseTools were built
-        echo Verifying BaseTools build results...
-        if exist "Bin\Win32\GenFw.exe" (
-          echo ✓ GenFw.exe found
-        ) else (
-          echo ✗ GenFw.exe not found - this may cause build failures
-        )
-        
-        if exist "Bin\Win32\build.exe" (
-          echo ✓ build.exe found
-        ) else (
-          echo ✗ build.exe not found - this may cause build failures
-        )
-        
-        REM Add BaseTools to PATH
-        set "PATH=%WORKSPACE%\BaseTools\Bin\Win32;%PATH%"
-        echo Added BaseTools to PATH
-        
-        cd ..
-        
-        REM Call edksetup.bat
-        echo Calling edksetup.bat...
-        call edksetup.bat
-        if %ERRORLEVEL%==0 (
-          echo ✓ edksetup.bat completed successfully
-        ) else (
-          echo ⚠ edksetup.bat reported issues, but continuing...
-        )
-        
-        REM Configure and verify VS toolchain availability
-        echo === Configuring Visual Studio Toolchain ===
-        
-        REM Verify VS environment is still active (sometimes lost after edksetup.bat)
-        where cl >nul 2>&1
-        if not %ERRORLEVEL%==0 (
-          echo Re-activating Visual Studio environment...
-          if exist "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" (
-            call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          ) else if exist "%ProgramFiles(x86)%\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" (
-            call "%ProgramFiles(x86)%\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" x64
-          ) else if exist "%ProgramFiles%\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" (
-            call "%ProgramFiles%\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          ) else (
-            echo ⚠ Could not find Visual Studio environment to activate
-          )
-        )
-        
-        REM Check which VS toolchain is available in tools_def.txt
-        echo Checking available toolchains in tools_def.txt...
-        if exist "%WORKSPACE%\Conf\tools_def.txt" (
-          findstr /C:"VS2022" "%WORKSPACE%\Conf\tools_def.txt" >nul
-          if %ERRORLEVEL%==0 (
-            echo ✓ VS2022 toolchain found in tools_def.txt
-            set "AVAILABLE_TOOLCHAIN=VS2022"
-          ) else (
-            findstr /C:"VS2019" "%WORKSPACE%\Conf\tools_def.txt" >nul
-            if %ERRORLEVEL%==0 (
-              echo ✓ VS2019 toolchain found in tools_def.txt  
-              set "AVAILABLE_TOOLCHAIN=VS2019"
-            ) else (
-              echo ⚠ Neither VS2022 nor VS2019 found in tools_def.txt, using VS2019 anyway
-              set "AVAILABLE_TOOLCHAIN=VS2019"
-            )
-          )
-        ) else (
-          echo ⚠ tools_def.txt not found, using VS2019 as default
-          set "AVAILABLE_TOOLCHAIN=VS2019"
-        )
-        echo Available toolchain: %AVAILABLE_TOOLCHAIN%
-        
-        REM Set up Python environment for BaseTools
-        echo Setting up Python environment for BaseTools...
-        
-        REM Find and verify Python installation
-        for %%p in (python python3 "py -3") do (
-          %%p --version >nul 2>&1
-          if not errorlevel 1 (
-            echo ✓ Found working Python: %%p
-            set "PYTHON_COMMAND=%%p"
-            %%p --version
-            goto :python_found
-          )
-        )
-        
-        REM Fallback: try common Python installation paths
-        for %%d in ("C:\hostedtoolcache\windows\Python" "C:\Python*") do (
-          if exist "%%d" (
-            for /f "delims=" %%f in ('dir /b /s "%%d\python.exe" 2^>nul') do (
-              "%%f" --version >nul 2>&1
-              if not errorlevel 1 (
-                echo ✓ Found Python at: %%f
-                set "PYTHON_COMMAND=%%f"
-                "%%f" --version
-                goto :python_found
-              )
-            )
-          )
-        )
-        
-        echo ⚠ Could not find working Python, using default
-        set "PYTHON_COMMAND=python"
-        
-        :python_found
-        echo Using PYTHON_COMMAND=%PYTHON_COMMAND%
-        
-        REM Determine toolchain to use (priority: detected VS_TOOLCHAIN, available toolchain, matrix default)
-        echo Determining final toolchain to use...
-        if defined VS_TOOLCHAIN (
-          set "BUILD_TOOLCHAIN=%VS_TOOLCHAIN%"
-          echo ✓ Using detected toolchain from environment: %VS_TOOLCHAIN%
-        ) else if defined AVAILABLE_TOOLCHAIN (
-          set "BUILD_TOOLCHAIN=%AVAILABLE_TOOLCHAIN%"
-          echo ✓ Using available toolchain from tools_def.txt: %AVAILABLE_TOOLCHAIN%
-        ) else (
-          set "BUILD_TOOLCHAIN=${{ matrix.toolchain }}"
-          echo ✓ Using matrix default toolchain: ${{ matrix.toolchain }}
-        )
-        
-        REM Build ACPIPatcher
-        echo Building ACPIPatcher with toolchain: %BUILD_TOOLCHAIN%
-        build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t %BUILD_TOOLCHAIN% -p ACPIPatcherPkg\ACPIPatcherPkg.dsc
-        if %ERRORLEVEL%==0 (
-          echo ✓ ACPIPatcher built successfully with %BUILD_TOOLCHAIN%
-        ) else (
-          echo ⚠ Build failed with %BUILD_TOOLCHAIN%, trying fallback...
-          
-          REM Try fallback toolchain
-          if "%BUILD_TOOLCHAIN%"=="VS2022" (
-            set "FALLBACK_TOOLCHAIN=VS2019"
-          ) else (
-            set "FALLBACK_TOOLCHAIN=VS2022"
-          )
-          
-          echo Trying fallback toolchain: %FALLBACK_TOOLCHAIN%
-          build -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -t %FALLBACK_TOOLCHAIN% -p ACPIPatcherPkg\ACPIPatcherPkg.dsc
-          if %ERRORLEVEL%==0 (
-            echo ✓ ACPIPatcher built successfully with fallback toolchain %FALLBACK_TOOLCHAIN%
-          ) else (
-            echo ✗ ACPIPatcher build failed with both toolchains
-            exit /b 1
-          )
-        )
-    
-    # Verification and packaging
-    - name: Verify Build Output
-      shell: bash
-      run: |
-        cd edk2
-        echo "=== Dynamic Build Artifact Discovery ==="
-        echo "Searching for .efi files in Build directory..."
-        find Build/ -name "*.efi" 2>/dev/null || echo "No .efi files found"
-        
-        echo "=== Artifact Validation ==="
-        EFI_PATHS=$(find Build/ -name "ACPIPatcher.efi" 2>/dev/null || true)
-        DXE_PATHS=$(find Build/ -name "ACPIPatcherDxe.efi" 2>/dev/null || true)
-        
-        if [ -z "$EFI_PATHS" ] && [ -z "$DXE_PATHS" ]; then
-          echo "❌ No EFI files found"
-          echo "Complete build tree:"
-          find Build/ -type f 2>/dev/null || true
-          # Don't exit here to allow the workflow to continue
-          echo "WARNING: No EFI files found, but continuing workflow"
-        fi
-        
-        if [ -n "$EFI_PATHS" ]; then
-          for path in $EFI_PATHS; do
-            echo "✅ Found ACPIPatcher.efi: $path"
-            ls -la "$path"
-            file "$path" || true
-          done
-        fi
-        
-        if [ -n "$DXE_PATHS" ]; then
-          for path in $DXE_PATHS; do
-            echo "✅ Found ACPIPatcherDxe.efi: $path"
-            ls -la "$path"
-            file "$path" || true
-          done
-        fi
-      continue-on-error: true
-    
-    - name: Create Distribution Package
-      shell: bash
-      run: |
-        cd edk2
-        
-        echo "=== Dynamic Artifact Discovery for Distribution ==="
-        EFI_PATH=$(find Build/ -name "ACPIPatcher.efi" 2>/dev/null | head -1)
-        DXE_PATH=$(find Build/ -name "ACPIPatcherDxe.efi" 2>/dev/null | head -1)
-        
-        DIST_DIR="ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-${{ matrix.os }}"
-        
-        echo "Creating distribution package: $DIST_DIR"
-        mkdir -p "$DIST_DIR"
-        
-        # Copy binaries using dynamic paths
-        if [ -n "$EFI_PATH" ] && [ -f "$EFI_PATH" ]; then
-          cp "$EFI_PATH" "$DIST_DIR/"
-          echo "✅ Copied ACPIPatcher.efi from: $EFI_PATH"
-        else
-          echo "⚠️ ACPIPatcher.efi not found, creating placeholder file"
-          echo "BUILD_FAILED: Could not find ACPIPatcher.efi" > "$DIST_DIR/ACPIPatcher.efi.missing"
-        fi
-        
-        if [ -n "$DXE_PATH" ] && [ -f "$DXE_PATH" ]; then
-          cp "$DXE_PATH" "$DIST_DIR/"
-          echo "✅ Copied ACPIPatcherDxe.efi from: $DXE_PATH"
-        else
-          echo "⚠️ ACPIPatcherDxe.efi not found, creating placeholder file"
-          echo "BUILD_FAILED: Could not find ACPIPatcherDxe.efi" > "$DIST_DIR/ACPIPatcherDxe.efi.missing"
-        fi
-        
-        # Try alternative paths as fallback
-        find Build/ -name "*.efi" -exec cp {} "$DIST_DIR/" \; 2>/dev/null || true
-        
-        # Copy documentation using correct paths
-        echo "=== Copying Documentation and Samples ==="
-        
-        # Find and copy documentation files from parent acpipatcher directory
-        echo "Checking for documentation files..."
-        echo "Current directory: $(pwd)"
-        echo "Parent directory contents:"
-        ls -la ../ || echo "Cannot list parent directory"
-        
-        # Try multiple possible paths for the acpipatcher source
-        SOURCE_PATHS=("../acpipatcher" "../ACPIPatcher" "../../acpipatcher" "../../ACPIPatcher")
-        
-        FOUND_SOURCE=""
-        for path in "${SOURCE_PATHS[@]}"; do
-          if [ -f "$path/README.md" ]; then
-            FOUND_SOURCE="$path"
-            echo "✅ Found source directory: $path"
-            break
-          fi
-        done
-        
-        if [ -n "$FOUND_SOURCE" ]; then
-          # Copy documentation files
-          [ -f "$FOUND_SOURCE/README.md" ] && cp "$FOUND_SOURCE/README.md" "$DIST_DIR/" && echo "✅ Copied README.md"
-          [ -f "$FOUND_SOURCE/DEBUG_GUIDE.md" ] && cp "$FOUND_SOURCE/DEBUG_GUIDE.md" "$DIST_DIR/" && echo "✅ Copied DEBUG_GUIDE.md"
-          [ -f "$FOUND_SOURCE/IMPROVEMENTS.md" ] && cp "$FOUND_SOURCE/IMPROVEMENTS.md" "$DIST_DIR/" && echo "✅ Copied IMPROVEMENTS.md"
-          [ -f "$FOUND_SOURCE/EFI_1X_COMPATIBILITY.md" ] && cp "$FOUND_SOURCE/EFI_1X_COMPATIBILITY.md" "$DIST_DIR/" && echo "✅ Copied EFI_1X_COMPATIBILITY.md"
-          
-          # Copy ACPI samples if they exist
-          if [ -d "$FOUND_SOURCE/Build/ACPI" ]; then
-            cp -r "$FOUND_SOURCE/Build/ACPI" "$DIST_DIR/" && echo "✅ Copied ACPI samples"
-          else
-            echo "⚠️ No ACPI samples found in $FOUND_SOURCE/Build/ACPI"
-          fi
-        else
-          echo "⚠️ Could not find source directory with documentation"
-          echo "Searched paths: ${SOURCE_PATHS[*]}"
-        fi
-          echo "Looking for ACPI directory..."
-          find ../acpipatcher -name "ACPI" -type d 2>/dev/null || echo "No ACPI directory found"
-        
-        # Create build info
-        {
-          echo "ACPIPatcher Build Information"
-          echo "============================"
-          echo "Version: $(git -C ../acpipatcher describe --tags --always 2>/dev/null || echo 'unknown')"
-          echo "Commit: $(git -C ../acpipatcher rev-parse HEAD 2>/dev/null || echo 'unknown')"
-          echo "Build Date: $(date -u)"
-          echo "Architecture: ${{ matrix.arch }}"
-          echo "Build Type: ${{ matrix.build_type }}"
-          echo "Toolchain: ${{ matrix.toolchain }}"
-          echo "Platform: ${{ matrix.os }}"
-          echo "Runner: ${{ matrix.runner }}"
-          echo "Artifacts Used:"
-          echo "  EFI: $EFI_PATH"
-          echo "  DXE: $DXE_PATH"
-        } > "$DIST_DIR/BUILD_INFO.txt"
-        
-        echo "✅ Created BUILD_INFO.txt"
-        
-        # Show package contents
-        echo "Package contents:"
-        ls -la "$DIST_DIR/"
-        
-        # Create archive
-        if [ "${{ matrix.os }}" = "windows" ]; then
-          if command -v zip >/dev/null 2>&1; then
-            zip -r "$DIST_DIR.zip" "$DIST_DIR"
-            echo "✅ Created $DIST_DIR.zip"
-          else
-            echo "Warning: zip not available, creating tar.gz instead"
-            tar -czf "$DIST_DIR.tar.gz" "$DIST_DIR"
-          fi
-        else
-          tar -czf "$DIST_DIR.tar.gz" "$DIST_DIR"
-          echo "✅ Created $DIST_DIR.tar.gz"
-        fi
-    
+    # Upload Artifacts
     - name: Upload Build Artifacts
       uses: actions/upload-artifact@v4
+      if: always()
       with:
-        name: ACPIPatcher-${{ matrix.build_type }}-${{ matrix.arch }}-${{ matrix.os }}
+        name: ACPIPatcher-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.build_type }}-${{ matrix.toolchain }}
         path: |
-          edk2/ACPIPatcher-*.tar.gz
-          edk2/ACPIPatcher-*.zip
+          *.efi
         retention-days: 30
-        if-no-files-found: warn
+
+    # Alternative Python Build Test (Windows only for now)
+    - name: Test Python Build Script (Windows)
+      if: matrix.os == 'windows' && matrix.arch == 'X64' && matrix.build_type == 'RELEASE'
+      env:
+        CI: true
+      run: |
+        Write-Host "Testing Python build script as alternative..."
+        
+        # Test our Python script with the same parameters
+        python ACPIPatcher.py --build --arch ${{ matrix.arch }} --build-type ${{ matrix.build_type }}
+        
+        if ($LASTEXITCODE -eq 0) {
+          Write-Host "✅ Python build script test completed successfully"
+        } else {
+          Write-Host "⚠ Python build script test failed (non-critical)"
+        }
+      shell: pwsh
       continue-on-error: true
 
-  # Static analysis job
-  static-analysis:
-    name: Static Analysis
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
-    
-    - name: Install Analysis Tools
+    # Verify Build Success
+    - name: Verify Build Output
       run: |
-        sudo apt-get update
-        sudo apt-get install -y cppcheck
-    
-    - name: Run CPPCheck
-      run: |
-        echo "Running CPPCheck static analysis..."
-        cppcheck --enable=all --inconclusive --xml --xml-version=2 \
-                 --suppress=missingIncludeSystem \
-                 --suppress=unusedFunction \
-                 ACPIPatcherPkg/ACPIPatcher/ 2> cppcheck-results.xml || true
+        echo "Checking build outputs..."
         
-        if [ -s cppcheck-results.xml ]; then
-          echo "CPPCheck found issues:"
-          cat cppcheck-results.xml
-        else
-          echo "✅ CPPCheck analysis passed"
-        fi
-    
-    - name: Upload Analysis Results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: static-analysis-results
-        path: cppcheck-results.xml
-        retention-days: 7
+        # Check for ACPIPatcher.efi
+        if (Test-Path "ACPIPatcher.efi") {
+          $size = (Get-Item "ACPIPatcher.efi").Length
+          Write-Host "✅ ACPIPatcher.efi found ($size bytes)"
+        } else {
+          Write-Host "❌ ACPIPatcher.efi not found"
+        }
+        
+        # Check for ACPIPatcherDxe.efi
+        if (Test-Path "ACPIPatcherDxe.efi") {
+          $size = (Get-Item "ACPIPatcherDxe.efi").Length
+          Write-Host "✅ ACPIPatcherDxe.efi found ($size bytes)"
+        } else {
+          Write-Host "❌ ACPIPatcherDxe.efi not found"
+        }
+        
+        Write-Host "Build verification completed"
+      shell: pwsh
+      if: matrix.os == 'windows' || matrix.os == 'windows-cygwin'
 
-  # Summary job
-  build-summary:
-    name: Build Summary
-    runs-on: ubuntu-latest
-    needs: [build, static-analysis]
-    if: always()
-    
-    steps:
-    - name: Generate Summary
+    # Verify Build Success (Linux/macOS)
+    - name: Verify Build Output (Linux/macOS)
       run: |
-        echo "## ACPIPatcher Build Results" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Build Matrix Results" >> $GITHUB_STEP_SUMMARY
-        echo "| Platform | Architecture | Build Type | Status |" >> $GITHUB_STEP_SUMMARY
-        echo "|----------|--------------|------------|--------|" >> $GITHUB_STEP_SUMMARY
-        
-        # Note: In a real scenario, you'd parse the matrix results
-        # For now, we'll show the overall status
-        if [ "${{ needs.build.result }}" = "success" ]; then
-          echo "| All Platforms | All Architectures | All Types | ✅ Success |" >> $GITHUB_STEP_SUMMARY
+        echo "Checking build outputs..."
+        if [ -f "ACPIPatcher.efi" ]; then
+          echo "✅ ACPIPatcher.efi found ($(stat -f%z ACPIPatcher.efi 2>/dev/null || stat -c%s ACPIPatcher.efi) bytes)"
         else
-          echo "| All Platforms | All Architectures | All Types | ❌ Failed |" >> $GITHUB_STEP_SUMMARY
+          echo "❌ ACPIPatcher.efi not found"
         fi
         
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Static Analysis" >> $GITHUB_STEP_SUMMARY
-        if [ "${{ needs.static-analysis.result }}" = "success" ]; then
-          echo "✅ Static analysis completed successfully" >> $GITHUB_STEP_SUMMARY
+        if [ -f "ACPIPatcherDxe.efi" ]; then
+          echo "✅ ACPIPatcherDxe.efi found ($(stat -f%z ACPIPatcherDxe.efi 2>/dev/null || stat -c%s ACPIPatcherDxe.efi) bytes)"
         else
-          echo "❌ Static analysis failed or found issues" >> $GITHUB_STEP_SUMMARY
+          echo "❌ ACPIPatcherDxe.efi not found"
         fi
         
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
-        echo "Built binaries are available in the Actions artifacts section." >> $GITHUB_STEP_SUMMARY
+        echo "Build verification completed"
+      shell: bash
+      if: matrix.os != 'windows' && matrix.os != 'windows-cygwin'

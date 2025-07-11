@@ -7,7 +7,7 @@ An EFI application and driver to add SSDTs and/or patch in your own DSDT
 [![GitHub release](https://img.shields.io/github/v/release/startergo/ACPIPatcher)](https://github.com/startergo/ACPIPatcher/releases)
 [![License](https://img.shields.io/github/license/startergo/ACPIPatcher)](LICENSE)
 
-> **✨ Recently Enhanced**: This project has been significantly improved with better error handling, memory management, comprehensive CI/CD automation, and extensive documentation. See [IMPROVEMENTS.md](IMPROVEMENTS.md) and [CI_CD_FIXES.md](CI_CD_FIXES.md) for details.
+> **🚀 Clean & Simple**: This project has been streamlined with a focus on reliability and ease of use. The build system now uses traditional EDK2 tools for maximum compatibility and minimal dependencies.
 
 I made this tool because I wanted a way to use [RehabMans ACPI Debug tool](https://github.com/RehabMan/OS-X-ACPI-Debug) on my MacBook Pro without using Clover's built-in ACPI patching. Although I made this with macOS in mind, it will work with any OS along with any EFI/UEFI-compatible bootloader. This tool is particularly useful for older Mac hardware (like MacPro5,1) that uses EFI 1.x firmware.
 

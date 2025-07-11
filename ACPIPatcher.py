@@ -1,271 +1,326 @@
 #!/usr/bin/env python3
 """
-ACPIPatcher Platform Build Script for Stuart
+ACPIPatcher Build Script
 
-This script provides platform-specific build customization for the Stuart build system.
-It extends the base Stuart functionality with ACPIPatcher-specific configurations.
+Simple, reliable build script for ACPIPatcher UEFI application.
+Uses traditional EDK2 build system without external dependencies.
 """
 
 import os
 import sys
+import subprocess
+import platform
+import shutil
+import argparse
 import logging
-from pathlib import Path
 
-# Stuart imports - these will be available when edk2-pytool-extensions is installed
-try:
-    from edk2toolext.environment import shell_environment
-    from edk2toolext.environment.uefi_build import UefiBuilder
-    from edk2toolext.invocables.edk2_platform_build import BuildSettingsManager
-    from edk2toolext.invocables.edk2_pr_eval import PrEvalSettingsManager
-    from edk2toolext.invocables.edk2_setup import SetupSettingsManager
-    from edk2toolext.invocables.edk2_update import UpdateSettingsManager
-    from edk2toollib.utility_functions import RunCmd
-    STUART_AVAILABLE = True
-except ImportError:
-    STUART_AVAILABLE = False
-    logging.warning("Stuart dependencies not available - this script requires edk2-pytool-extensions")
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
-class ACPIPatcherSettingsManager:
-    """Settings manager for ACPIPatcher Stuart builds"""
+class ACPIPatcherBuilder:
+    """Simple builder for ACPIPatcher using traditional EDK2 build system"""
     
-    def __init__(self):
-        if not STUART_AVAILABLE:
-            raise ImportError("Stuart dependencies not available")
+    def __init__(self, arch='X64', build_type='RELEASE', toolchain=None):
+        self.script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.workspace = self.script_dir
+        self.edk2_path = os.path.join(self.workspace, "temp_edk2")
+        self.package_path = os.path.join(self.workspace, "ACPIPatcherPkg")
+        self.arch = arch
+        self.build_type = build_type
+        self.toolchain = toolchain
+        self.is_ci = os.environ.get('CI', '').lower() == 'true'
         
-        # Mix in the required base classes
-        self.__class__.__bases__ = (BuildSettingsManager, SetupSettingsManager, UpdateSettingsManager, PrEvalSettingsManager)
+    def detect_python(self):
+        """Detect available Python executable"""
+        python_candidates = ['python3', 'python', 'py']
         
-        self.workspace = Path(os.path.abspath(__file__)).parent
-        self.package_name = "ACPIPatcherPkg"
+        for candidate in python_candidates:
+            try:
+                result = subprocess.run([candidate, '--version'], 
+                                      capture_output=True, text=True, timeout=10)
+                if result.returncode == 0 and 'Python 3' in result.stdout:
+                    logging.info(f"✓ Found Python: {candidate}")
+                    return candidate
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                continue
+                
+        logging.error("No suitable Python 3 found")
+        return None
         
-    def GetActiveScopes(self):
-        """Return active scopes for the build"""
-        return ["acpipatcher", "edk2-build"]
-    
-    def GetWorkspaceRoot(self):
-        """Return the workspace root directory"""
-        return str(self.workspace)
-    
-    def GetPackagesPath(self):
-        """Return paths to packages"""
-        return [str(self.workspace)]
-    
-    def GetName(self):
-        """Return the name of the platform"""
-        return "ACPIPatcher"
-    
-    def GetPackagesSupported(self):
-        """Return list of supported packages"""
-        return [self.package_name]
-    
-    def GetArchitecturesSupported(self):
-        """Return list of supported architectures"""
-        return ["IA32", "X64"]
-    
-    def GetTargetsSupported(self):
-        """Return list of supported build targets"""
-        return ["DEBUG", "RELEASE", "NOOPT"]
-    
-    def GetRequiredSubmodules(self):
-        """Return required submodules"""
-        return [
-            "BaseTools/Source/C/BrotliCompress/brotli",
-            "CryptoPkg/Library/OpensslLib/openssl", 
-            "MdeModulePkg/Library/BrotliCustomDecompressLib/brotli",
-            "UnitTestFrameworkPkg/Library/CmockaLib/cmocka"
-        ]
-    
-    def SetPlatformEnv(self):
-        """Set platform-specific environment variables"""
-        shell_environment.GetEnvironment().set_shell_var("ACTIVE_PLATFORM", f"{self.package_name}/{self.package_name}.dsc")
-        shell_environment.GetEnvironment().set_shell_var("TARGET_ARCH", "IA32 X64")
+    def detect_toolchain(self):
+        """Auto-detect available toolchain"""
+        # Use specified toolchain if provided
+        if self.toolchain:
+            logging.info(f"Using specified toolchain: {self.toolchain}")
+            return self.toolchain
+            
+        system = platform.system()
         
-        # Set toolchain-specific variables
-        tool_chain = shell_environment.GetEnvironment().get_shell_var("TOOL_CHAIN_TAG")
-        if tool_chain:
-            if tool_chain.startswith("VS"):
-                shell_environment.GetEnvironment().set_shell_var("TOOL_CHAIN_TAG", tool_chain)
-            elif tool_chain == "GCC5":
-                shell_environment.GetEnvironment().set_shell_var("TOOL_CHAIN_TAG", "GCC5")
-                # Additional GCC5 setup if needed
+        if system == "Windows":
+            # Check for Visual Studio
+            try:
+                result = subprocess.run(['where', 'cl'], capture_output=True, text=True)
+                if result.returncode == 0:
+                    logging.info("✓ Visual Studio compiler detected")
+                    # Try to detect VS version from environment
+                    if 'VS2022' in os.environ.get('PATH', '') or 'VS170COMNTOOLS' in os.environ:
+                        return 'VS2022'
+                    elif 'VS2019' in os.environ.get('PATH', '') or 'VS160COMNTOOLS' in os.environ:
+                        return 'VS2019'
+                    else:
+                        return 'VS2019'  # Default fallback
+            except FileNotFoundError:
+                pass
+                
+            # Check for Cygwin GCC
+            cygwin_paths = [
+                os.path.join(os.environ.get('SystemDrive', 'C:'), 'cygwin64', 'bin', 'gcc.exe'),
+                os.path.join(os.environ.get('SystemDrive', 'C:'), 'cygwin', 'bin', 'gcc.exe'),
+                os.path.join(os.environ.get('ProgramFiles', ''), 'cygwin64', 'bin', 'gcc.exe'),
+                os.path.join(os.environ.get('ProgramFiles', ''), 'cygwin', 'bin', 'gcc.exe'),
+                r'C:\tools\cygwin\bin\gcc.exe'  # GitHub Actions location
+            ]
+            
+            for gcc_path in cygwin_paths:
+                if os.path.exists(gcc_path):
+                    logging.info(f"✓ Cygwin GCC found at {os.path.dirname(gcc_path)}")
+                    os.environ['BASETOOLS_CYGWIN_BUILD'] = 'TRUE'
+                    os.environ['BASETOOLS_CYGWIN_PATH'] = os.path.dirname(os.path.dirname(gcc_path))
+                    return 'GCC5'
+                    
+        else:  # Linux/macOS
+            # Check for GCC
+            try:
+                result = subprocess.run(['gcc', '--version'], capture_output=True, text=True)
+                if result.returncode == 0:
+                    logging.info("✓ GCC found")
+                    return 'GCC5'
+            except FileNotFoundError:
+                pass
+                
+            # Check for Clang
+            try:
+                result = subprocess.run(['clang', '--version'], capture_output=True, text=True)
+                if result.returncode == 0:
+                    logging.info("✓ Clang found")
+                    os.environ['CC'] = 'clang'
+                    os.environ['CXX'] = 'clang++'
+                    if system == "Darwin":  # macOS
+                        return 'XCODE5'
+                    else:
+                        return 'CLANG38'
+            except FileNotFoundError:
+                pass
+                
+        logging.warning("No suitable toolchain detected")
+        return 'GCC5'  # Default fallback
         
-        return 0
-    
-    def SetArchitectures(self, list_of_requested_architectures):
-        """Set target architectures"""
-        self.architectures = " ".join(list_of_requested_architectures)
-        shell_environment.GetEnvironment().set_shell_var("TARGET_ARCH", self.architectures)
-        return self.architectures.split()
-    
-    def GetPlatformDscAndConfig(self):
-        """Return platform DSC and configuration"""
-        return (f"{self.package_name}/{self.package_name}.dsc", {})
-    
-    def GetLoggingLevel(self, loggerType):
-        """Return logging level"""
-        return logging.INFO
-    
-    def FilterPackagesToTest(self, changedFilesList, potentialPackagesList):
-        """Filter packages to test based on changed files"""
-        # Always test ACPIPatcher if any files changed
-        if changedFilesList:
-            return [self.package_name]
-        return []
-    
-    def GetPlatformName(self):
-        """Return platform name"""
-        return "ACPIPatcher"
-    
-    def GetCustomBuildCommands(self):
-        """Return custom build commands"""
-        commands = []
+    def setup_edk2_environment(self):
+        """Set up EDK2 environment variables"""
+        logging.info("Setting up EDK2 environment...")
         
-        # Add custom pre-build commands
-        commands.append({
-            "name": "Pre-build validation",
-            "command": "python",
-            "args": ["-c", "print('Starting ACPIPatcher build validation...')"],
-            "working_dir": str(self.workspace)
-        })
+        os.environ['WORKSPACE'] = self.edk2_path
+        os.environ['EDK_TOOLS_PATH'] = os.path.join(self.edk2_path, 'BaseTools')
+        os.environ['BASE_TOOLS_PATH'] = os.path.join(self.edk2_path, 'BaseTools')
+        os.environ['CONF_PATH'] = os.path.join(self.edk2_path, 'Conf')
         
-        return commands
-    
-    def GetCustomPostBuildCommands(self):
-        """Return custom post-build commands"""
-        commands = []
+        # Detect and set Python
+        python_cmd = self.detect_python()
+        if python_cmd:
+            os.environ['PYTHON_COMMAND'] = python_cmd
         
-        # Add custom post-build commands
-        commands.append({
-            "name": "Post-build validation",
-            "command": "python",
-            "args": ["-c", "print('ACPIPatcher build completed successfully!')"],
-            "working_dir": str(self.workspace)
-        })
-        
-        return commands
-
-class ACPIPatcherPlatformBuilder:
-    """Platform-specific builder for ACPIPatcher"""
-    
-    def __init__(self):
-        if not STUART_AVAILABLE:
-            raise ImportError("Stuart dependencies not available")
-        
-        # Mix in the required base class
-        self.__class__.__bases__ = (UefiBuilder,)
-        
-        self.settings = ACPIPatcherSettingsManager()
-        super().__init__()
-    
-    def SetPlatformEnv(self):
-        """Set platform environment"""
-        self.settings.SetPlatformEnv()
-        return 0
-    
-    def PlatformPreBuild(self):
-        """Pre-build platform setup"""
-        logging.info("ACPIPatcher Pre-build setup")
-        
-        # Verify required files exist
-        required_files = [
-            f"{self.settings.package_name}/{self.settings.package_name}.dsc",
-            f"{self.settings.package_name}/ACPIPatcher/ACPIPatcher.inf"
+        # Set NASM if available
+        nasm_locations = [
+            'nasm',  # In PATH
+            os.path.join(os.environ.get('ProgramFiles', ''), 'NASM', 'nasm.exe'),
+            os.path.join(os.environ.get('ProgramFiles(x86)', ''), 'NASM', 'nasm.exe'),
+            os.path.join(os.environ.get('SystemDrive', 'C:'), 'NASM', 'nasm.exe')
         ]
         
-        for file in required_files:
-            file_path = Path(self.settings.workspace) / file
-            if not file_path.exists():
-                logging.error(f"Required file not found: {file}")
-                return 1
-        
-        logging.info("All required files verified")
-        return 0
-    
-    def PlatformPostBuild(self):
-        """Post-build platform cleanup"""
-        logging.info("ACPIPatcher Post-build cleanup")
-        
-        # Verify build outputs
-        build_output_base = Path(self.settings.workspace) / "Build"
-        efi_files = list(build_output_base.rglob("*.efi"))
-        
-        if efi_files:
-            logging.info(f"Found {len(efi_files)} EFI files:")
-            for efi_file in efi_files:
-                logging.info(f"  - {efi_file}")
+        for nasm_path in nasm_locations:
+            try:
+                if nasm_path == 'nasm':
+                    result = subprocess.run(['nasm', '-v'], capture_output=True, text=True)
+                    if result.returncode == 0:
+                        logging.info("✓ NASM found in PATH")
+                        break
+                elif os.path.exists(nasm_path):
+                    os.environ['NASM_PREFIX'] = os.path.dirname(nasm_path) + os.sep
+                    logging.info(f"✓ NASM found at {nasm_path}")
+                    break
+            except FileNotFoundError:
+                continue
         else:
-            logging.warning("No EFI files found in build output")
+            logging.warning("NASM not found - assembly compilation may fail")
+            
+    def check_edk2_workspace(self):
+        """Check if EDK2 workspace is properly set up"""
+        if not os.path.exists(self.edk2_path):
+            logging.error(f"EDK2 workspace not found at {self.edk2_path}")
+            logging.error("Please run the setup script first to clone EDK2")
+            return False
+            
+        basetools_path = os.path.join(self.edk2_path, 'BaseTools')
+        if not os.path.exists(basetools_path):
+            logging.error("BaseTools not found in EDK2 workspace")
+            return False
+            
+        package_in_edk2 = os.path.join(self.edk2_path, 'ACPIPatcherPkg')
+        if not os.path.exists(package_in_edk2):
+            logging.error("ACPIPatcherPkg not found in EDK2 workspace")
+            logging.error("Please run the setup script first to copy the package")
+            return False
+            
+        return True
         
-        return 0
-    
-    def PlatformFlashImage(self):
-        """Flash image creation (not applicable for ACPIPatcher)"""
-        logging.info("ACPIPatcher does not require flash image creation")
-        return 0
-
+    def build_basetools(self):
+        """Build EDK2 BaseTools"""
+        logging.info("Building BaseTools...")
+        
+        # Change to EDK2 directory
+        original_cwd = os.getcwd()
+        os.chdir(self.edk2_path)
+        
+        try:
+            system = platform.system()
+            
+            if system == "Windows":
+                # Run edksetup.bat
+                cmd = ['cmd', '/c', 'edksetup.bat', 'ForceRebuild']
+                if 'BASETOOLS_CYGWIN_BUILD' in os.environ:
+                    logging.info("Building BaseTools with Cygwin...")
+            else:
+                # Run edksetup.sh
+                cmd = ['bash', '-c', 'source edksetup.sh BaseTools']
+                
+            result = subprocess.run(cmd, cwd=self.edk2_path)
+            
+            if result.returncode != 0:
+                logging.error("Failed to build BaseTools")
+                return False
+                
+            logging.info("✓ BaseTools built successfully")
+            return True
+            
+        finally:
+            os.chdir(original_cwd)
+            
+    def build_acpi_patcher(self):
+        """Build ACPIPatcher package"""
+        logging.info("Building ACPIPatcher...")
+        
+        # Ensure EDK2 environment is set up
+        self.setup_edk2_environment()
+        
+        if not self.check_edk2_workspace():
+            return False
+            
+        # Detect toolchain
+        toolchain = self.detect_toolchain()
+        logging.info(f"Using toolchain: {toolchain}")
+        
+        # Change to EDK2 directory
+        original_cwd = os.getcwd()
+        os.chdir(self.edk2_path)
+        
+        try:
+            # Build BaseTools if needed
+            if not self.build_basetools():
+                return False
+                
+            # Set up configuration files
+            conf_dir = os.path.join(self.edk2_path, 'Conf')
+            os.makedirs(conf_dir, exist_ok=True)
+            
+            # Copy template files if they don't exist
+            template_files = [
+                ('target.template', 'target.txt'),
+                ('tools_def.template', 'tools_def.txt'),
+                ('build_rule.template', 'build_rule.txt')
+            ]
+            
+            basetools_conf = os.path.join(self.edk2_path, 'BaseTools', 'Conf')
+            for template, target in template_files:
+                template_path = os.path.join(basetools_conf, template)
+                target_path = os.path.join(conf_dir, target)
+                
+                if os.path.exists(template_path) and not os.path.exists(target_path):
+                    shutil.copy2(template_path, target_path)
+                    logging.info(f"Copied {template} to {target}")
+                    
+            # Run the build
+            build_cmd = [
+                'build',
+                '-a', self.arch,
+                '-b', self.build_type, 
+                '-t', toolchain,
+                '-p', 'ACPIPatcherPkg/ACPIPatcherPkg.dsc'
+            ]
+            
+            logging.info(f"Running: {' '.join(build_cmd)}")
+            result = subprocess.run(build_cmd, cwd=self.edk2_path)
+            
+            if result.returncode != 0:
+                logging.error("Build failed")
+                return False
+                
+            # Copy output files
+            build_output_dir = os.path.join(self.edk2_path, 'Build', 'ACPIPatcher', f'{self.build_type}_{toolchain}', self.arch)
+            
+            output_files = [
+                'ACPIPatcher.efi',
+                'ACPIPatcherDxe.efi'
+            ]
+            
+            for output_file in output_files:
+                src_path = os.path.join(build_output_dir, output_file)
+                dst_path = os.path.join(self.workspace, output_file)
+                
+                if os.path.exists(src_path):
+                    shutil.copy2(src_path, dst_path)
+                    file_size = os.path.getsize(dst_path)
+                    logging.info(f"✓ {output_file} copied ({file_size:,} bytes)")
+                else:
+                    logging.warning(f"Output file not found: {output_file}")
+                    
+            logging.info("✓ Build completed successfully")
+            return True
+            
+        finally:
+            os.chdir(original_cwd)
+            
 def main():
-    """Main entry point for ACPIPatcher Stuart build"""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="ACPIPatcher Stuart Build Script")
-    parser.add_argument("--build", action="store_true", help="Run build process")
-    parser.add_argument("--setup", action="store_true", help="Run setup process")
-    parser.add_argument("--update", action="store_true", help="Run update process")
-    parser.add_argument("--clean", action="store_true", help="Clean build outputs")
-    parser.add_argument("--arch", default="X64", help="Target architecture")
-    parser.add_argument("--target", default="RELEASE", help="Build target")
-    parser.add_argument("--toolchain", default="VS2019", help="Toolchain to use")
+    """Main entry point"""
+    parser = argparse.ArgumentParser(description='Build ACPIPatcher UEFI application')
+    parser.add_argument('--build', action='store_true', help='Build the project')
+    parser.add_argument('--clean', action='store_true', help='Clean build artifacts')
+    parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
+    parser.add_argument('--arch', '-a', default='X64', choices=['X64', 'IA32', 'AARCH64'], 
+                        help='Target architecture (default: X64)')
+    parser.add_argument('--build-type', '-b', default='RELEASE', choices=['RELEASE', 'DEBUG'],
+                        help='Build type (default: RELEASE)')
+    parser.add_argument('--toolchain', '-t', help='Toolchain to use (auto-detected if not specified)')
     
     args = parser.parse_args()
     
-    # Set up logging
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    
-    if not STUART_AVAILABLE:
-        logging.error("Stuart dependencies not available. Please install edk2-pytool-extensions.")
-        return 1
-    
-    settings = ACPIPatcherSettingsManager()
-    
-    if args.setup:
-        logging.info("Running ACPIPatcher Stuart setup...")
-        # Setup logic would go here
-        return 0
-    
-    if args.update:
-        logging.info("Running ACPIPatcher Stuart update...")
-        # Update logic would go here
-        return 0
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+        
+    builder = ACPIPatcherBuilder(arch=args.arch, build_type=args.build_type, toolchain=args.toolchain)
     
     if args.clean:
-        logging.info("Cleaning ACPIPatcher build outputs...")
-        build_dir = Path(settings.workspace) / "Build"
-        if build_dir.exists():
-            import shutil
+        # Clean build artifacts
+        build_dir = os.path.join(builder.edk2_path, 'Build')
+        if os.path.exists(build_dir):
             shutil.rmtree(build_dir)
-            logging.info("Build directory cleaned")
-        return 0
-    
+            logging.info("Build artifacts cleaned")
+        return
+        
     if args.build:
-        logging.info("Running ACPIPatcher Stuart build...")
-        builder = ACPIPatcherPlatformBuilder()
-        
-        # Set environment variables
-        os.environ["TARGET_ARCH"] = args.arch
-        os.environ["TARGET"] = args.target
-        os.environ["TOOL_CHAIN_TAG"] = args.toolchain
-        
-        # Run build
-        ret = builder.Go()
-        if ret != 0:
-            logging.error("Build failed")
-            return ret
-        
-        logging.info("Build completed successfully")
-        return 0
-    
-    parser.print_help()
-    return 0
+        success = builder.build_acpi_patcher()
+        sys.exit(0 if success else 1)
+    else:
+        parser.print_help()
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
