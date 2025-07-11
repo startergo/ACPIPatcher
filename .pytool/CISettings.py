@@ -15,11 +15,9 @@ from edk2toolext.invocables.edk2_ci_build import CiBuildSettingsManager
 from edk2toolext.invocables.edk2_setup import SetupSettingsManager, RequiredSubmodule
 from edk2toolext.invocables.edk2_update import UpdateSettingsManager
 from edk2toolext.invocables.edk2_pr_eval import PrEvalSettingsManager
-from edk2toolext.invocables.edk2_platform_build import PlatformSettingsManager
-from edk2toollib.utility_functions import GetHostInfo
 
 
-class Settings(CiBuildSettingsManager, UpdateSettingsManager, SetupSettingsManager, PrEvalSettingsManager, PlatformSettingsManager):
+class Settings(CiBuildSettingsManager, UpdateSettingsManager, SetupSettingsManager, PrEvalSettingsManager):
 
     def __init__(self):
         self.ActualPackages = []
