@@ -417,6 +417,62 @@ jobs:
         echo "✅ Build completed successfully"
       shell: bash
 
+    # Build EDK2 BaseTools (Windows VS2022) - Separate step for better control
+    - name: Build EDK2 BaseTools (Windows)
+      if: matrix.os == 'windows'
+      run: |
+        Write-Host "Building EDK2 BaseTools with warnings-as-errors disabled..."
+        
+        # Navigate to EDK2 directory
+        if (Test-Path "temp_edk2") {
+          cd temp_edk2
+        } else {
+          Write-Host "EDK2 directory not found - cloning fresh copy..."
+          git clone --depth 1 --single-branch https://github.com/tianocore/edk2.git temp_edk2
+          cd temp_edk2
+        }
+        
+        # Disable warnings as errors for BaseTools build only
+        $env:CL = "/WX-"
+        Write-Host "Set CL=/WX- to disable warnings as errors for BaseTools"
+        
+        # Build BaseTools using EDK2 standard approach
+        Write-Host "Running edksetup.bat ForceRebuild..."
+        cmd /c "edksetup.bat ForceRebuild"
+        
+        if ($LASTEXITCODE -eq 0) {
+          Write-Host "✅ BaseTools build completed successfully"
+        } else {
+          Write-Host "❌ BaseTools build failed with exit code $LASTEXITCODE"
+          exit $LASTEXITCODE
+        }
+        
+        # Verify critical BaseTools were created
+        $requiredTools = @("GenFw.exe", "GenFv.exe", "GenFfs.exe", "GenSec.exe")
+        $toolsFound = 0
+        
+        foreach ($tool in $requiredTools) {
+          $toolPath = ""
+          if (Test-Path "BaseTools\Bin\Win32\$tool") {
+            $toolPath = "BaseTools\Bin\Win32\$tool"
+            $toolsFound++
+          } elseif (Test-Path "BaseTools\Source\C\bin\$tool") {
+            $toolPath = "BaseTools\Source\C\bin\$tool"
+            $toolsFound++
+          }
+          
+          if ($toolPath) {
+            Write-Host "✅ $tool found at $toolPath"
+          } else {
+            Write-Host "❌ $tool not found"
+          }
+        }
+        
+        Write-Host "BaseTools verification: $toolsFound/$($requiredTools.Count) tools found"
+        
+        cd ..
+      shell: pwsh
+
     # Build with Traditional EDK2 (Windows VS2022)
     - name: Build with EDK2 (Windows VS2022)
       if: matrix.os == 'windows'
@@ -436,139 +492,41 @@ jobs:
         & cl 2>&1 | Select-Object -First 1
         & link 2>&1 | Select-Object -First 1
         
-        # Verify submodules are properly initialized before build
-        Write-Host "Verifying EDK2 submodules before build..."
+        # Navigate to EDK2 directory and set up environment
+        cd temp_edk2
         
-        # Configure Git to use HTTPS for GitHub URLs to avoid SSH authentication issues
-        git config --global url."https://github.com/".insteadOf "git@github.com:"
-        git config --global url."https://".insteadOf "git://"
+        # Set up EDK2 environment (BaseTools already built in previous step)
+        Write-Host "Setting up EDK2 environment..."
+        cmd /c "edksetup.bat"
         
-        if (Test-Path "temp_edk2") {
-          $missingSubmodules = @()
-          
-          if (-not (Test-Path "temp_edk2\MdePkg\Library\MipiSysTLib\mipisyst")) {
-            $missingSubmodules += "MipiSysTLib"
-          }
-          
-          if (-not (Test-Path "temp_edk2\BaseTools\Source\C\BrotliCompress\brotli")) {
-            $missingSubmodules += "BrotliCompress"
-          }
-          
-          if (-not (Test-Path "temp_edk2\CryptoPkg\Library\OpensslLib\openssl")) {
-            $missingSubmodules += "OpensslLib"
-          }
-          
-          if ($missingSubmodules.Count -gt 0) {
-            Write-Host "Missing submodules detected: $($missingSubmodules -join ', ')"
-            Write-Host "Initializing missing submodules with HTTPS authentication..."
-            cd temp_edk2
-            
-            # Configure local git settings for this repository
-            git config --local url."https://github.com/".insteadOf "git@github.com:"
-            git config --local url."https://".insteadOf "git://"
-            git config --local http.lowSpeedLimit 1000
-            git config --local http.lowSpeedTime 60
-            
-            # Try individual submodules first for better success rate
-            $successCount = 0
-            foreach ($submodule in $missingSubmodules) {
-              Write-Host "Initializing $submodule..."
-              try {
-                switch ($submodule) {
-                  "MipiSysTLib" {
-                    Write-Host "  Updating MdePkg/Library/MipiSysTLib..."
-                    $result = git submodule update --init --recursive MdePkg/Library/MipiSysTLib 2>&1
-                    Write-Host "  Git output: $result"
-                    if (Test-Path "MdePkg\Library\MipiSysTLib\mipisyst\library\include") {
-                      Write-Host "  ✓ MipiSysTLib initialized successfully"
-                      $successCount++
-                    } else {
-                      Write-Host "  ⚠ MipiSysTLib path still missing after init"
-                    }
-                  }
-                  "BrotliCompress" {
-                    Write-Host "  Updating BaseTools/Source/C/BrotliCompress..."
-                    $result = git submodule update --init --recursive BaseTools/Source/C/BrotliCompress 2>&1
-                    Write-Host "  Git output: $result"
-                    if (Test-Path "BaseTools\Source\C\BrotliCompress\brotli") {
-                      Write-Host "  ✓ BrotliCompress initialized successfully"
-                      $successCount++
-                    } else {
-                      Write-Host "  ⚠ BrotliCompress path still missing after init"
-                    }
-                  }
-                  "OpensslLib" {
-                    Write-Host "  Updating CryptoPkg/Library/OpensslLib..."
-                    $result = git submodule update --init --recursive CryptoPkg/Library/OpensslLib 2>&1
-                    Write-Host "  Git output: $result"
-                    if (Test-Path "CryptoPkg\Library\OpensslLib\openssl") {
-                      Write-Host "  ✓ OpensslLib initialized successfully"
-                      $successCount++
-                    } else {
-                      Write-Host "  ⚠ OpensslLib path still missing after init"
-                    }
-                  }
-                }
-              } catch {
-                Write-Host "  ❌ Error initializing $submodule : $_"
-              }
-            }
-            
-            Write-Host "Submodule initialization completed: $successCount/$($missingSubmodules.Count) successful"
-            
-            # Final verification
-            Write-Host "Final submodule status check:"
-            Write-Host "  MipiSysTLib: $(Test-Path "MdePkg\Library\MipiSysTLib\mipisyst\library\include")"
-            Write-Host "  BrotliCompress: $(Test-Path "BaseTools\Source\C\BrotliCompress\brotli")"
-            Write-Host "  OpensslLib: $(Test-Path "CryptoPkg\Library\OpensslLib\openssl")"
-            
-            cd ..
-          } else {
-            Write-Host "✓ All critical submodules are present"
-          }
+        # Copy ACPIPatcher package
+        if (-not (Test-Path "ACPIPatcherPkg")) {
+          Write-Host "Copying ACPIPatcherPkg..."
+          Copy-Item -Recurse -Force "..\ACPIPatcherPkg" "ACPIPatcherPkg"
         }
         
-        # Set up BaseTools PATH environment variable for the build process
-        Write-Host "Setting up BaseTools PATH environment variable..."
-        $baseToolsPaths = @(
-          "$PWD\temp_edk2\BaseTools\Source\C\bin",
-          "$PWD\temp_edk2\BaseTools\Bin\Win32",
-          "$PWD\temp_edk2\BaseTools\Bin\Win64"
-        )
+        # Build ACPIPatcher
+        Write-Host "Building ACPIPatcher package..."
+        $buildCmd = "build -p ACPIPatcherPkg\ACPIPatcherPkg.dsc -a ${{ matrix.arch }} -t ${{ matrix.toolchain }} -b ${{ matrix.build_type }}"
+        Write-Host "Build command: $buildCmd"
         
-        # Add BaseTools paths to environment PATH
-        $currentPath = $env:PATH
-        foreach ($path in $baseToolsPaths) {
-          if (Test-Path $path) {
-            Write-Host "Adding to PATH: $path"
-            $currentPath = "$path;$currentPath"
-          } else {
-            Write-Host "BaseTools path not found: $path"
-          }
-        }
-        
-        # Set the PATH for the runner
-        echo "PATH=$currentPath" >> $env:GITHUB_ENV
-        $env:PATH = $currentPath
-        
-        Write-Host "BaseTools PATH setup completed"
-        
-        # Verify GenFw is accessible
-        Write-Host "Verifying GenFw accessibility..."
-        try {
-          $genFwPath = Get-Command GenFw -ErrorAction Stop
-          Write-Host "✓ GenFw found at: $($genFwPath.Source)"
-        } catch {
-          Write-Host "⚠ GenFw not found in PATH, but will be available after BaseTools build"
-        }
-        
-        # Run our automated setup and build script with parameters
-        & .\setup_and_build.bat ${{ matrix.arch }} ${{ matrix.build_type }}
+        cmd /c $buildCmd
         
         if ($LASTEXITCODE -eq 0) {
-          Write-Host "✅ Build completed successfully"
+          Write-Host "✅ ACPIPatcher build completed successfully"
+          
+          # Copy built files back to root directory
+          $buildDir = "Build\ACPIPatcher\${{ matrix.build_type }}_${{ matrix.toolchain }}\${{ matrix.arch }}"
+          if (Test-Path "$buildDir\ACPIPatcher.efi") {
+            Copy-Item "$buildDir\ACPIPatcher.efi" "..\ACPIPatcher.efi"
+            Write-Host "✅ ACPIPatcher.efi copied"
+          }
+          if (Test-Path "$buildDir\ACPIPatcherDxe.efi") {
+            Copy-Item "$buildDir\ACPIPatcherDxe.efi" "..\ACPIPatcherDxe.efi"
+            Write-Host "✅ ACPIPatcherDxe.efi copied"
+          }
         } else {
-          Write-Host "❌ Build failed with exit code $LASTEXITCODE"
+          Write-Host "❌ ACPIPatcher build failed with exit code $LASTEXITCODE"
           exit $LASTEXITCODE
         }
       shell: pwsh

@@ -414,6 +414,28 @@ echo === Step 6: Building BaseTools ===
 
 cd /d "%EDK2_ROOT%"
 
+REM Check if running in CI environment - if so, skip BaseTools build (handled by CI)
+if "%CI%"=="true" (
+    echo [CI MODE] BaseTools build handled by CI workflow - skipping
+    echo [CI MODE] Verifying BaseTools are available...
+    
+    REM Verify BaseTools are available
+    set "BASETOOLS_PATH=%EDK2_ROOT%\BaseTools"
+    set "BASETOOLS_BIN=%BASETOOLS_PATH%\Bin\Win32"
+    
+    if exist "%BASETOOLS_BIN%\GenFw.exe" (
+        echo [OK] GenFw.exe found in %BASETOOLS_BIN%
+    ) else if exist "%BASETOOLS_PATH%\Source\C\bin\GenFw.exe" (
+        echo [OK] GenFw.exe found in %BASETOOLS_PATH%\Source\C\bin
+    ) else (
+        echo [ERROR] GenFw.exe not found - BaseTools may not be built properly
+        if %CI_MODE%==1 exit /b 1
+    )
+    
+    echo [CI MODE] BaseTools verification completed
+    goto integrate_acpipatcher
+)
+
 echo Running EDK2 setup with ForceRebuild to build BaseTools...
 
 REM Try to patch EDK2 build configuration to remove /WX before build
