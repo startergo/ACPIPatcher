@@ -192,7 +192,7 @@ class ACPIPatcherBuilder:
                 if 'BASETOOLS_CYGWIN_BUILD' in os.environ:
                     logging.info("Building BaseTools with Cygwin...")
             else:
-                # Run edksetup.sh
+                # Run edksetup.sh and build C tools
                 cmd = ['bash', '-c', 'source edksetup.sh BaseTools']
                 
             result = subprocess.run(cmd, cwd=self.edk2_path)
@@ -200,6 +200,32 @@ class ACPIPatcherBuilder:
             if result.returncode != 0:
                 logging.error("Failed to build BaseTools")
                 return False
+            
+            # For Unix systems, explicitly build C tools to ensure GenFw is available
+            if system != "Windows":
+                logging.info("Building BaseTools C utilities...")
+                c_build_cmd = ['make', '-C', 'BaseTools/Source/C']
+                c_result = subprocess.run(c_build_cmd, cwd=self.edk2_path)
+                
+                if c_result.returncode != 0:
+                    logging.warning("BaseTools C compilation had issues, trying alternative...")
+                    # Try building in the C directory directly
+                    c_dir = os.path.join(self.edk2_path, 'BaseTools', 'Source', 'C')
+                    alt_result = subprocess.run(['make'], cwd=c_dir)
+                    if alt_result.returncode != 0:
+                        logging.warning("BaseTools C compilation failed, some tools may be missing")
+                
+                # Add BaseTools to PATH
+                basetools_bin = os.path.join(self.edk2_path, 'BaseTools', 'Source', 'C', 'bin')
+                basetools_wrappers = os.path.join(self.edk2_path, 'BaseTools', 'BinWrappers', 'PosixLike')
+                
+                current_path = os.environ.get('PATH', '')
+                if os.path.exists(basetools_bin):
+                    os.environ['PATH'] = f"{basetools_bin}:{current_path}"
+                    logging.info(f"Added {basetools_bin} to PATH")
+                elif os.path.exists(basetools_wrappers):
+                    os.environ['PATH'] = f"{basetools_wrappers}:{current_path}"
+                    logging.info(f"Added {basetools_wrappers} to PATH")
                 
             logging.info("✓ BaseTools built successfully")
             return True

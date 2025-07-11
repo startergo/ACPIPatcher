@@ -190,6 +190,41 @@ if [ ! -d "temp_edk2" ]; then
 else
     echo "EDK2 workspace already exists."
 fi
+
+# Build BaseTools C binaries (required for GenFw)
+echo "Building EDK2 BaseTools C binaries..."
+cd temp_edk2
+
+# Set up EDK2 environment 
+source edksetup.sh BaseTools
+if [ $? -ne 0 ]; then
+    echo "ERROR: Failed to setup EDK2 environment"
+    exit 1
+fi
+
+# Build C tools manually to ensure GenFw is available
+echo "Compiling BaseTools C utilities..."
+make -C BaseTools/Source/C
+if [ $? -ne 0 ]; then
+    echo "WARNING: BaseTools C compilation had issues, trying alternative approach..."
+    cd BaseTools/Source/C
+    make
+    cd ../../..
+fi
+
+# Verify GenFw is available
+if [ -f "BaseTools/Source/C/bin/GenFw" ]; then
+    echo "✓ GenFw compiled successfully"
+    # Add BaseTools to PATH for build process
+    export PATH="$PWD/BaseTools/Source/C/bin:$PATH"
+elif [ -f "BaseTools/BinWrappers/PosixLike/GenFw" ]; then
+    echo "✓ GenFw wrapper found"
+    export PATH="$PWD/BaseTools/BinWrappers/PosixLike:$PATH"
+else
+    echo "WARNING: GenFw not found, build may fail"
+fi
+
+cd ..
 echo "EDK2 workspace setup completed."
 echo
 
@@ -255,6 +290,29 @@ if [ $? -ne 0 ]; then
         cd ..
         exit 1
     fi
+    
+    # Ensure BaseTools C binaries are built and available
+    echo "Ensuring BaseTools C utilities are available..."
+    if [ ! -f "BaseTools/Source/C/bin/GenFw" ] && [ ! -f "BaseTools/BinWrappers/PosixLike/GenFw" ]; then
+        echo "Building BaseTools C utilities..."
+        make -C BaseTools/Source/C
+        if [ $? -ne 0 ]; then
+            echo "WARNING: BaseTools C compilation failed, trying alternative..."
+            cd BaseTools/Source/C
+            make
+            cd ../../..
+        fi
+    fi
+    
+    # Add BaseTools to PATH
+    if [ -d "BaseTools/Source/C/bin" ]; then
+        export PATH="$PWD/BaseTools/Source/C/bin:$PATH"
+        echo "Added BaseTools C binaries to PATH"
+    elif [ -d "BaseTools/BinWrappers/PosixLike" ]; then
+        export PATH="$PWD/BaseTools/BinWrappers/PosixLike:$PATH"
+        echo "Added BaseTools wrappers to PATH"
+    fi
+    
     cp BaseTools/Conf/build_rule.template Conf/build_rule.txt >/dev/null 2>&1
     cp Conf/build_rule.txt . >/dev/null 2>&1
     
