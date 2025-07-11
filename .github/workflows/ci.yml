@@ -362,6 +362,33 @@ jobs:
             echo "✓ All critical submodules are present"
           fi
           
+          # Verify submodules after initialization
+          echo "Verifying submodule status after initialization..."
+          if [ -d "MdePkg/Library/MipiSysTLib/mipisyst/library/include" ]; then
+            echo "✓ MipiSysTLib verified: mipisyst/library/include exists"
+          else
+            echo "❌ MipiSysTLib verification failed: mipisyst/library/include missing"
+            echo "Attempting direct MipiSysTLib initialization..."
+            git submodule update --init --recursive MdePkg/Library/MipiSysTLib
+            if [ -d "MdePkg/Library/MipiSysTLib/mipisyst/library/include" ]; then
+              echo "✓ MipiSysTLib verified after direct init"
+            else
+              echo "❌ MipiSysTLib still missing after direct init"
+            fi
+          fi
+          
+          if [ -d "BaseTools/Source/C/BrotliCompress/brotli/c" ]; then
+            echo "✓ BrotliCompress verified: brotli/c exists"
+          else
+            echo "❌ BrotliCompress verification failed: brotli/c missing"
+          fi
+          
+          if [ -d "CryptoPkg/Library/OpensslLib/openssl/include" ]; then
+            echo "✓ OpensslLib verified: openssl/include exists"
+          else
+            echo "❌ OpensslLib verification failed: openssl/include missing"
+          fi
+          
           cd ..
         fi
         

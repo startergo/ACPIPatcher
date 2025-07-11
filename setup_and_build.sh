@@ -216,16 +216,70 @@ if [ ! -d "temp_edk2" ]; then
     timeout 300 git submodule update --init --recursive --progress
     if [ $? -ne 0 ]; then
         echo "WARNING: Some submodules failed to initialize. This is often due to authentication or timeout."
-        echo "Retrying with different approach..."
-        timeout 120 git submodule update --init --progress
-        if [ $? -ne 0 ]; then
-            echo "WARNING: Submodule initialization failed. Build will continue using pip-based BaseTools."
-            echo "Note: This may cause some assembly optimization features to be unavailable."
-        else
-            echo "Submodules initialized successfully (partial)."
-        fi
+        echo "Retrying with individual critical submodules..."
+        
+        # Try individual critical submodules
+        echo "Initializing critical submodules individually..."
+        echo "  - Initializing BrotliCompress..."
+        timeout 60 git submodule update --init --recursive BaseTools/Source/C/BrotliCompress
+        
+        echo "  - Initializing OpensslLib..."
+        timeout 60 git submodule update --init --recursive CryptoPkg/Library/OpensslLib
+        
+        echo "  - Initializing MipiSysTLib..."
+        timeout 60 git submodule update --init --recursive MdePkg/Library/MipiSysTLib
+        
+        echo "  - Initializing BrotliCustomDecompressLib..."
+        timeout 60 git submodule update --init --recursive MdeModulePkg/Library/BrotliCustomDecompressLib
+        
+        echo "Individual submodule initialization completed."
     else
         echo "✓ All submodules initialized successfully."
+    fi
+    
+    # Verify critical submodules after initialization
+    echo "Verifying critical submodules..."
+    SUBMODULES_MISSING=0
+    
+    if [ -d "BaseTools/Source/C/BrotliCompress/brotli/c" ]; then
+        echo "✓ BrotliCompress submodule verified"
+    else
+        echo "❌ BrotliCompress submodule missing"
+        SUBMODULES_MISSING=1
+    fi
+    
+    if [ -d "CryptoPkg/Library/OpensslLib/openssl/include" ]; then
+        echo "✓ OpensslLib submodule verified"
+    else
+        echo "❌ OpensslLib submodule missing"
+        SUBMODULES_MISSING=1
+    fi
+    
+    if [ -d "MdePkg/Library/MipiSysTLib/mipisyst/library/include" ]; then
+        echo "✓ MipiSysTLib submodule verified"
+    else
+        echo "❌ MipiSysTLib submodule missing - attempting direct initialization..."
+        git submodule update --init --recursive MdePkg/Library/MipiSysTLib
+        if [ -d "MdePkg/Library/MipiSysTLib/mipisyst/library/include" ]; then
+            echo "✓ MipiSysTLib submodule verified after direct init"
+        else
+            echo "❌ MipiSysTLib submodule still missing after direct init"
+            SUBMODULES_MISSING=1
+        fi
+    fi
+    
+    if [ -d "MdeModulePkg/Library/BrotliCustomDecompressLib/brotli/c" ]; then
+        echo "✓ BrotliCustomDecompressLib submodule verified"
+    else
+        echo "❌ BrotliCustomDecompressLib submodule missing"
+        SUBMODULES_MISSING=1
+    fi
+    
+    if [ $SUBMODULES_MISSING -eq 1 ]; then
+        echo "WARNING: Some critical submodules are missing. Build may fail."
+        echo "Note: This may cause some assembly optimization features to be unavailable."
+    else
+        echo "✓ All critical submodules verified successfully."
     fi
     cd ..
 else
