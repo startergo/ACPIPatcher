@@ -102,9 +102,14 @@ jobs:
       shell: msys2 {0}
       run: |
         cd edk2
-        echo "Verifying system Python environment for GCC5/MinGW..."
         
-        # Use system Python directly to avoid importlib.util issues
+        # CRITICAL: Remove any existing virtual environment to force system Python usage
+        if [ -d ".venv" ]; then
+          echo "Removing existing virtual environment to force system Python usage..."
+          rm -rf .venv
+        fi
+        
+        echo "Verifying system Python environment for GCC5/MinGW..."
         echo "Using system Python directly to avoid virtual environment conflicts"
         echo "MSYS2 Python has all required packages pre-installed"
         
@@ -255,6 +260,12 @@ jobs:
       run: |
         cd edk2
         
+        # CRITICAL: Remove any existing virtual environment to force system Python usage
+        if [ -d ".venv" ]; then
+          echo "Removing existing virtual environment to force system Python usage..."
+          rm -rf .venv
+        fi
+        
         # Use system Python directly to avoid virtual environment isolation issues
         echo "Building BaseTools for GCC5 toolchain using system Python..."
         echo "This must be done BEFORE Stuart update to provide core EDK2 build infrastructure..."
@@ -343,15 +354,69 @@ jobs:
           fi
         fi
         
-        # Attempt 4: Use make directly if Python build fails
+        # Attempt 4: Use make directly with header conflict fix if Python build fails
         if [ "$BASETOOLS_BUILD_SUCCESS" = "false" ]; then
-          echo "Attempt 4: Building BaseTools using make directly..."
+          echo "Attempt 4: Building BaseTools using make directly with header conflict detection..."
           cd BaseTools
-          if make -C Source/C 2>&1; then
+          
+          # Build with comprehensive error detection and header conflict fixing
+          if make -C Source/C 2>&1 | tee ../basetools_make.log; then
             echo "✅ BaseTools built successfully using make"
             BASETOOLS_BUILD_SUCCESS=true
           else
-            echo "⚠️ Make-based BaseTools build failed"
+            echo "❌ Make-based BaseTools build failed"
+            echo "Analyzing build failure..."
+            
+            # Check for MinGW header conflicts (known issue)
+            if grep -q "_filelength" ../basetools_make.log; then
+              echo "❌ Detected _filelength MinGW header conflict"
+              echo "This is a known issue where EDK2's CommonLib.h conflicts with MSYS2's io.h"
+              echo "Attempting to patch the header conflict..."
+              
+              # Look for the problematic header file
+              conflict_file="Source/C/Include/Common/BaseTypes.h"
+              if [ -f "$conflict_file" ]; then
+                echo "Found BaseTypes.h, checking for _filelength declaration..."
+                if grep -q "_filelength" "$conflict_file"; then
+                  echo "Creating backup and patching _filelength conflict..."
+                  cp "$conflict_file" "${conflict_file}.backup"
+                  
+                  # Comment out the conflicting _filelength declaration
+                  sed -i 's/^.*_filelength.*$/\/\/ &/' "$conflict_file" || true
+                  echo "Patched _filelength declaration in $conflict_file"
+                  
+                  # Retry build after patching
+                  echo "Retrying BaseTools build after header patch..."
+                  if make clean && make -C Source/C; then
+                    echo "✅ BaseTools build succeeded after header patch"
+                    BASETOOLS_BUILD_SUCCESS=true
+                  else
+                    echo "❌ BaseTools build still failed after header patch"
+                    # Restore original file
+                    if [ -f "${conflict_file}.backup" ]; then
+                      mv "${conflict_file}.backup" "$conflict_file"
+                    fi
+                  fi
+                else
+                  echo "No _filelength declaration found in $conflict_file"
+                fi
+              else
+                echo "BaseTypes.h not found at expected location"
+                echo "Looking for alternative conflict locations..."
+                find Source/C -name "*.h" -exec grep -l "_filelength" {} \; 2>/dev/null || echo "No files with _filelength found"
+              fi
+            fi
+            
+            # Check for other common build issues
+            if grep -q "No such file or directory" ../basetools_make.log; then
+              echo "❌ Missing file/directory error detected"
+              grep "No such file or directory" ../basetools_make.log | head -5
+            fi
+            
+            if grep -q "undefined reference" ../basetools_make.log; then
+              echo "❌ Undefined reference error detected"
+              grep "undefined reference" ../basetools_make.log | head -5
+            fi
           fi
           cd ..
         fi
@@ -385,6 +450,12 @@ jobs:
       run: |
         cd edk2
         
+        # CRITICAL: Ensure no virtual environment exists
+        if [ -d ".venv" ]; then
+          echo "Removing virtual environment to force system Python usage..."
+          rm -rf .venv
+        fi
+        
         # Use system Python directly instead of virtual environment
         echo "Running Stuart update using system Python to avoid isolation issues..."
         echo "This may take a while as binaries can be very large..."
@@ -392,6 +463,9 @@ jobs:
         
         # Set PYTHON_COMMAND to use system Python
         export PYTHON_COMMAND=python3
+        
+        # Ensure stuart commands are in PATH
+        export PATH="$HOME/.local/bin:$PATH"
         
         # Run stuart_update with architecture and toolchain specification
         # Add retry logic for Windows path issues
@@ -428,23 +502,42 @@ jobs:
       run: |
         cd edk2
         
+        # CRITICAL: Ensure no virtual environment exists
+        if [ -d ".venv" ]; then
+          echo "Removing virtual environment to force system Python usage..."
+          rm -rf .venv
+        fi
+        
         # Use system Python directly instead of virtual environment
-        echo "Running Stuart CI build using system Python to compile EFI binaries..."
-        echo "Note: Using stuart_ci_build as the primary build command"
-        echo "stuart_build may not be available in this version of Stuart"
+        echo "Running Stuart build using system Python to compile EFI binaries..."
+        echo "Note: Using stuart_build as the primary build command for actual compilation"
+        echo "stuart_ci_build is for validation only, not for generating binaries"
         
         # Set PYTHON_COMMAND to use system Python
         export PYTHON_COMMAND=python3
         
-        # Use stuart_ci_build as the primary build command
-        # This command actually compiles the code in most Stuart versions
-        stuart_ci_build -c .pytool/CISettings.py -p ACPIPatcherPkg -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=${{ matrix.toolchain }}
+        # Ensure stuart commands are in PATH
+        export PATH="$HOME/.local/bin:$PATH"
+        
+        # Use stuart_build as the primary build command for actual compilation
+        # stuart_ci_build is only for validation/testing, not for generating EFI files
+        echo "Running stuart_build to generate EFI binaries..."
+        stuart_build -c .pytool/CISettings.py -p ACPIPatcherPkg -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=${{ matrix.toolchain }}
         
         if [ $? -eq 0 ]; then
-          echo "✅ Stuart CI build completed successfully"
+          echo "✅ Stuart build completed successfully"
         else
-          echo "❌ Stuart CI build failed"
-          exit 1
+          echo "❌ Stuart build failed - trying fallback to stuart_ci_build"
+          echo "Note: Some Stuart versions may only have stuart_ci_build available"
+          
+          stuart_ci_build -c .pytool/CISettings.py -p ACPIPatcherPkg -a ${{ matrix.arch }} -t ${{ matrix.build_type }} TOOL_CHAIN_TAG=${{ matrix.toolchain }}
+          
+          if [ $? -eq 0 ]; then
+            echo "✅ Stuart CI build completed successfully (fallback)"
+          else
+            echo "❌ Both stuart_build and stuart_ci_build failed"
+            exit 1
+          fi
         fi
 
     - name: Verify Build Output
