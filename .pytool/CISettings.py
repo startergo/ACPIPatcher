@@ -8,22 +8,25 @@
 
 import os
 import sys
+import logging
 from pathlib import Path
 from edk2toolext.environment import shell_environment
 from edk2toolext.invocables.edk2_ci_build import CiBuildSettingsManager
 from edk2toolext.invocables.edk2_setup import SetupSettingsManager, RequiredSubmodule
 from edk2toolext.invocables.edk2_update import UpdateSettingsManager
 from edk2toolext.invocables.edk2_pr_eval import PrEvalSettingsManager
-from edk2toollib.utility_functions import RunCmd
+from edk2toolext.invocables.edk2_platform_build import PlatformSettingsManager
+from edk2toollib.utility_functions import GetHostInfo
 
 
-class Settings(CiBuildSettingsManager, UpdateSettingsManager, SetupSettingsManager, PrEvalSettingsManager):
+class Settings(CiBuildSettingsManager, UpdateSettingsManager, SetupSettingsManager, PrEvalSettingsManager, PlatformSettingsManager):
 
     def __init__(self):
         self.ActualPackages = []
         self.ActualTargets = []
         self.ActualArchitectures = []
         self.ActualToolChainTag = ""
+        self.ActualScopes = None
 
     # ####################################################################################### #
     #                             Traditional PI Settings                                     #
@@ -195,8 +198,13 @@ class Settings(CiBuildSettingsManager, UpdateSettingsManager, SetupSettingsManag
 
     def GetActiveScopes(self):
         ''' Return tuple containing scopes that should be active for this process '''
-        scopes = ("edk2-build", "cibuild")
-        return scopes
+        if self.ActualScopes is None:
+            scopes = ("edk2-build", "cibuild")
+            
+            self.ActualToolChainTag = shell_environment.GetBuildVars().GetValue("TOOL_CHAIN_TAG", "")
+            
+            self.ActualScopes = scopes
+        return self.ActualScopes
 
     def GetPlatformDscAndConfig(self) -> tuple:
         ''' If a platform desires to provide its DSC then Policy 4 will evaluate if
@@ -207,3 +215,64 @@ class Settings(CiBuildSettingsManager, UpdateSettingsManager, SetupSettingsManag
         dsc = "ACPIPatcherPkg/ACPIPatcherPkg.dsc"
         config = {}
         return (dsc, config)
+
+    # ####################################################################################### #
+    #                          Platform Build Methods (stuart_build)                         #
+    # ####################################################################################### #
+
+    def GetPlatformName(self):
+        ''' Get platform name '''
+        return "ACPIPatcher"
+
+    def GetPackagesPath(self):
+        ''' Return a list of paths that should be mapped as edk2 PackagesPath '''
+        return []
+
+    def GetPlatformDsc(self):
+        ''' Return the platform DSC file path '''
+        return os.path.join("ACPIPatcherPkg", "ACPIPatcherPkg.dsc")
+
+    def GetOutputFolderBaseName(self):
+        ''' Base name for output folder '''
+        return "Build"
+
+    def GetTargetType(self):
+        ''' Get the target to pass to the build '''
+        return " ".join(self.ActualTargets) if self.ActualTargets else "DEBUG"
+
+    def GetArchitecture(self):
+        ''' Get the target arch to pass to the build '''
+        return " ".join(self.ActualArchitectures) if self.ActualArchitectures else "IA32 X64"
+
+    def GetBuildEnvironmentVariables(self):
+        ''' Return a dictionary of environment variables that should be set '''
+        result = {}
+        result["ACTIVE_PLATFORM"] = self.GetPlatformDsc()
+        result["TARGET_ARCH"] = self.GetArchitecture()
+        result["TARGET"] = self.GetTargetType()
+        result["TOOL_CHAIN_TAG"] = self.GetToolChainTag() or "GCC5"
+        return result
+
+    def FlashRomImage(self):
+        ''' Platform can choose to flash the ROM image '''
+        return 0
+
+    def PlatformPreBuild(self):
+        ''' Platform specific pre-build operations '''
+        return 0
+
+    def PlatformPostBuild(self):
+        ''' Platform specific post-build operations '''
+        return 0
+
+    def PlatformFlashImage(self):
+        ''' Platform specific flash operations '''
+        return 0
+
+    def SetPlatformEnv(self):
+        ''' Platform can customize the environment '''
+        shell_environment.GetBuildVars().SetValue("ACTIVE_PLATFORM", self.GetPlatformDsc(), "Set in CISettings.py")
+        shell_environment.GetBuildVars().SetValue("TARGET_ARCH", self.GetArchitecture(), "Set in CISettings.py")
+        shell_environment.GetBuildVars().SetValue("TARGET", self.GetTargetType(), "Set in CISettings.py")
+        shell_environment.GetBuildVars().SetValue("TOOL_CHAIN_TAG", self.GetToolChainTag() or "GCC5", "Set in CISettings.py")
+        return 0
