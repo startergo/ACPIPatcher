@@ -195,33 +195,158 @@ fi
 echo "Building EDK2 BaseTools C binaries..."
 cd temp_edk2
 
-# Set up EDK2 environment 
-source edksetup.sh BaseTools
-if [ $? -ne 0 ]; then
-    echo "ERROR: Failed to setup EDK2 environment"
+# Check for essential build tools first
+echo "Checking essential build tools..."
+missing_tools=()
+
+for tool in make gcc nasm; do
+    if ! command_exists "$tool"; then
+        missing_tools+=("$tool")
+    else
+        echo "✓ $tool found"
+    fi
+done
+
+if [ ${#missing_tools[@]} -ne 0 ]; then
+    echo "ERROR: Missing essential build tools: ${missing_tools[*]}"
+    echo "Please install missing tools:"
+    echo "  Ubuntu/Debian: sudo apt-get install build-essential nasm"
+    echo "  CentOS/RHEL: sudo yum install gcc make nasm"
+    echo "  macOS: xcode-select --install && brew install nasm"
     exit 1
 fi
 
-# Build C tools manually to ensure GenFw is available
-echo "Compiling BaseTools C utilities..."
-make -C BaseTools/Source/C
+# Set up EDK2 environment 
+echo "Setting up EDK2 environment..."
+source edksetup.sh BaseTools
 if [ $? -ne 0 ]; then
-    echo "WARNING: BaseTools C compilation had issues, trying alternative approach..."
-    cd BaseTools/Source/C
-    make
-    cd ../../..
+    echo "WARNING: edksetup.sh had issues, continuing with manual build..."
 fi
 
-# Verify GenFw is available
-if [ -f "BaseTools/Source/C/bin/GenFw" ]; then
-    echo "✓ GenFw compiled successfully"
-    # Add BaseTools to PATH for build process
-    export PATH="$PWD/BaseTools/Source/C/bin:$PATH"
-elif [ -f "BaseTools/BinWrappers/PosixLike/GenFw" ]; then
-    echo "✓ GenFw wrapper found"
-    export PATH="$PWD/BaseTools/BinWrappers/PosixLike:$PATH"
+# Build C tools explicitly - this is crucial for GenFw and other tools
+echo "Building BaseTools C utilities..."
+make -C BaseTools/Source/C
+if [ $? -ne 0 ]; then
+    echo "WARNING: Initial C build failed, trying alternative approaches..."
+    
+    # Try building in the C directory directly
+    if [ -d "BaseTools/Source/C" ]; then
+        echo "Trying direct make in BaseTools C directory..."
+        cd BaseTools/Source/C
+        make
+        build_result=$?
+        cd ../../..
+        
+        if [ $build_result -ne 0 ]; then
+            # Try make with specific targets
+            echo "Trying to build specific BaseTools targets..."
+            cd BaseTools/Source/C
+            for target in GenFv GenFfs GenFw GenSec VfrCompile; do
+                echo "Building $target..."
+                make "$target"
+                if [ $? -eq 0 ]; then
+                    echo "✓ $target built successfully"
+                else
+                    echo "WARNING: Failed to build $target"
+                fi
+            done
+            cd ../../..
+        fi
+    fi
+fi
+
+# Verify that GenFw and other critical tools are available
+basetools_bin="BaseTools/Source/C/bin"
+basetools_wrappers="BaseTools/BinWrappers/PosixLike"
+
+# Check for GenFw specifically since it's needed for EFI generation
+genfw_locations=(
+    "$basetools_bin/GenFw"
+    "$basetools_wrappers/GenFw"
+    "BaseTools/Source/C/GenFw/GenFw"
+)
+
+genfw_found=false
+for genfw_path in "${genfw_locations[@]}"; do
+    if [ -f "$genfw_path" ] && [ -x "$genfw_path" ]; then
+        echo "✓ GenFw found at $genfw_path"
+        genfw_found=true
+        break
+    fi
+done
+
+if [ "$genfw_found" = false ]; then
+    echo "ERROR: GenFw tool not found - EFI generation will fail!"
+    echo "Attempting to build GenFw specifically..."
+    
+    # Try building GenFw from its source directory
+    genfw_dir="BaseTools/Source/C/GenFw"
+    if [ -d "$genfw_dir" ]; then
+        echo "Building GenFw from $genfw_dir"
+        cd "$genfw_dir"
+        make
+        if [ $? -eq 0 ]; then
+            echo "✓ GenFw built successfully"
+            # Check if it's now available
+            if [ -f "GenFw" ]; then
+                # Make sure bin directory exists and copy the executable
+                mkdir -p "../bin"
+                cp "GenFw" "../bin/"
+                echo "✓ GenFw copied to $basetools_bin"
+                genfw_found=true
+            fi
+        else
+            echo "ERROR: Failed to build GenFw"
+        fi
+        cd ../../../..
+    fi
+    
+    # If still not found, try a global make in BaseTools/Source/C
+    if [ "$genfw_found" = false ]; then
+        echo "Trying global BaseTools C build..."
+        cd BaseTools/Source/C
+        make clean
+        make
+        if [ $? -eq 0 ]; then
+            # Check again for GenFw
+            for genfw_path in "${genfw_locations[@]}"; do
+                if [ -f "$genfw_path" ] && [ -x "$genfw_path" ]; then
+                    echo "✓ GenFw found at $genfw_path after global build"
+                    genfw_found=true
+                    break
+                fi
+            done
+        fi
+        cd ../../..
+    fi
+fi
+
+# Set up PATH to include BaseTools
+if [ -d "$basetools_bin" ]; then
+    export PATH="$PWD/$basetools_bin:$PATH"
+    echo "✓ Added $basetools_bin to PATH"
+fi
+
+if [ -d "$basetools_wrappers" ]; then
+    export PATH="$PWD/$basetools_wrappers:$PATH"
+    echo "✓ Added $basetools_wrappers to PATH"
+fi
+
+# Final verification
+required_tools=("GenFv" "GenFfs" "GenFw" "GenSec")
+missing_basetools=()
+
+for tool in "${required_tools[@]}"; do
+    if ! command_exists "$tool"; then
+        missing_basetools+=("$tool")
+    fi
+done
+
+if [ ${#missing_basetools[@]} -ne 0 ]; then
+    echo "WARNING: Some BaseTools are missing: ${missing_basetools[*]}"
+    echo "Build may fail, but continuing..."
 else
-    echo "WARNING: GenFw not found, build may fail"
+    echo "✓ All required BaseTools found and accessible"
 fi
 
 cd ..
@@ -261,9 +386,75 @@ echo
 
 # Step 5: Run build
 echo "Step 5: Running build..."
-echo "Running: python3 ACPIPatcher.py --build --arch ${TARGET_ARCH} --build-type ${BUILD_TYPE}"
-python3 ACPIPatcher.py --build --arch "${TARGET_ARCH}" --build-type "${BUILD_TYPE}"
+echo "Configuration: $TARGET_ARCH $BUILD_TYPE ($TOOLCHAIN)"
+
+# Change to EDK2 directory for build
+cd temp_edk2
+
+# Set up EDK2 environment again to ensure everything is properly configured
+source edksetup.sh BaseTools
 if [ $? -ne 0 ]; then
+    echo "WARNING: edksetup.sh had issues, but continuing..."
+fi
+
+# Ensure configuration files are set up
+if [ ! -f "Conf/build_rule.txt" ]; then
+    cp BaseTools/Conf/build_rule.template Conf/build_rule.txt >/dev/null 2>&1
+fi
+
+echo "Running EDK2 build with toolchain: $TOOLCHAIN"
+build -a $TARGET_ARCH -b $BUILD_TYPE -t $TOOLCHAIN -p ACPIPatcherPkg/ACPIPatcherPkg.dsc
+build_result=$?
+
+if [ $build_result -eq 0 ]; then
+    echo "✓ Build completed successfully!"
+    
+    # Copy build artifacts back to main directory
+    echo "Copying build artifacts..."
+    BUILD_DIR="Build/ACPIPatcher/${BUILD_TYPE}_${TOOLCHAIN}/${TARGET_ARCH}"
+    
+    # Check for ACPIPatcher.efi in multiple possible locations
+    acpipatcher_found=false
+    acpipatcher_locations=(
+        "$BUILD_DIR/ACPIPatcher.efi"
+        "$BUILD_DIR/ACPIPatcherPkg/ACPIPatcher/ACPIPatcher/OUTPUT/ACPIPatcher.efi"
+    )
+    
+    for location in "${acpipatcher_locations[@]}"; do
+        if [ -f "$location" ]; then
+            cp "$location" "../ACPIPatcher.efi"
+            echo "✓ ACPIPatcher.efi copied from $location"
+            acpipatcher_found=true
+            break
+        fi
+    done
+    
+    if [ "$acpipatcher_found" = false ]; then
+        echo "WARNING: ACPIPatcher.efi not found in expected build output locations"
+    fi
+    
+    # Check for ACPIPatcherDxe.efi in multiple possible locations
+    acpipatcherdxe_found=false
+    acpipatcherdxe_locations=(
+        "$BUILD_DIR/ACPIPatcherDxe.efi"
+        "$BUILD_DIR/ACPIPatcherPkg/ACPIPatcher/ACPIPatcherDxe/OUTPUT/ACPIPatcherDxe.efi"
+    )
+    
+    for location in "${acpipatcherdxe_locations[@]}"; do
+        if [ -f "$location" ]; then
+            cp "$location" "../ACPIPatcherDxe.efi"
+            echo "✓ ACPIPatcherDxe.efi copied from $location"
+            acpipatcherdxe_found=true
+            break
+        fi
+    done
+    
+    if [ "$acpipatcherdxe_found" = false ]; then
+        echo "WARNING: ACPIPatcherDxe.efi not found in expected build output locations"
+    fi
+    
+    cd ..
+else
     echo
     echo "================================================================"
     echo "BUILD FAILED - Trying fallback approach"
@@ -293,15 +484,64 @@ if [ $? -ne 0 ]; then
     
     # Ensure BaseTools C binaries are built and available
     echo "Ensuring BaseTools C utilities are available..."
+    
+    # Check for essential build tools
+    missing_tools=()
+    for tool in make gcc nasm; do
+        if ! command_exists "$tool"; then
+            missing_tools+=("$tool")
+        fi
+    done
+    
+    if [ ${#missing_tools[@]} -ne 0 ]; then
+        echo "ERROR: Missing essential build tools: ${missing_tools[*]}"
+        echo "Please install missing tools and re-run."
+        cd ..
+        exit 1
+    fi
+    
+    # Build BaseTools if GenFw is not available
     if [ ! -f "BaseTools/Source/C/bin/GenFw" ] && [ ! -f "BaseTools/BinWrappers/PosixLike/GenFw" ]; then
         echo "Building BaseTools C utilities..."
         make -C BaseTools/Source/C
         if [ $? -ne 0 ]; then
             echo "WARNING: BaseTools C compilation failed, trying alternative..."
             cd BaseTools/Source/C
+            make clean
             make
+            if [ $? -ne 0 ]; then
+                echo "Trying to build specific tools..."
+                for target in GenFv GenFfs GenFw GenSec VfrCompile; do
+                    echo "Building $target..."
+                    make "$target"
+                    if [ $? -eq 0 ]; then
+                        echo "✓ $target built successfully"
+                    fi
+                done
+            fi
             cd ../../..
         fi
+    fi
+    
+    # Verify critical tools are available
+    genfw_found=false
+    genfw_locations=(
+        "BaseTools/Source/C/bin/GenFw"
+        "BaseTools/BinWrappers/PosixLike/GenFw"
+        "BaseTools/Source/C/GenFw/GenFw"
+    )
+    
+    for genfw_path in "${genfw_locations[@]}"; do
+        if [ -f "$genfw_path" ] && [ -x "$genfw_path" ]; then
+            echo "✓ GenFw found at $genfw_path"
+            genfw_found=true
+            break
+        fi
+    done
+    
+    if [ "$genfw_found" = false ]; then
+        echo "ERROR: GenFw tool not found - build will likely fail"
+        echo "Please ensure BaseTools build completed successfully"
     fi
     
     # Add BaseTools to PATH
