@@ -110,6 +110,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         submodules: recursive
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     # Python Setup
     - name: Setup Python
@@ -238,6 +239,7 @@ jobs:
         sudo apt-get update
         
         # Install essential EDK2 build tools as per TianoCore documentation
+        # Note: python3-distutils removed for Ubuntu 24.04 compatibility
         sudo apt-get install -y \
           build-essential \
           uuid-dev \
@@ -245,7 +247,6 @@ jobs:
           git \
           nasm \
           python-is-python3 \
-          python3-distutils \
           acpica-tools
         
         # Verify critical tools are installed
@@ -269,6 +270,7 @@ jobs:
         sudo apt-get update
         
         # Install essential EDK2 build tools
+        # Note: python3-distutils removed for Ubuntu 24.04 compatibility
         sudo apt-get install -y \
           build-essential \
           uuid-dev \
@@ -276,7 +278,6 @@ jobs:
           acpica-tools \
           git \
           nasm \
-          python3-distutils \
           python-is-python3
         
         echo "✓ Linux EDK2 prerequisites installed"
@@ -293,8 +294,18 @@ jobs:
 
     # Ensure EDK2 submodules are properly initialized (all platforms)
     - name: Initialize EDK2 Submodules
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         echo "Ensuring EDK2 submodules are properly initialized..."
+        
+        # Configure Git to use HTTPS for GitHub URLs to avoid SSH authentication issues
+        git config --global url."https://github.com/".insteadOf "git@github.com:"
+        git config --global url."https://".insteadOf "git://"
+        
+        # Set timeout for Git operations (reduce from default to fail faster)
+        git config --global http.lowSpeedLimit 1000
+        git config --global http.lowSpeedTime 30
         
         # The checkout action should have done this, but let's be explicit
         git submodule status | head -10
@@ -323,8 +334,30 @@ jobs:
           
           if [ ${#missing_submodules[@]} -ne 0 ]; then
             echo "Missing submodules detected: ${missing_submodules[*]}"
-            echo "Initializing missing submodules..."
-            git submodule update --init --recursive --progress
+            echo "Initializing missing submodules with HTTPS authentication..."
+            
+            # Ensure we use HTTPS URLs for submodules
+            git config --local url."https://github.com/".insteadOf "git@github.com:"
+            git config --local url."https://".insteadOf "git://"
+            
+            # Initialize with timeout and progress
+            timeout 300 git submodule update --init --recursive --progress || {
+              echo "Submodule initialization timed out, trying individual submodules..."
+              for submodule in "${missing_submodules[@]}"; do
+                echo "Initializing $submodule..."
+                case $submodule in
+                  "MipiSysTLib")
+                    timeout 60 git submodule update --init --recursive MdePkg/Library/MipiSysTLib || echo "Failed to init MipiSysTLib"
+                    ;;
+                  "BrotliCompress")
+                    timeout 60 git submodule update --init --recursive BaseTools/Source/C/BrotliCompress || echo "Failed to init BrotliCompress"
+                    ;;
+                  "OpensslLib")
+                    timeout 60 git submodule update --init --recursive CryptoPkg/Library/OpensslLib || echo "Failed to init OpensslLib"
+                    ;;
+                esac
+              done
+            }
           else
             echo "✓ All critical submodules are present"
           fi
@@ -373,6 +406,11 @@ jobs:
         
         # Verify submodules are properly initialized before build
         Write-Host "Verifying EDK2 submodules before build..."
+        
+        # Configure Git to use HTTPS for GitHub URLs to avoid SSH authentication issues
+        git config --global url."https://github.com/".insteadOf "git@github.com:"
+        git config --global url."https://".insteadOf "git://"
+        
         if (Test-Path "temp_edk2") {
           $missingSubmodules = @()
           
@@ -390,9 +428,39 @@ jobs:
           
           if ($missingSubmodules.Count -gt 0) {
             Write-Host "Missing submodules detected: $($missingSubmodules -join ', ')"
-            Write-Host "Initializing missing submodules..."
+            Write-Host "Initializing missing submodules with HTTPS authentication..."
             cd temp_edk2
-            git submodule update --init --recursive --progress
+            
+            # Try full recursive init with timeout
+            $initJob = Start-Job -ScriptBlock {
+              git submodule update --init --recursive --progress
+            }
+            
+            if (Wait-Job $initJob -Timeout 300) {
+              Receive-Job $initJob
+              Remove-Job $initJob
+              Write-Host "✓ Submodules initialized successfully"
+            } else {
+              Write-Host "Submodule initialization timed out, trying individual submodules..."
+              Stop-Job $initJob
+              Remove-Job $initJob
+              
+              # Try individual submodules
+              foreach ($submodule in $missingSubmodules) {
+                Write-Host "Initializing $submodule..."
+                switch ($submodule) {
+                  "MipiSysTLib" {
+                    git submodule update --init --recursive MdePkg/Library/MipiSysTLib
+                  }
+                  "BrotliCompress" {
+                    git submodule update --init --recursive BaseTools/Source/C/BrotliCompress
+                  }
+                  "OpensslLib" {
+                    git submodule update --init --recursive CryptoPkg/Library/OpensslLib
+                  }
+                }
+              }
+            }
             cd ..
           } else {
             Write-Host "✓ All critical submodules are present"

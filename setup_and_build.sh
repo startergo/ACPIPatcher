@@ -205,12 +205,19 @@ if [ ! -d "temp_edk2" ]; then
     git config core.autocrlf false >/dev/null 2>&1
     git config core.longpaths true >/dev/null 2>&1
     
+    # Configure Git to use HTTPS for GitHub URLs (CI compatibility)
+    if [ -n "$CI" ]; then
+        echo "CI environment detected, configuring HTTPS for Git operations..."
+        git config url."https://github.com/".insteadOf "git@github.com:"
+        git config url."https://".insteadOf "git://"
+    fi
+    
     echo "Downloading submodules (this may take a few minutes)..."
-    git submodule update --init --recursive --progress
+    timeout 300 git submodule update --init --recursive --progress
     if [ $? -ne 0 ]; then
-        echo "WARNING: Some submodules failed to initialize. This is often due to authentication."
+        echo "WARNING: Some submodules failed to initialize. This is often due to authentication or timeout."
         echo "Retrying with different approach..."
-        git submodule update --init --progress
+        timeout 120 git submodule update --init --progress
         if [ $? -ne 0 ]; then
             echo "WARNING: Submodule initialization failed. Build will continue using pip-based BaseTools."
             echo "Note: This may cause some assembly optimization features to be unavailable."
