@@ -665,43 +665,41 @@ if errorlevel 1 (
     echo [OK] GenFw found in PATH
 )
 
+REM Set up EDK2 environment variables properly (like the successful example)
+echo [DEBUG] Setting up EDK2 environment variables...
+set "PACKAGES_PATH=%EDK2_ROOT%;%ACPI_PATCHER_ROOT%;"
+set "WORKSPACE=%EDK2_ROOT%"
+set "EDK_TOOLS_PATH=%EDK2_ROOT%\BaseTools"
+set "CONF_PATH=%EDK2_ROOT%\Conf"
+
+REM Ensure we're in the EDK2 directory for the build (like the successful example)
+echo [DEBUG] Changing to EDK2 directory: %EDK2_ROOT%
+cd /d "%EDK2_ROOT%"
+
+REM Call edksetup.bat again right before build (like the successful example)
+echo [DEBUG] Calling edksetup.bat to ensure proper environment...
+call edksetup.bat
+if errorlevel 1 (
+    echo [WARNING] edksetup.bat returned error, but continuing with build attempt...
+)
+
+REM Now call build with the proper environment
+echo [DEBUG] Calling build command...
 build -p ACPIPatcherPkg\ACPIPatcherPkg.dsc -a !TARGET_ARCH! -t !TOOL_CHAIN_TAG! -b !BUILD_TYPE!
 if errorlevel 1 (
     echo.
-    echo ERROR: Standard build failed. Trying with explicit BaseTools setup...
+    echo ERROR: Build failed. Checking build environment...
     
-    REM Try again with explicit PATH and environment setup
-    echo [DEBUG] Setting up complete EDK2 environment for retry...
-    
-    REM Ensure all EDK2 environment variables are properly set
-    set "WORKSPACE=%EDK2_ROOT%"
-    set "EDK_TOOLS_PATH=%EDK2_ROOT%\BaseTools"
-    set "CONF_PATH=%EDK2_ROOT%\Conf"
-    set "PYTHON_COMMAND=python"
-    
-    REM Add BaseTools to PATH with highest priority
-    set "PATH=%EDK_TOOLS_PATH%\Source\C\bin;%EDK_TOOLS_PATH%\Bin\Win32;%EDK_TOOLS_PATH%\Bin\Win64;%PATH%"
-    
-    REM Call edksetup again to refresh environment
-    call edksetup.bat
-    
-    REM Retry build with fresh environment
-    build -p ACPIPatcherPkg\ACPIPatcherPkg.dsc -a !TARGET_ARCH! -t !TOOL_CHAIN_TAG! -b !BUILD_TYPE!
-    if errorlevel 1 (
-        echo.
-        echo ERROR: Build failed even with explicit environment setup.
-        echo Checking if BaseTools were built correctly...
-        
-        if exist "%EDK_TOOLS_PATH%\Source\C\bin\GenFw.exe" (
-            echo GenFw exists at: %EDK_TOOLS_PATH%\Source\C\bin\GenFw.exe
-        ) else (
-            echo ERROR: GenFw.exe not found in expected location
-        )
-        
-        echo Build diagnostics complete.
-        if %CI_MODE%==0 pause
-        exit /b 1
+    REM Check if critical tools exist
+    if exist "%EDK_TOOLS_PATH%\Source\C\bin\GenFw.exe" (
+        echo [OK] GenFw exists at: %EDK_TOOLS_PATH%\Source\C\bin\GenFw.exe
+    ) else (
+        echo [ERROR] GenFw.exe not found in expected location
     )
+    
+    echo Build diagnostics complete.
+    if %CI_MODE%==0 pause
+    exit /b 1
 )
 
 echo.
