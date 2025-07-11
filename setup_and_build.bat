@@ -415,14 +415,50 @@ echo === Step 6: Building BaseTools ===
 cd /d "%EDK2_ROOT%"
 
 echo Running EDK2 setup with ForceRebuild to build BaseTools...
+
+REM Try to patch EDK2 build configuration to remove /WX before build
+echo [DEBUG] Attempting to patch EDK2 build configuration to remove /WX...
+if exist "%EDK2_ROOT%\BaseTools\Conf\tools_def.template" (
+    echo [DEBUG] Patching tools_def.template to remove /WX flags...
+    powershell -Command "(Get-Content '%EDK2_ROOT%\BaseTools\Conf\tools_def.template') -replace '/WX', '/WX-' | Set-Content '%EDK2_ROOT%\BaseTools\Conf\tools_def.template'" 2>nul
+    echo [DEBUG] tools_def.template patched
+)
+
+if exist "%EDK2_ROOT%\BaseTools\Source\C\Makefiles\header.makefile" (
+    echo [DEBUG] Patching header.makefile to remove /WX flags...
+    powershell -Command "(Get-Content '%EDK2_ROOT%\BaseTools\Source\C\Makefiles\header.makefile') -replace '/WX', '/WX-' | Set-Content '%EDK2_ROOT%\BaseTools\Source\C\Makefiles\header.makefile'" 2>nul
+    echo [DEBUG] header.makefile patched
+)
+
+if exist "%EDK2_ROOT%\BaseTools\Source\C\Makefiles\ms.common" (
+    echo [DEBUG] Patching ms.common to remove /WX flags...
+    powershell -Command "(Get-Content '%EDK2_ROOT%\BaseTools\Source\C\Makefiles\ms.common') -replace '/WX', '/WX-' | Set-Content '%EDK2_ROOT%\BaseTools\Source\C\Makefiles\ms.common'" 2>nul
+    echo [DEBUG] ms.common patched
+)
 echo [DEBUG] Setting MSVC compiler flags to avoid treating warnings as errors...
 
 REM Temporarily disable warnings as errors for BaseTools build
 set "ORIGINAL_CL=%CL%"
-set "CL=%CL% /WX-"
+set "ORIGINAL_CFLAGS=%CFLAGS%"
+set "ORIGINAL_CPPFLAGS=%CPPFLAGS%"
 
-REM Also try setting EDK2 build variables to avoid warnings as errors
+REM Set comprehensive compiler flags to disable warnings as errors
+set "CL=%CL% /WX-"
+set "CFLAGS=%CFLAGS% /WX-"
+set "CPPFLAGS=%CPPFLAGS% /WX-"
+
+REM Also set EDK2-specific variables to override build templates
 set "BUILD_RULE_CONF=%WORKSPACE%\BaseTools\Conf\build_rule.template"
+set "CC_FLAGS=/WX-"
+set "CXX_FLAGS=/WX-"
+
+REM Export these for nmake processes in BaseTools
+set "NMAKE_CFLAGS=/WX-"
+set "NMAKE_CXXFLAGS=/WX-"
+
+echo [DEBUG] Compiler flags set to disable warnings-as-errors
+echo [DEBUG] CL=%CL%
+echo [DEBUG] CFLAGS=%CFLAGS%
 
 call edksetup.bat ForceRebuild
 
@@ -430,12 +466,16 @@ if !errorlevel! neq 0 (
     echo ERROR: edksetup.bat ForceRebuild failed!
     REM Restore original compiler settings
     set "CL=%ORIGINAL_CL%"
+    set "CFLAGS=%ORIGINAL_CFLAGS%"
+    set "CPPFLAGS=%ORIGINAL_CPPFLAGS%"
     if %CI_MODE%==0 pause
     exit /b 1
 )
 
 REM Restore original compiler settings
 set "CL=%ORIGINAL_CL%"
+set "CFLAGS=%ORIGINAL_CFLAGS%"
+set "CPPFLAGS=%ORIGINAL_CPPFLAGS%"
 
 echo [OK] BaseTools build completed
 
