@@ -403,9 +403,10 @@ jobs:
       shell: cmd
       run: |
         set PACKAGES_PATH=%CD%\edk2;%CD%;
+        set ACPIPATCHER_PATH=%CD%
         cd edk2
         call edksetup.bat
-        build -t VS2022 -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -p %CD%\..\ACPIPatcherPkg\ACPIPatcherPkg.dsc
+        build -t VS2022 -a ${{ matrix.arch }} -b ${{ matrix.build_type }} -p %ACPIPATCHER_PATH%\ACPIPatcherPkg\ACPIPatcherPkg.dsc
 
     - name: List build artifacts (Windows)
       if: matrix.os == 'windows'
