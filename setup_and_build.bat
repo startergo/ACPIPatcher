@@ -414,12 +414,23 @@ echo === Step 6: Building BaseTools ===
 
 cd /d "%EDK2_ROOT%"
 
-REM Check if running in CI environment - if so, skip BaseTools build (handled by CI)
+REM Check if running in CI environment - if so, build BaseTools with /WX- flag
 if "%CI%"=="true" (
-    echo [CI MODE] BaseTools build handled by CI workflow - skipping
-    echo [CI MODE] Verifying BaseTools are available...
+    echo [CI MODE] Building BaseTools with CI-optimized settings...
     
-    REM Verify BaseTools are available
+    REM Set compiler flags to disable warnings as errors for CI
+    set "ORIGINAL_CL=%CL%"
+    set "CL=%CL% /WX-"
+    
+    echo [CI MODE] Running edksetup.bat ForceRebuild...
+    call edksetup.bat ForceRebuild
+    
+    if %ERRORLEVEL% NEQ 0 (
+        echo [CI ERROR] BaseTools build failed with exit code %ERRORLEVEL%
+        exit /b %ERRORLEVEL%
+    )
+    
+    REM Verify BaseTools were built
     set "BASETOOLS_PATH=%EDK2_ROOT%\BaseTools"
     set "BASETOOLS_BIN=%BASETOOLS_PATH%\Bin\Win32"
     
@@ -429,10 +440,10 @@ if "%CI%"=="true" (
         echo [OK] GenFw.exe found in %BASETOOLS_PATH%\Source\C\bin
     ) else (
         echo [ERROR] GenFw.exe not found - BaseTools may not be built properly
-        if %CI_MODE%==1 exit /b 1
+        exit /b 1
     )
     
-    echo [CI MODE] BaseTools verification completed
+    echo [CI MODE] BaseTools build completed successfully
     goto integrate_acpipatcher
 )
 

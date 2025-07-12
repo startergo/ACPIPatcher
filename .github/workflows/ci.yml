@@ -369,38 +369,6 @@ jobs:
         echo "✅ Build completed successfully"
       shell: bash
 
-    # Build EDK2 BaseTools (Windows)
-    - name: Build EDK2 BaseTools (Windows)
-      if: matrix.os == 'windows'
-      shell: cmd
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        CI: false
-        CL: /WX-
-      run: |
-        echo Building EDK2 BaseTools...
-        cd edk2
-        
-        REM Call edksetup.bat with ForceRebuild to build BaseTools
-        call edksetup.bat ForceRebuild
-        
-        if %ERRORLEVEL% NEQ 0 (
-          echo BaseTools build failed with exit code %ERRORLEVEL%
-          exit /b %ERRORLEVEL%
-        )
-        
-        REM Verify BaseTools were built
-        if exist "BaseTools\Bin\Win32\GenFw.exe" (
-          echo ✅ BaseTools built successfully - GenFw.exe found
-        ) else if exist "BaseTools\Source\C\bin\GenFw.exe" (
-          echo ✅ BaseTools built successfully - GenFw.exe found in Source\C\bin
-        ) else (
-          echo ❌ BaseTools build verification failed - GenFw.exe not found
-          exit /b 1
-        )
-        
-        echo BaseTools build completed successfully
-
     # Build with Windows Batch Script (VS2022)
     - name: Build ACPIPatcher (Windows VS2022)
       if: matrix.os == 'windows'
