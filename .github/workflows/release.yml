@@ -11,9 +11,14 @@ on:
         default: 'v1.1.0'
 
 jobs:
+  build:
+    name: Build Release Artifacts
+    uses: ./.github/workflows/ci-new.yml
+
   upload-release-assets:
     name: Upload Release Assets
     runs-on: ubuntu-latest
+    needs: build
     if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     
     steps:
@@ -25,6 +30,21 @@ jobs:
     - name: Prepare Release Assets
       run: |
         mkdir release-assets
+        
+        # Look for .efi files (the actual build artifacts)
+        find artifacts -name "*.efi" | while read file; do
+          # Extract artifact name and rename descriptively
+          artifact_dir=$(dirname "$file")
+          artifact_name=$(basename "$artifact_dir")
+          filename=$(basename "$file")
+          
+          # Create descriptive filename from artifact directory name
+          # Example: ACPIPatcher-Windows-X64-Release-VS2022 -> ACPIPatcher-Windows-X64-Release.efi
+          new_name=$(echo "$artifact_name" | sed 's/-VS2022$//' | sed 's/ACPIPatcher-/ACPIPatcher-/')
+          cp "$file" "release-assets/${new_name}-${filename}"
+        done
+        
+        # Also look for any compressed archives (backward compatibility)
         find artifacts -name "*.tar.gz" -o -name "*.zip" | while read file; do
           cp "$file" release-assets/
         done
@@ -32,6 +52,10 @@ jobs:
         # List what we're uploading
         echo "Release assets prepared:"
         ls -la release-assets/
+        
+        # Show artifact structure for debugging
+        echo "Available artifacts:"
+        find artifacts -type f -name "*.efi" -o -name "*.tar.gz" -o -name "*.zip"
     
     - name: Upload Assets to Release
       uses: softprops/action-gh-release@v1
