@@ -97,7 +97,9 @@ jobs:
           git submodule update --init --depth 1 MdePkg/Library/MipiSysTLib
           git submodule update --init --depth 1 BaseTools/Source/C/BrotliCompress
           git submodule update --init --depth 1 CryptoPkg/Library/OpensslLib/openssl
-          call edksetup.bat
+          echo "Building BaseTools first..."
+          call edksetup.bat ForceRebuild
+          echo "EDK2 setup completed"
         continue-on-error: true
 
       - run: |
@@ -123,12 +125,9 @@ jobs:
       - name: Fallback Build (Traditional EDK2)
         shell: cmd
         run: |
-          echo "Attempting traditional EDK2 build as fallback..."
-          cd edk2
-          call edksetup.bat
-          set "PACKAGES_PATH=%cd%;%GITHUB_WORKSPACE%"
-          build -p %GITHUB_WORKSPACE%\ACPIPatcherPkg\ACPIPatcherPkg.dsc -a ${{ inputs.arch }} -t ${{ inputs.tool-chain }} -b ${{ inputs.target }} ${{ inputs.extra-build-args }}
-        continue-on-error: true
+          echo "Using simplified build script..."
+          call build-windows.bat ${{ inputs.arch }} ${{ inputs.target }}
+        continue-on-error: false
 
       - name: Copy artifacts from EDK2 build
         shell: cmd
