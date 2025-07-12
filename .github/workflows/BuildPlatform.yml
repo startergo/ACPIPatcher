@@ -112,8 +112,10 @@ jobs:
           git submodule update --init --depth 1 MdePkg/Library/MipiSysTLib
           git submodule update --init --depth 1 BaseTools/Source/C/BrotliCompress
           git submodule update --init --depth 1 CryptoPkg/Library/OpensslLib/openssl
-          echo "Building BaseTools..."
-          call edksetup.bat ForceRebuild
+          echo "Setting up EDK2 environment..."
+          call edksetup.bat
+          echo "Building BaseTools with Edk2ToolsBuild.py..."
+          python BaseTools/Edk2ToolsBuild.py -t ${{ inputs.tool-chain }}
           echo "EDK2 setup completed successfully"
 
       - run: |
@@ -143,13 +145,6 @@ jobs:
             Write-Host "Stuart update failed with exit code $LASTEXITCODE, but continuing..."
           }
         name: 'Download External Dependencies (Stuart)'
-        continue-on-error: true
-
-      - run: |
-          .venv\Scripts\activate
-          python edk2/BaseTools/SetupTools.py
-          python edk2/BaseTools/Edk2ToolsBuild.py -t ${{ inputs.tool-chain }}
-        name: 'Build BaseTools (Stuart)'
         continue-on-error: true
 
       - run: |
