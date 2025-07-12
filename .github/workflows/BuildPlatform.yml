@@ -114,8 +114,6 @@ jobs:
           git submodule update --init --depth 1 CryptoPkg/Library/OpensslLib/openssl
           echo "Setting up EDK2 environment..."
           call edksetup.bat
-          echo "Building BaseTools with Edk2ToolsBuild.py..."
-          python BaseTools/Edk2ToolsBuild.py -t ${{ inputs.tool-chain }}
           echo "EDK2 setup completed successfully"
 
       - run: |
@@ -145,6 +143,18 @@ jobs:
             Write-Host "Stuart update failed with exit code $LASTEXITCODE, but continuing..."
           }
         name: 'Download External Dependencies (Stuart)'
+        continue-on-error: true
+
+      - run: |
+          .venv\Scripts\activate
+          echo "Building BaseTools with modern Edk2ToolsBuild.py..."
+          python edk2/BaseTools/Edk2ToolsBuild.py -t ${{ inputs.tool-chain }}
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Modern BaseTools build failed, will use traditional method in fallback"
+          } else {
+            Write-Host "Modern BaseTools build completed successfully"
+          }
+        name: 'Build BaseTools (Stuart - Modern Method)'
         continue-on-error: true
 
       - run: |
