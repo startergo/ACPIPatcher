@@ -435,6 +435,15 @@ jobs:
         set CL=/WX-
         echo Set CL=/WX- to disable warnings as errors for BaseTools
         
+        REM Patch EDK2 build files to remove hardcoded /WX before building
+        echo Patching EDK2 build files to remove hardcoded /WX flags...
+        if exist "BaseTools\Source\C\Makefiles\ms.common" (
+          echo Patching ms.common to change /WX to /WX-...
+          copy "BaseTools\Source\C\Makefiles\ms.common" "BaseTools\Source\C\Makefiles\ms.common.bak"
+          findstr /v "/WX" "BaseTools\Source\C\Makefiles\ms.common.bak" > "BaseTools\Source\C\Makefiles\ms.common.tmp"
+          move "BaseTools\Source\C\Makefiles\ms.common.tmp" "BaseTools\Source\C\Makefiles\ms.common"
+        )
+        
         REM Build BaseTools using EDK2 standard approach - exactly like working example
         dir
         edksetup.bat ForceRebuild
