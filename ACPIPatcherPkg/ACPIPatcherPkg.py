@@ -17,6 +17,7 @@ try:
     from edk2toolext.environment import shell_environment
     from edk2toolext.environment.uefi_build import UefiBuilder
     from edk2toolext.invocables.edk2_ci_build import CiBuildSettingsManager
+    from edk2toolext.invocables.edk2_platform_build import BuildSettingsManager
     from edk2toolext.invocables.edk2_setup import SetupSettingsManager, RequiredSubmodule
     from edk2toolext.invocables.edk2_update import UpdateSettingsManager
     from edk2toolext.invocables.edk2_pr_eval import PrEvalSettingsManager
@@ -28,7 +29,7 @@ except ImportError as e:
 
 
 class SettingsManager(UpdateSettingsManager, SetupSettingsManager, 
-                      PrEvalSettingsManager, CiBuildSettingsManager, UefiBuilder):
+                      PrEvalSettingsManager, CiBuildSettingsManager, BuildSettingsManager, UefiBuilder):
     """Settings Manager for ACPIPatcher Platform - Combined Platform Configuration"""
 
     def GetPackagesSupported(self):
@@ -145,6 +146,14 @@ class SettingsManager(UpdateSettingsManager, SetupSettingsManager,
     def GetEnvironmentDescriptorFiles(self):
         """Return list of environment descriptor files"""
         return []
+
+    def GetDscName(self):
+        """Return the DSC file name for the build"""
+        return "ACPIPatcherPkg/ACPIPatcherPkg.dsc"
+    
+    def GetFdfName(self):
+        """Return the FDF file name for the build (optional)"""
+        return None  # No FDF file for this simple build
 
 
 if __name__ == "__main__":
