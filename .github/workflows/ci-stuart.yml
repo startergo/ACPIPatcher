@@ -22,3 +22,4 @@ jobs:
       tool-chain: 'VS2022'
       target: ${{ matrix.target }}
       arch: ${{ matrix.arch }}
+      extra-pip-requirements: 'edk2-pytool-library edk2-pytool-extensions'

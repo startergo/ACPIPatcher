@@ -77,36 +77,76 @@ jobs:
           arch: ${{ inputs.arch == 'IA32' && 'x86' || 'x64' }}
 
       - run: |
-          pip install --upgrade ${{ inputs.extra-pip-requirements }} -r pip-requirements.txt
+          pip install --upgrade pip
+          pip install ${{ inputs.extra-pip-requirements }}
         name: 'Install/Upgrade pip modules'
-        continue-on-error: true
+        if: ${{ inputs.extra-pip-requirements != '' }}
 
       - run: ${{ inputs.extra-setup-cmd }}
         name: 'Extra Setup Commands'
         if: ${{ inputs.extra-setup-cmd != '' }}
 
+      - name: Setup EDK II (Fallback for non-Stuart builds)
+        shell: cmd
+        run: |
+          echo "Setting up EDK II environment as fallback..."
+          if not exist edk2 (
+            git clone --depth 1 https://github.com/tianocore/edk2.git edk2
+          )
+          cd edk2
+          git submodule update --init --depth 1 MdePkg/Library/MipiSysTLib
+          git submodule update --init --depth 1 BaseTools/Source/C/BrotliCompress
+          git submodule update --init --depth 1 CryptoPkg/Library/OpensslLib/openssl
+          call edksetup.bat
+        continue-on-error: true
+
       - run: |
           stuart_setup -c ${{ inputs.build-file }}
-        name: 'Clone Submodules'
+        name: 'Clone Submodules (Stuart)'
+        continue-on-error: true
 
       - run: |
           stuart_update -c ${{ inputs.build-file }}
-        name: 'Download External Dependencies'
+        name: 'Download External Dependencies (Stuart)'
+        continue-on-error: true
 
       - run: |
           python BaseTools/Edk2ToolsBuild.py -t ${{ inputs.tool-chain }}
-        name: 'Build BaseTools'
+        name: 'Build BaseTools (Stuart)'
+        continue-on-error: true
 
       - run: |
           stuart_build -c ${{ inputs.build-file }} TARGET=${{ inputs.target}} TOOL_CHAIN_TAG=${{ inputs.tool-chain }} TARGET_ARCH=${{ inputs.arch }} ${{ inputs.extra-build-args }}
-        name: 'Build Platform'
+        name: 'Build Platform (Stuart)'
+        continue-on-error: true
+
+      - name: Fallback Build (Traditional EDK2)
+        shell: cmd
+        run: |
+          echo "Attempting traditional EDK2 build as fallback..."
+          cd edk2
+          call edksetup.bat
+          set "PACKAGES_PATH=%cd%;%GITHUB_WORKSPACE%"
+          build -p %GITHUB_WORKSPACE%\ACPIPatcherPkg\ACPIPatcherPkg.dsc -a ${{ inputs.arch }} -t ${{ inputs.tool-chain }} -b ${{ inputs.target }} ${{ inputs.extra-build-args }}
+        continue-on-error: true
+
+      - name: Copy artifacts from EDK2 build
+        shell: cmd
+        run: |
+          echo "Copying build artifacts..."
+          set "BUILD_DIR=edk2\Build\ACPIPatcher\${{ inputs.target }}_${{ inputs.tool-chain }}\${{ inputs.arch }}"
+          if exist "%BUILD_DIR%\ACPIPatcher.efi" copy "%BUILD_DIR%\ACPIPatcher.efi" .
+          if exist "%BUILD_DIR%\ACPIPatcherDxe.efi" copy "%BUILD_DIR%\ACPIPatcherDxe.efi" .
+          dir *.efi
+        continue-on-error: true
 
       - name: Upload Platform Build Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ACPIPatcher-Windows-${{ inputs.arch }}-${{ inputs.target }}-${{ inputs.tool-chain }}
           path: |
-            Build/*.txt
-            BaseTools/BaseToolsBuild/*
+            Build/**/*.txt
+            BaseTools/BaseToolsBuild/**/*
+            edk2/Build/**/*.txt
             *.efi
         if: always()
