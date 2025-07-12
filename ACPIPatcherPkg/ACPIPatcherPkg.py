@@ -28,8 +28,7 @@ except ImportError as e:
     sys.exit(1)
 
 
-class SettingsManager(UpdateSettingsManager, SetupSettingsManager, 
-                      PrEvalSettingsManager, CiBuildSettingsManager, BuildSettingsManager, UefiBuilder):
+class SettingsManager(BuildSettingsManager, SetupSettingsManager, UpdateSettingsManager):
     """Settings Manager for ACPIPatcher Platform - Combined Platform Configuration"""
 
     def GetPackagesSupported(self):
@@ -88,6 +87,7 @@ class SettingsManager(UpdateSettingsManager, SetupSettingsManager,
             "TARGET": "RELEASE", 
             "TOOL_CHAIN_TAG": "VS2022"
         }
+    
     def SetPlatformEnv(self):
         """Set platform specific environment variables"""
         self.env.SetValue("ACTIVE_PLATFORM", "ACPIPatcherPkg/ACPIPatcherPkg.dsc", "Platform Hardcoded")
@@ -104,7 +104,30 @@ class SettingsManager(UpdateSettingsManager, SetupSettingsManager,
             
         return 0
 
-    # UefiBuilder methods
+    def GetEnvironmentDescriptorFiles(self):
+        """Return list of environment descriptor files"""
+        return []
+
+    def GetDscName(self):
+        """Return the DSC file name for the build"""
+        return "ACPIPatcherPkg/ACPIPatcherPkg.dsc"
+    
+    def GetFdfName(self):
+        """Return the FDF file name for the build (optional)"""
+        return None  # No FDF file for this simple build
+
+    def GetBuildInfoFiles(self):
+        """Return list of files that contain build information"""
+        return []
+
+    def GetGuidNameFile(self):
+        """Return path to GUID name file (optional)"""
+        return None
+
+
+class PlatformBuilder(UefiBuilder):
+    """UEFI Builder for ACPIPatcher Platform"""
+
     def PlatformPreBuild(self):
         """Platform specific pre-build actions"""
         return 0
@@ -139,31 +162,6 @@ class SettingsManager(UpdateSettingsManager, SetupSettingsManager,
                 "Enabled": False  # Disable problematic plugin
             }
         }
-    
-    def GetEnvironmentDescriptorFiles(self):
-        """Return list of environment descriptor files"""
-        return []
-
-    def GetDscName(self):
-        """Return the DSC file name for the build"""
-        return "ACPIPatcherPkg/ACPIPatcherPkg.dsc"
-    
-    def GetFdfName(self):
-        """Return the FDF file name for the build (optional)"""
-        return None  # No FDF file for this simple build
-
-    def GetConfigurationElements(self):
-        """Return list of configuration elements for this platform"""
-        # This method should return an empty list since we don't have custom configuration elements
-        return []
-
-    def GetBuildInfoFiles(self):
-        """Return list of files that contain build information"""
-        return []
-
-    def GetGuidNameFile(self):
-        """Return path to GUID name file (optional)"""
-        return None
 
 
 if __name__ == "__main__":
