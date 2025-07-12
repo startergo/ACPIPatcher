@@ -370,14 +370,25 @@ jobs:
       shell: bash
 
     # Windows Build - Simplified Direct Approach (inspired by Python UEFI example)
+    - name: Enable long paths for Git (Windows)
+      if: matrix.os == 'windows'
+      shell: cmd
+      run: |
+        git config --global core.longpaths true
+        git config --global core.autocrlf false
+
     - name: Clone EDK2 (Windows)
       if: matrix.os == 'windows'
       shell: cmd
       run: |
-        echo Cloning EDK2...
-        git clone https://github.com/tianocore/edk2.git
+        echo Cloning EDK2 with shallow depth to avoid long path issues...
+        git clone --depth 1 https://github.com/tianocore/edk2.git
         cd edk2
-        git submodule update --init --recursive
+        echo Initializing only essential submodules to avoid problematic long filenames...
+        git submodule update --init --depth 1 MdePkg/Library/MipiSysTLib
+        git submodule update --init --depth 1 BaseTools/Source/C/BrotliCompress
+        git submodule update --init --depth 1 CryptoPkg/Library/OpensslLib/openssl
+        echo Skipping SecurityPkg submodules that contain problematic long paths
 
     - name: Build EDK2 Base Tools (Windows)
       if: matrix.os == 'windows'
@@ -401,7 +412,8 @@ jobs:
       shell: cmd
       run: |
         echo Listing build artifacts...
-        dir /S edk2\Build        echo Build completed successfully
+        dir /S edk2\Build
+        echo Build completed successfully
 
     # Build with Traditional EDK2 (Windows Cygwin)
     - name: Build with EDK2 (Windows Cygwin)
