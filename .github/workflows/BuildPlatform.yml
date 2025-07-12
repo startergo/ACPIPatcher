@@ -78,8 +78,11 @@ jobs:
 
       - run: |
           pip install --upgrade pip
+          pip install virtualenv
+          python -m venv .venv
+          .venv\Scripts\activate
           pip install ${{ inputs.extra-pip-requirements }}
-        name: 'Install/Upgrade pip modules'
+        name: 'Install/Upgrade pip modules and setup venv'
         if: ${{ inputs.extra-pip-requirements != '' }}
 
       - run: ${{ inputs.extra-setup-cmd }}
@@ -103,21 +106,25 @@ jobs:
         continue-on-error: true
 
       - run: |
+          .venv\Scripts\activate
           stuart_setup -c ${{ inputs.build-file }}
         name: 'Clone Submodules (Stuart)'
         continue-on-error: true
 
       - run: |
+          .venv\Scripts\activate
           stuart_update -c ${{ inputs.build-file }}
         name: 'Download External Dependencies (Stuart)'
         continue-on-error: true
 
       - run: |
+          .venv\Scripts\activate
           python BaseTools/Edk2ToolsBuild.py -t ${{ inputs.tool-chain }}
         name: 'Build BaseTools (Stuart)'
         continue-on-error: true
 
       - run: |
+          .venv\Scripts\activate
           stuart_build -c ${{ inputs.build-file }} TARGET=${{ inputs.target}} TOOL_CHAIN_TAG=${{ inputs.tool-chain }} TARGET_ARCH=${{ inputs.arch }} ${{ inputs.extra-build-args }}
         name: 'Build Platform (Stuart)'
         continue-on-error: true
