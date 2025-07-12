@@ -81,7 +81,15 @@ jobs:
           pip install virtualenv
           python -m venv .venv
           .venv\Scripts\activate
-          pip install ${{ inputs.extra-pip-requirements }}
+          if (Test-Path "requirements.txt") {
+            Write-Host "Installing from requirements.txt..."
+            pip install -r requirements.txt
+          } else {
+            Write-Host "Installing default Stuart packages..."
+            pip install ${{ inputs.extra-pip-requirements }}
+          }
+          Write-Host "Installed packages:"
+          pip list
         name: 'Install/Upgrade pip modules and setup venv'
         if: ${{ inputs.extra-pip-requirements != '' }}
 
