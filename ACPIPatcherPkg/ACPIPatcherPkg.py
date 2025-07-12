@@ -152,6 +152,19 @@ class SettingsManager(UpdateSettingsManager, SetupSettingsManager,
         """Return the FDF file name for the build (optional)"""
         return None  # No FDF file for this simple build
 
+    def GetConfigurationElements(self):
+        """Return list of configuration elements for this platform"""
+        # This method should return an empty list since we don't have custom configuration elements
+        return []
+
+    def GetBuildInfoFiles(self):
+        """Return list of files that contain build information"""
+        return []
+
+    def GetGuidNameFile(self):
+        """Return path to GUID name file (optional)"""
+        return None
+
 
 if __name__ == "__main__":
     import argparse
