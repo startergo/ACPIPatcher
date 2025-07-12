@@ -174,56 +174,8 @@ jobs:
       if: matrix.os == 'windows'
       uses: microsoft/setup-msbuild@v2
 
-    # Setup NASM for Windows builds
-    - name: Setup NASM (Windows)
-      if: matrix.os == 'windows' || matrix.os == 'windows-cygwin'
-      run: |
-        Write-Host "Installing NASM..."
-        choco install nasm -y
-        
-        # Refresh environment variables to get updated PATH
-        $env:ChocolateyInstall = Convert-Path "$((Get-Command choco).Path)\..\.."
-        Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
-        refreshenv
-        
-        # Force add NASM paths
-        $nasmPaths = @(
-          "C:\Program Files\NASM",
-          "C:\ProgramData\chocolatey\lib\nasm\tools\nasm-2.16.03",
-          "C:\ProgramData\chocolatey\lib\nasm\tools"
-        )
-        
-        foreach ($path in $nasmPaths) {
-          if (Test-Path $path) {
-            $env:PATH = "$path;$env:PATH"
-            Write-Host "Added to PATH: $path"
-          }
-        }
-        
-        # Verify NASM installation
-        $nasmExe = Get-Command nasm -ErrorAction SilentlyContinue
-        if ($nasmExe) {
-          Write-Host "NASM found at: $($nasmExe.Source)"
-          & $nasmExe.Source -v
-        } else {
-          # Try direct paths
-          $nasmLocations = @(
-            "C:\Program Files\NASM\nasm.exe",
-            "C:\ProgramData\chocolatey\lib\nasm\tools\nasm-2.16.03\nasm.exe",
-            "C:\ProgramData\chocolatey\lib\nasm\tools\nasm.exe"
-          )
-          
-          foreach ($loc in $nasmLocations) {
-            if (Test-Path $loc) {
-              Write-Host "NASM found at: $loc"
-              & $loc -v
-              break
-            }
-          }
-        }
-        
-        Write-Host "NASM installation completed"
-      shell: pwsh
+    # Note: NASM is already installed by ilammy/setup-nasm@v1 above
+    # No additional Windows-specific NASM setup needed
 
     # Build Essentials (Linux only)
     - name: Install Build Essentials
@@ -316,11 +268,11 @@ jobs:
         git submodule status | head -10
         
         # Check if critical submodules exist
-        if [ ! -d "temp_edk2" ]; then
-          echo "temp_edk2 directory not found yet - this will be created by build scripts"
+        if [ ! -d "edk2" ]; then
+          echo "edk2 directory not found yet - this will be created by build scripts"
         else
-          echo "Checking EDK2 submodules in temp_edk2..."
-          cd temp_edk2
+          echo "Checking EDK2 submodules in edk2..."
+          cd edk2
           
           # Check for critical missing submodules
           missing_submodules=()
@@ -417,43 +369,39 @@ jobs:
         echo "✅ Build completed successfully"
       shell: bash
 
-    # Build EDK2 BaseTools (Windows VS2022) - Following proven pattern
+    # Build EDK2 BaseTools (Windows)
     - name: Build EDK2 BaseTools (Windows)
       if: matrix.os == 'windows'
       shell: C:\Windows\system32\cmd.EXE /D /E:ON /V:OFF /S /C "CALL "{0}""
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        CI: false
+        CL: /WX-
       run: |
-        REM Navigate to EDK2 directory or clone if needed
-        if exist edk2 (
-          cd edk2
-        ) else (
-          echo EDK2 directory not found - cloning fresh copy...
-          git clone --depth 1 --single-branch https://github.com/tianocore/edk2.git edk2
-          cd edk2
-        )
+        echo Building EDK2 BaseTools...
+        cd edk2
         
-        REM Disable warnings as errors for BaseTools build only
-        set CL=/WX-
-        echo Set CL=/WX- to disable warnings as errors for BaseTools
-        
-        REM Patch EDK2 build files to remove hardcoded /WX before building
-        echo Patching EDK2 build files to remove hardcoded /WX flags...
-        if exist "BaseTools\Source\C\Makefiles\ms.common" (
-          echo Patching ms.common to change /WX to /WX-...
-          copy "BaseTools\Source\C\Makefiles\ms.common" "BaseTools\Source\C\Makefiles\ms.common.bak"
-          findstr /v "/WX" "BaseTools\Source\C\Makefiles\ms.common.bak" > "BaseTools\Source\C\Makefiles\ms.common.tmp"
-          move "BaseTools\Source\C\Makefiles\ms.common.tmp" "BaseTools\Source\C\Makefiles\ms.common"
-        )
-        
-        REM Build BaseTools using EDK2 standard approach - exactly like working example
-        dir
-        edksetup.bat ForceRebuild
+        REM Call edksetup.bat with ForceRebuild to build BaseTools
+        call edksetup.bat ForceRebuild
         
         if %ERRORLEVEL% NEQ 0 (
           echo BaseTools build failed with exit code %ERRORLEVEL%
           exit /b %ERRORLEVEL%
         )
         
-        echo BaseTools build completed successfully    # Build ACPIPatcher (Windows VS2022) - Following proven pattern
+        REM Verify BaseTools were built
+        if exist "BaseTools\Bin\Win32\GenFw.exe" (
+          echo ✅ BaseTools built successfully - GenFw.exe found
+        ) else if exist "BaseTools\Source\C\bin\GenFw.exe" (
+          echo ✅ BaseTools built successfully - GenFw.exe found in Source\C\bin
+        ) else (
+          echo ❌ BaseTools build verification failed - GenFw.exe not found
+          exit /b 1
+        )
+        
+        echo BaseTools build completed successfully
+
+    # Build with Windows Batch Script (VS2022)
     - name: Build ACPIPatcher (Windows VS2022)
       if: matrix.os == 'windows'
       shell: C:\Windows\system32\cmd.EXE /D /E:ON /V:OFF /S /C "CALL "{0}""
@@ -462,42 +410,17 @@ jobs:
         CI: true
       run: |
         echo Building ACPIPatcher with VS2022 toolchain...
-        echo Configuration: ${{ matrix.arch }} ${{ matrix.build_type }} (${{ matrix.toolchain }}
+        echo Configuration: ${{ matrix.arch }} ${{ matrix.build_type }} (${{ matrix.toolchain }})
         
-        REM Set up environment - following proven EDK2 pattern
-        set PACKAGES_PATH=%CD%\edk2;%CD%;
-        set WORKSPACE=%CD%\edk2
-        
-        REM Navigate to EDK2 directory
-        cd edk2
-        
-        REM Copy ACPIPatcher package if not present
-        if not exist "ACPIPatcherPkg" (
-          echo Copying ACPIPatcherPkg...
-          xcopy /E /I /Y "..\ACPIPatcherPkg" "ACPIPatcherPkg"
-        )
-        
-        REM Build ACPIPatcher - setup environment and build
-        call edksetup.bat
-        build -p ACPIPatcherPkg\ACPIPatcherPkg.dsc -a ${{ matrix.arch }} -t ${{ matrix.toolchain }} -b ${{ matrix.build_type }}
+        REM Use our automated Windows build script
+        call setup_and_build.bat ${{ matrix.arch }} ${{ matrix.build_type }}
         
         if %ERRORLEVEL% NEQ 0 (
-          echo ACPIPatcher build failed with exit code %ERRORLEVEL%
+          echo Build failed with exit code %ERRORLEVEL%
           exit /b %ERRORLEVEL%
         )
         
-        echo ACPIPatcher build completed successfully
-        
-        REM Copy built files back to root directory
-        set BUILD_DIR=Build\ACPIPatcher\${{ matrix.build_type }}_${{ matrix.toolchain }}\${{ matrix.arch }}
-        if exist "%BUILD_DIR%\ACPIPatcher.efi" (
-          copy "%BUILD_DIR%\ACPIPatcher.efi" "..\ACPIPatcher.efi"
-          echo ACPIPatcher.efi copied
-        )
-        if exist "%BUILD_DIR%\ACPIPatcherDxe.efi" (
-          copy "%BUILD_DIR%\ACPIPatcherDxe.efi" "..\ACPIPatcherDxe.efi"
-          echo ACPIPatcherDxe.efi copied
-        )
+        echo Build completed successfully
 
     # Build with Traditional EDK2 (Windows Cygwin)
     - name: Build with EDK2 (Windows Cygwin)
