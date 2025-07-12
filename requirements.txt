@@ -1,0 +1,10 @@
+# ACPIPatcher Stuart Build Requirements
+# Install with: pip install -r requirements.txt
+
+# Core EDK2 Python Tools for Stuart Build System
+edk2-pytool-library>=0.21.0
+edk2-pytool-extensions>=0.25.0
+
+# Additional useful tools
+gitpython>=3.1.0
+colorama>=0.4.0
