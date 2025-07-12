@@ -372,7 +372,7 @@ jobs:
     # Build EDK2 BaseTools (Windows)
     - name: Build EDK2 BaseTools (Windows)
       if: matrix.os == 'windows'
-      shell: C:\Windows\system32\cmd.EXE /D /E:ON /V:OFF /S /C "CALL "{0}""
+      shell: cmd
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         CI: false
@@ -404,10 +404,11 @@ jobs:
     # Build with Windows Batch Script (VS2022)
     - name: Build ACPIPatcher (Windows VS2022)
       if: matrix.os == 'windows'
-      shell: C:\Windows\system32\cmd.EXE /D /E:ON /V:OFF /S /C "CALL "{0}""
+      shell: cmd
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         CI: true
+        CL: /WX-
       run: |
         echo Building ACPIPatcher with VS2022 toolchain...
         echo Configuration: ${{ matrix.arch }} ${{ matrix.build_type }} (${{ matrix.toolchain }})
@@ -428,6 +429,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         CI: true
+        CL: /WX-
       run: |
         Write-Host "Building ACPIPatcher with Cygwin GCC toolchain..."
         Write-Host "Configuration: ${{ matrix.arch }} ${{ matrix.build_type }} (${{ matrix.toolchain }})"
@@ -494,7 +496,7 @@ jobs:
     # Verify Build Success (Windows)
     - name: Verify Build Output (Windows)
       if: matrix.os == 'windows' || matrix.os == 'windows-cygwin'
-      shell: C:\Windows\system32\cmd.EXE /D /E:ON /V:OFF /S /C "CALL "{0}""
+      shell: cmd
       run: |
         echo Checking build outputs...
         
