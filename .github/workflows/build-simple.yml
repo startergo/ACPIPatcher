@@ -1,0 +1,85 @@
+# GitHub actions workflow to build ACPIPatcher UEFI using VS2022
+#
+# Copyright (c) 2023 - 2025, Intel Corporation. All rights reserved.
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+
+name: Build ACPIPatcher (Simple Windows Build)
+
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: windows-2022
+    env:
+      NASM_PREFIX: "C:\\Program Files\\NASM\\"
+    defaults:
+      run:
+        shell: cmd
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install NASM
+      run: choco install nasm
+
+    - name: Setup Visual Studio Environment
+      uses: ilammy/msvc-dev-cmd@v1
+      with:
+        arch: x64
+
+    - name: Clone EDK2
+      run: |
+        git clone https://github.com/tianocore/edk2.git
+        cd edk2
+        git submodule update --init
+        
+    - name: Build EDK2 Base Tools
+      run: |
+        cd edk2
+        call edksetup.bat ForceRebuild
+        
+    - name: Build ACPIPatcher
+      run: |
+        set PACKAGES_PATH=%CD%\edk2;%CD%;
+        set WORKSPACE=%CD%
+        cd edk2
+        call edksetup.bat
+        build -t VS2022 -a X64 -b RELEASE -p %WORKSPACE%\ACPIPatcherPkg\ACPIPatcherPkg.dsc
+        
+    - name: Build ACPIPatcher DEBUG
+      run: |
+        set PACKAGES_PATH=%CD%\edk2;%CD%;
+        set WORKSPACE=%CD%
+        cd edk2
+        call edksetup.bat
+        build -t VS2022 -a X64 -b DEBUG -p %WORKSPACE%\ACPIPatcherPkg\ACPIPatcherPkg.dsc
+        
+    - name: List build artifacts
+      run: |
+        echo "RELEASE build artifacts:"
+        dir /S edk2\Build\ACPIPatcher\RELEASE_VS2022\X64\*.efi
+        echo "DEBUG build artifacts:"
+        dir /S edk2\Build\ACPIPatcher\DEBUG_VS2022\X64\*.efi
+        
+    - name: Copy artifacts to root
+      run: |
+        copy edk2\Build\ACPIPatcher\RELEASE_VS2022\X64\ACPIPatcher.efi ACPIPatcher-RELEASE.efi
+        copy edk2\Build\ACPIPatcher\RELEASE_VS2022\X64\ACPIPatcherDxe.efi ACPIPatcherDxe-RELEASE.efi
+        copy edk2\Build\ACPIPatcher\DEBUG_VS2022\X64\ACPIPatcher.efi ACPIPatcher-DEBUG.efi
+        copy edk2\Build\ACPIPatcher\DEBUG_VS2022\X64\ACPIPatcherDxe.efi ACPIPatcherDxe-DEBUG.efi
+        dir *.efi
+        
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ACPIPatcher-VS2022-binaries
+        path: |
+          *.efi
+          edk2/Build/ACPIPatcher/**/*.txt
