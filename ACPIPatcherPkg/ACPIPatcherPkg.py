@@ -56,7 +56,14 @@ class SettingsManager(UpdateSettingsManager, SetupSettingsManager,
     def GetActiveScopes(self):
         """Return tuple containing scopes that should be active for this process"""
         return ("edk2-build", "cibuild")
-
+    
+    def GetPackagesPath(self):
+        """Return paths where packages are located"""
+        return [
+            ".",
+            "edk2"
+        ]
+    
     def GetName(self):
         """Return the name of the platform"""
         return "ACPIPatcher"
@@ -123,6 +130,21 @@ class SettingsManager(UpdateSettingsManager, SetupSettingsManager,
             ".",
             "edk2"
         ]
+
+    def GetPluginSettings(self):
+        """Return a dictionary of plugin settings to control plugin behavior"""
+        return {
+            "CompilerPlugin": {
+                "CompilerPath": ""
+            },
+            "DebugMacroCheck": {
+                "Enabled": False  # Disable problematic plugin
+            }
+        }
+    
+    def GetEnvironmentDescriptorFiles(self):
+        """Return list of environment descriptor files"""
+        return []
 
 
 if __name__ == "__main__":

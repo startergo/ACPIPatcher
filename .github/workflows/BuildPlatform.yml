@@ -88,6 +88,8 @@ jobs:
             Write-Host "Installing default Stuart packages..."
             pip install ${{ inputs.extra-pip-requirements }}
           }
+          # Ensure regex is installed for EDK2 plugins
+          pip install regex
           Write-Host "Installed packages:"
           pip list
         name: 'Install/Upgrade pip modules and setup venv'
@@ -119,9 +121,14 @@ jobs:
           if (Test-Path "${{ inputs.build-file }}") {
             Write-Host "Found Stuart configuration at ${{ inputs.build-file }}"
             .venv\Scripts\activate
+            Write-Host "Virtual environment activated, checking installed packages..."
+            pip list | findstr -i "regex edk2"
+            Write-Host "Running stuart_setup..."
             stuart_setup -c ${{ inputs.build-file }} --verbose
             if ($LASTEXITCODE -ne 0) {
-              Write-Host "Stuart setup failed, but continuing with workflow..."
+              Write-Host "Stuart setup failed with exit code $LASTEXITCODE, but continuing with workflow..."
+            } else {
+              Write-Host "Stuart setup completed successfully"
             }
           } else {
             Write-Host "Stuart configuration not found at ${{ inputs.build-file }}, skipping..."
@@ -132,12 +139,15 @@ jobs:
       - run: |
           .venv\Scripts\activate
           stuart_update -c ${{ inputs.build-file }}
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Stuart update failed with exit code $LASTEXITCODE, but continuing..."
+          }
         name: 'Download External Dependencies (Stuart)'
         continue-on-error: true
 
       - run: |
           .venv\Scripts\activate
-          python BaseTools/Edk2ToolsBuild.py -t ${{ inputs.tool-chain }}
+          python edk2/BaseTools/Edk2ToolsBuild.py -t ${{ inputs.tool-chain }}
         name: 'Build BaseTools (Stuart)'
         continue-on-error: true
 
