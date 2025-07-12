@@ -69,7 +69,6 @@ jobs:
         run: |
           git config --global submodule.recurse true
           git config --global submodule.fetchJobs 4
-        name: 'Configure Git submodule settings'
 
       - name: Set up Python ${{ inputs.python-version }}
         uses: actions/setup-python@v5
@@ -84,7 +83,8 @@ jobs:
         with:
           arch: ${{ inputs.arch == 'IA32' && 'x86' || 'x64' }}
 
-      - run: |
+      - name: 'Install/Upgrade pip modules and setup venv'
+        run: |
           pip install --upgrade pip
           pip install virtualenv
           python -m venv .venv
@@ -100,11 +100,10 @@ jobs:
           pip install regex
           Write-Host "Installed packages:"
           pip list
-        name: 'Install/Upgrade pip modules and setup venv'
         if: ${{ inputs.extra-pip-requirements != '' }}
 
-      - run: ${{ inputs.extra-setup-cmd }}
-        name: 'Extra Setup Commands'
+      - name: 'Extra Setup Commands'
+        run: ${{ inputs.extra-setup-cmd }}
         if: ${{ inputs.extra-setup-cmd != '' }}
 
       - name: Setup EDK II (Required for all builds)
@@ -128,7 +127,8 @@ jobs:
           cd ..
           echo "EDK2 setup completed successfully"
 
-      - run: |
+      - name: 'Clone Submodules (Stuart)'
+        run: |
           echo "Checking Stuart configuration..."
           if (Test-Path "${{ inputs.build-file }}") {
             Write-Host "Found Stuart configuration at ${{ inputs.build-file }}"
@@ -145,19 +145,19 @@ jobs:
           } else {
             Write-Host "Stuart configuration not found at ${{ inputs.build-file }}, skipping..."
           }
-        name: 'Clone Submodules (Stuart)'
         continue-on-error: true
 
-      - run: |
+      - name: 'Download External Dependencies (Stuart)'
+        run: |
           .venv\Scripts\activate
           stuart_update -c ${{ inputs.build-file }}
           if ($LASTEXITCODE -ne 0) {
             Write-Host "Stuart update failed with exit code $LASTEXITCODE, but continuing..."
           }
-        name: 'Download External Dependencies (Stuart)'
         continue-on-error: true
 
-      - run: |
+      - name: 'Build BaseTools (Stuart - Modern Method)'
+        run: |
           .venv\Scripts\activate
           echo "Building BaseTools with modern Edk2ToolsBuild.py..."
           python edk2/BaseTools/Edk2ToolsBuild.py -t ${{ inputs.tool-chain }}
@@ -166,13 +166,12 @@ jobs:
           } else {
             Write-Host "Modern BaseTools build completed successfully"
           }
-        name: 'Build BaseTools (Stuart - Modern Method)'
         continue-on-error: true
 
-      - run: |
+      - name: 'Build Platform (Stuart)'
+        run: |
           .venv\Scripts\activate
           stuart_build -c ${{ inputs.build-file }} TARGET=${{ inputs.target}} TOOL_CHAIN_TAG=${{ inputs.tool-chain }} TARGET_ARCH=${{ inputs.arch }} ${{ inputs.extra-build-args }}
-        name: 'Build Platform (Stuart)'
         continue-on-error: true
 
       - name: Fallback Build (Traditional EDK2)
