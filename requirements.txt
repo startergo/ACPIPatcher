@@ -1,10 +1,19 @@
-# ACPIPatcher Stuart Build Requirements
-# Install with: pip install -r requirements.txt
+## @file
+# EDK II Python PIP requirements file
+#
+# This file provides the list of python components to install using PIP.
+#
+# Copyright (c) Microsoft Corporation.
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+# https://pypi.org/project/pip/
+# https://pip.pypa.io/en/stable/user_guide/#requirements-files
+# https://pip.pypa.io/en/stable/reference/requirements-file-format
+# https://www.python.org/dev/peps/pep-0440/#version-specifiers
+##
 
-# Core EDK2 Python Tools for Stuart Build System
-edk2-pytool-library>=0.21.0
-edk2-pytool-extensions>=0.25.0
-
-# Additional useful tools
-gitpython>=3.1.0
-colorama>=0.4.0
+edk2-pytool-library~=0.23.4
+edk2-pytool-extensions~=0.29.11
+antlr4-python3-runtime==4.9
+lcov-cobertura==2.1.1
+regex==2024.11.6
