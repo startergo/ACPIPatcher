@@ -147,6 +147,7 @@ jobs:
 
       - run: |
           .venv\Scripts\activate
+          python edk2/BaseTools/SetupTools.py
           python edk2/BaseTools/Edk2ToolsBuild.py -t ${{ inputs.tool-chain }}
         name: 'Build BaseTools (Stuart)'
         continue-on-error: true

@@ -83,7 +83,11 @@ class SettingsManager(UpdateSettingsManager, SetupSettingsManager,
 
     def SetPlatformDefaultEnv(self):
         """Set default environment variables"""
-        return 0
+        return {
+            "TARGET_ARCH": "X64",
+            "TARGET": "RELEASE", 
+            "TOOL_CHAIN_TAG": "VS2022"
+        }
     def SetPlatformEnv(self):
         """Set platform specific environment variables"""
         self.env.SetValue("ACTIVE_PLATFORM", "ACPIPatcherPkg/ACPIPatcherPkg.dsc", "Platform Hardcoded")
@@ -124,13 +128,6 @@ class SettingsManager(UpdateSettingsManager, SetupSettingsManager,
     def SetTargets(self, list_of_requested_targets):
         """Set the targets to build"""
         self.ACTIVE_TARGETS = list_of_requested_targets
-
-    def GetPackagesPath(self):
-        """Return paths where packages are located"""
-        return [
-            ".",
-            "edk2"
-        ]
 
     def GetPluginSettings(self):
         """Return a dictionary of plugin settings to control plugin behavior"""
