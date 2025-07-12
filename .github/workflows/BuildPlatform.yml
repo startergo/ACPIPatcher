@@ -112,13 +112,14 @@ jobs:
           echo "Setting up EDK II environment..."
           if not exist edk2 (
             echo "Cloning EDK2..."
-            git clone --depth 1 --recurse-submodules=MdePkg/Library/MipiSysTLib --recurse-submodules=BaseTools/Source/C/BrotliCompress --recurse-submodules=CryptoPkg/Library/OpensslLib/openssl https://github.com/tianocore/edk2.git edk2
+            git clone https://github.com/tianocore/edk2.git edk2
+            cd edk2
+            git submodule update --init
+            cd ..
           ) else (
             echo "EDK2 already exists, updating submodules..."
             cd edk2
-            git submodule update --init --depth 1 MdePkg/Library/MipiSysTLib
-            git submodule update --init --depth 1 BaseTools/Source/C/BrotliCompress
-            git submodule update --init --depth 1 CryptoPkg/Library/OpensslLib/openssl
+            git submodule update --init
             cd ..
           )
           echo "Setting up EDK2 environment..."
@@ -171,6 +172,17 @@ jobs:
       - name: 'Build Platform (Stuart)'
         run: |
           .venv\Scripts\activate
+          echo "Setting up workspace environment for Stuart..."
+          $env:NASM_PREFIX = "C:\Users\runneradmin\nasm\"
+          $env:WORKSPACE = "$PWD"
+          cd edk2
+          call edksetup.bat
+          cd ..
+          echo "Current directory: $PWD"
+          echo "Build file path: ${{ inputs.build-file }}"
+          echo "NASM_PREFIX: $env:NASM_PREFIX"
+          echo "WORKSPACE: $env:WORKSPACE"
+          echo "Running Stuart build..."
           stuart_build -c ${{ inputs.build-file }} TARGET=${{ inputs.target}} TOOL_CHAIN_TAG=${{ inputs.tool-chain }} TARGET_ARCH=${{ inputs.arch }} ${{ inputs.extra-build-args }}
         continue-on-error: true
 
