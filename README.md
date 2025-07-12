@@ -1,9 +1,8 @@
 # ACPIPatcher
 An EFI application and driver to add SSDTs and/or patch in your own DSDT
 
-[![Build and Test](https://github.com/startergo/ACPIPatcher/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/startergo/ACPIPatcher/actions/workflows/build-and-test.yml)
-[![Quick CI](https://github.com/startergo/ACPIPatcher/actions/workflows/ci.yml/badge.svg)](https://github.com/startergo/ACPIPatcher/actions/workflows/ci.yml)
-[![Comprehensive Testing](https://github.com/startergo/ACPIPatcher/actions/workflows/comprehensive-test.yml/badge.svg)](https://github.com/startergo/ACPIPatcher/actions/workflows/comprehensive-test.yml)
+[![CI Build](https://github.com/startergo/ACPIPatcher/actions/workflows/ci-new.yml/badge.svg)](https://github.com/startergo/ACPIPatcher/actions/workflows/ci-new.yml)
+[![Release](https://github.com/startergo/ACPIPatcher/actions/workflows/release.yml/badge.svg)](https://github.com/startergo/ACPIPatcher/actions/workflows/release.yml)
 [![GitHub release](https://img.shields.io/github/v/release/startergo/ACPIPatcher)](https://github.com/startergo/ACPIPatcher/releases)
 [![License](https://img.shields.io/github/license/startergo/ACPIPatcher)](LICENSE)
 
@@ -447,30 +446,33 @@ This project has evolved significantly from its original form:
 
 ## CI/CD and Automation
 
-This project uses comprehensive GitHub Actions workflows for automated building, testing, and releasing:
+This project uses streamlined GitHub Actions workflows for automated building, testing, and releasing:
 
-### 🚀 **Automated Builds**
-- **Cross-platform**: Linux (Ubuntu), macOS, Windows
-- **Multi-architecture**: X64 and IA32 support
-- **Multiple configurations**: Debug and Release builds
-- **Automated testing**: Static analysis and code quality checks
+### 🚀 **Comprehensive CI Pipeline**
+- **Cross-platform**: Linux (Ubuntu), macOS, Windows Server 2022
+- **Multi-architecture**: X64 and IA32 support  
+- **Multiple toolchains**: GCC5 (Linux), Xcode5 (macOS), VS2022 (Windows)
+- **Matrix builds**: 16 different build configurations for maximum compatibility
+- **Automated testing**: Build validation across all supported platforms
 
-### 📦 **Release Automation**
-- **Automatic releases**: Triggered by git tags
-- **Multi-platform packages**: Platform-specific artifacts
-- **Comprehensive documentation**: Build info and checksums included
-- **Asset verification**: Automated integrity checks
+### 📦 **Dedicated Release Management**
+- **Automatic releases**: Triggered by git tags with `release.yml` workflow
+- **Multi-platform packages**: Platform-specific artifacts for all major systems
+- **Comprehensive artifacts**: Both Debug and Release builds included
+- **Asset verification**: Automated integrity checks and proper naming
 
 ### 🔍 **Quality Assurance**
-- **Static Analysis**: CPPCheck, Clang-Tidy integration
-- **Security Scanning**: Vulnerability detection and code review
-- **Performance Testing**: Build time and binary size monitoring
-- **Compliance Checking**: Coding standards validation
+- **Build validation**: Ensures all configurations compile successfully
+- **Cross-platform testing**: Validates compatibility across operating systems
+- **EDK2 integration**: Uses traditional EDK2 BaseTools for maximum reliability
+- **Modern toolchains**: Visual Studio 2022, GCC5, and Xcode5 support
 
 ### 📊 **Workflow Status**
-Current build status across all platforms and configurations is shown in the badges above. For detailed information about the CI/CD pipeline, see [GITHUB_ACTIONS.md](GITHUB_ACTIONS.md).
+Current build status is shown in the badges above:
+- **CI Build**: Comprehensive multi-platform testing with 16 build jobs
+- **Release**: Automated release creation and artifact packaging
 
-### Future Enhancements:
+The streamlined workflow system provides robust CI/CD while maintaining simplicity and reliability.
 * Configuration file support for advanced patching options
 * ACPI table backup and restore functionality
 * Integration with firmware setup utilities

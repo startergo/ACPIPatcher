@@ -25,22 +25,22 @@
   SKUID_IDENTIFIER               = DEFAULT
 
 [LibraryClasses]
-  BaseLib|edk2/MdePkg/Library/BaseLib/BaseLib.inf
-  UefiDriverEntryPoint|edk2/MdePkg/Library/UefiDriverEntryPoint/UefiDriverEntryPoint.inf
-  UefiApplicationEntryPoint|edk2/MdePkg/Library/UefiApplicationEntryPoint/UefiApplicationEntryPoint.inf
-  UefiBootServicesTableLib|edk2/MdePkg/Library/UefiBootServicesTableLib/UefiBootServicesTableLib.inf
-  UefiRuntimeServicesTableLib|edk2/MdePkg/Library/UefiRuntimeServicesTableLib/UefiRuntimeServicesTableLib.inf
-  MemoryAllocationLib|edk2/MdePkg/Library/UefiMemoryAllocationLib/UefiMemoryAllocationLib.inf
-  UefiLib|edk2/MdePkg/Library/UefiLib/UefiLib.inf
-  PrintLib|edk2/MdePkg/Library/BasePrintLib/BasePrintLib.inf
-  BaseMemoryLib|edk2/MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
-  PcdLib|edk2/MdePkg/Library/BasePcdLibNull/BasePcdLibNull.inf
-  DevicePathLib|edk2/MdePkg/Library/UefiDevicePathLib/UefiDevicePathLib.inf
-  UefiRuntimeLib|edk2/MdePkg/Library/UefiRuntimeLib/UefiRuntimeLib.inf
-  DebugLib|edk2/MdePkg/Library/BaseDebugLibNull/BaseDebugLibNull.inf
-  RegisterFilterLib|edk2/MdePkg/Library/RegisterFilterLibNull/RegisterFilterLibNull.inf
-  StackCheckLib|edk2/MdePkg/Library/StackCheckLib/StackCheckLib.inf
-  StackCheckFailureHookLib|edk2/MdePkg/Library/StackCheckFailureHookLibNull/StackCheckFailureHookLibNull.inf
+  BaseLib|MdePkg/Library/BaseLib/BaseLib.inf
+  UefiDriverEntryPoint|MdePkg/Library/UefiDriverEntryPoint/UefiDriverEntryPoint.inf
+  UefiApplicationEntryPoint|MdePkg/Library/UefiApplicationEntryPoint/UefiApplicationEntryPoint.inf
+  UefiBootServicesTableLib|MdePkg/Library/UefiBootServicesTableLib/UefiBootServicesTableLib.inf
+  UefiRuntimeServicesTableLib|MdePkg/Library/UefiRuntimeServicesTableLib/UefiRuntimeServicesTableLib.inf
+  MemoryAllocationLib|MdePkg/Library/UefiMemoryAllocationLib/UefiMemoryAllocationLib.inf
+  UefiLib|MdePkg/Library/UefiLib/UefiLib.inf
+  PrintLib|MdePkg/Library/BasePrintLib/BasePrintLib.inf
+  BaseMemoryLib|MdePkg/Library/BaseMemoryLib/BaseMemoryLib.inf
+  PcdLib|MdePkg/Library/BasePcdLibNull/BasePcdLibNull.inf
+  DevicePathLib|MdePkg/Library/UefiDevicePathLib/UefiDevicePathLib.inf
+  UefiRuntimeLib|MdePkg/Library/UefiRuntimeLib/UefiRuntimeLib.inf
+  DebugLib|MdePkg/Library/BaseDebugLibNull/BaseDebugLibNull.inf
+  RegisterFilterLib|MdePkg/Library/RegisterFilterLibNull/RegisterFilterLibNull.inf
+  StackCheckLib|MdePkg/Library/StackCheckLib/StackCheckLib.inf
+  StackCheckFailureHookLib|MdePkg/Library/StackCheckFailureHookLibNull/StackCheckFailureHookLibNull.inf
 
 [Components]
   ACPIPatcherPkg/ACPIPatcher/ACPIPatcher.inf
