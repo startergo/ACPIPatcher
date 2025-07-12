@@ -46,15 +46,12 @@ class SettingsManager(UpdateSettingsManager, SetupSettingsManager,
     def GetRequiredSubmodules(self):
         """Return iterable containing RequiredSubmodule objects for all 
         required submodules. If no required submodules return an empty iterable"""
-        rs = []
-        # EDK2 Core
-        rs.append(RequiredSubmodule(
-            "edk2", True))
-        return rs
+        # Return empty list since EDK2 is handled by the CI workflow, not as a submodule
+        return []
 
     def GetWorkspaceRoot(self):
         """Return the workspace root for initializing the SDE"""
-        return os.path.dirname(os.path.abspath(__file__))
+        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     def GetActiveScopes(self):
         """Return tuple containing scopes that should be active for this process"""
@@ -119,6 +116,13 @@ class SettingsManager(UpdateSettingsManager, SetupSettingsManager,
     def SetTargets(self, list_of_requested_targets):
         """Set the targets to build"""
         self.ACTIVE_TARGETS = list_of_requested_targets
+
+    def GetPackagesPath(self):
+        """Return paths where packages are located"""
+        return [
+            ".",
+            "edk2"
+        ]
 
 
 if __name__ == "__main__":

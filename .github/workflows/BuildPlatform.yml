@@ -97,25 +97,35 @@ jobs:
         name: 'Extra Setup Commands'
         if: ${{ inputs.extra-setup-cmd != '' }}
 
-      - name: Setup EDK II (Fallback for non-Stuart builds)
+      - name: Setup EDK II (Required for all builds)
         shell: cmd
         run: |
-          echo "Setting up EDK II environment as fallback..."
+          echo "Setting up EDK II environment..."
           if not exist edk2 (
+            echo "Cloning EDK2..."
             git clone --depth 1 https://github.com/tianocore/edk2.git edk2
           )
           cd edk2
+          echo "Updating EDK2 submodules..."
           git submodule update --init --depth 1 MdePkg/Library/MipiSysTLib
           git submodule update --init --depth 1 BaseTools/Source/C/BrotliCompress
           git submodule update --init --depth 1 CryptoPkg/Library/OpensslLib/openssl
-          echo "Building BaseTools first..."
+          echo "Building BaseTools..."
           call edksetup.bat ForceRebuild
-          echo "EDK2 setup completed"
-        continue-on-error: true
+          echo "EDK2 setup completed successfully"
 
       - run: |
-          .venv\Scripts\activate
-          stuart_setup -c ${{ inputs.build-file }}
+          echo "Checking Stuart configuration..."
+          if (Test-Path "${{ inputs.build-file }}") {
+            Write-Host "Found Stuart configuration at ${{ inputs.build-file }}"
+            .venv\Scripts\activate
+            stuart_setup -c ${{ inputs.build-file }} --verbose
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "Stuart setup failed, but continuing with workflow..."
+            }
+          } else {
+            Write-Host "Stuart configuration not found at ${{ inputs.build-file }}, skipping..."
+          }
         name: 'Clone Submodules (Stuart)'
         continue-on-error: true
 
@@ -141,6 +151,10 @@ jobs:
         shell: cmd
         run: |
           echo "Using simplified build script..."
+          echo "Ensuring BaseTools are built for fallback..."
+          cd edk2
+          call edksetup.bat ForceRebuild
+          cd ..
           call build-windows.bat ${{ inputs.arch }} ${{ inputs.target }}
         continue-on-error: false
 
