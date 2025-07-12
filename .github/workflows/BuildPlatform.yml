@@ -62,6 +62,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: false  # We'll handle EDK2 submodules manually for better control
+
+      - name: Configure Git for submodules
+        run: |
+          git config --global submodule.recurse true
+          git config --global submodule.fetchJobs 4
+        name: 'Configure Git submodule settings'
 
       - name: Set up Python ${{ inputs.python-version }}
         uses: actions/setup-python@v5
@@ -105,15 +113,19 @@ jobs:
           echo "Setting up EDK II environment..."
           if not exist edk2 (
             echo "Cloning EDK2..."
-            git clone --depth 1 https://github.com/tianocore/edk2.git edk2
+            git clone --depth 1 --recurse-submodules=MdePkg/Library/MipiSysTLib --recurse-submodules=BaseTools/Source/C/BrotliCompress --recurse-submodules=CryptoPkg/Library/OpensslLib/openssl https://github.com/tianocore/edk2.git edk2
+          ) else (
+            echo "EDK2 already exists, updating submodules..."
+            cd edk2
+            git submodule update --init --depth 1 MdePkg/Library/MipiSysTLib
+            git submodule update --init --depth 1 BaseTools/Source/C/BrotliCompress
+            git submodule update --init --depth 1 CryptoPkg/Library/OpensslLib/openssl
+            cd ..
           )
-          cd edk2
-          echo "Updating EDK2 submodules..."
-          git submodule update --init --depth 1 MdePkg/Library/MipiSysTLib
-          git submodule update --init --depth 1 BaseTools/Source/C/BrotliCompress
-          git submodule update --init --depth 1 CryptoPkg/Library/OpensslLib/openssl
           echo "Setting up EDK2 environment..."
+          cd edk2
           call edksetup.bat
+          cd ..
           echo "EDK2 setup completed successfully"
 
       - run: |
