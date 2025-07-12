@@ -1,4 +1,4 @@
-name: CI Build
+name: CI Build (Simplified Multi-Platform)
 
 on:
   push:
@@ -203,6 +203,7 @@ jobs:
 
   # Windows builds
   build-windows:
+    name: Build Windows (${{ matrix.arch }}, ${{ matrix.build_type }})
     runs-on: windows-2022
     strategy:
       fail-fast: false
@@ -212,10 +213,10 @@ jobs:
     
     steps:
       - name: Checkout EDK II
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         
       - name: Set up Python
-        uses: actions/setup-python@v3
+        uses: actions/setup-python@v5
         with:
           python-version: '3.x'
           
@@ -242,7 +243,7 @@ jobs:
           build -p %GITHUB_WORKSPACE%\ACPIPatcherPkg\ACPIPatcherPkg.dsc -a ${{ matrix.arch }} -t VS2022 -b ${{ matrix.build_type }}
           
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: ACPIPatcher-${{ matrix.arch }}-${{ matrix.build_type }}
+          name: ACPIPatcher-Windows-${{ matrix.arch }}-${{ matrix.build_type }}
           path: edk2/Build/ACPIPatcher/${{ matrix.build_type }}_VS2022/${{ matrix.arch }}/*.efi
