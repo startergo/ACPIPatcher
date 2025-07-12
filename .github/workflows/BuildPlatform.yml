@@ -1,0 +1,112 @@
+# @file BuildPlatform.yml
+#
+# A reusable workflow that builds an EDKII platform on Windows and uploads artifacts.
+# Adapted for ACPIPatcher project from Microsoft's EDKII template.
+#
+##
+# Copyright (c) Microsoft Corporation.
+# SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+name: Build Platform (Windows)
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: false
+        description: 'The version of Python to use for the job'
+        type: string
+        default: '3.12'
+      build-file:
+        required: false
+        description: 'The path to the stuart build script'
+        type: string
+        default: 'ACPIPatcherPkg/ACPIPatcherPkg.py'
+      tool-chain:
+        required: false
+        description: 'The tool chain to use for the build'
+        type: string
+        default: 'VS2022'
+      target:
+        required: false
+        description: 'The target to build'
+        type: string
+        default: 'RELEASE'
+      arch:
+        required: false
+        description: 'The architecture to build'
+        type: string
+        default: 'X64'
+      extra-build-args:
+        required: false
+        description: 'Extra arguments to pass to the build script'
+        type: string
+        default: ''
+      extra-pip-requirements:
+        required: false
+        description: 'Extra pip requirements to install'
+        type: string
+        default: 'edk2-pytool-library edk2-pytool-extensions'
+      extra-setup-cmd:
+        required: false
+        description: 'Extra setup commands to run'
+        type: string
+        default: ''
+
+jobs:
+  build:
+    name: Build Windows Platform (${{ inputs.arch }}, ${{ inputs.target }})
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ inputs.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Setup NASM
+        uses: ilammy/setup-nasm@v1
+
+      - name: Setup Visual Studio Environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ inputs.arch == 'IA32' && 'x86' || 'x64' }}
+
+      - run: |
+          pip install --upgrade ${{ inputs.extra-pip-requirements }} -r pip-requirements.txt
+        name: 'Install/Upgrade pip modules'
+        continue-on-error: true
+
+      - run: ${{ inputs.extra-setup-cmd }}
+        name: 'Extra Setup Commands'
+        if: ${{ inputs.extra-setup-cmd != '' }}
+
+      - run: |
+          stuart_setup -c ${{ inputs.build-file }}
+        name: 'Clone Submodules'
+
+      - run: |
+          stuart_update -c ${{ inputs.build-file }}
+        name: 'Download External Dependencies'
+
+      - run: |
+          python BaseTools/Edk2ToolsBuild.py -t ${{ inputs.tool-chain }}
+        name: 'Build BaseTools'
+
+      - run: |
+          stuart_build -c ${{ inputs.build-file }} TARGET=${{ inputs.target}} TOOL_CHAIN_TAG=${{ inputs.tool-chain }} TARGET_ARCH=${{ inputs.arch }} ${{ inputs.extra-build-args }}
+        name: 'Build Platform'
+
+      - name: Upload Platform Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ACPIPatcher-Windows-${{ inputs.arch }}-${{ inputs.target }}-${{ inputs.tool-chain }}
+          path: |
+            Build/*.txt
+            BaseTools/BaseToolsBuild/*
+            *.efi
+        if: always()

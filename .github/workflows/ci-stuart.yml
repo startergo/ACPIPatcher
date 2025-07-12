@@ -1,0 +1,24 @@
+name: Build ACPIPatcher (Reusable Windows)
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+jobs:
+  # Windows builds using reusable workflow
+  build-windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [X64, IA32]
+        target: [RELEASE, DEBUG]
+
+    uses: ./.github/workflows/BuildPlatform.yml
+    with:
+      python-version: '3.12'
+      tool-chain: 'VS2022'
+      target: ${{ matrix.target }}
+      arch: ${{ matrix.arch }}
