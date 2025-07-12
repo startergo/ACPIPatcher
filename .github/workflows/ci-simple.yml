@@ -1,0 +1,70 @@
+name: Build ACPIPatcher on Windows
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [X64, IA32]
+        build_type: [RELEASE, DEBUG]
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          
+      - name: Setup NASM
+        uses: ilammy/setup-nasm@v1
+        
+      - name: Setup Visual Studio Environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.arch == 'IA32' && 'x86' || 'x64' }}
+          
+      - name: Setup EDK II
+        shell: cmd
+        run: |
+          echo "Setting up EDK II environment..."
+          git clone --depth 1 https://github.com/tianocore/edk2.git edk2
+          cd edk2
+          edksetup.bat
+          echo "WORKSPACE=%cd%" >> %GITHUB_ENV%
+          echo "EDK_TOOLS_PATH=%cd%\BaseTools" >> %GITHUB_ENV%
+          
+      - name: Build ACPIPatcher
+        shell: cmd
+        run: |
+          echo "Building ACPIPatcher firmware..."
+          cd edk2
+          call edksetup.bat
+          set "PACKAGES_PATH=%cd%;%GITHUB_WORKSPACE%"
+          build -p %GITHUB_WORKSPACE%\ACPIPatcherPkg\ACPIPatcherPkg.dsc -a ${{ matrix.arch }} -t VS2022 -b ${{ matrix.build_type }}
+          
+      - name: Copy artifacts
+        shell: cmd
+        run: |
+          echo "Copying build artifacts..."
+          set "BUILD_DIR=edk2\Build\ACPIPatcher\${{ matrix.build_type }}_VS2022\${{ matrix.arch }}"
+          if exist "%BUILD_DIR%\ACPIPatcher.efi" copy "%BUILD_DIR%\ACPIPatcher.efi" .
+          if exist "%BUILD_DIR%\ACPIPatcherDxe.efi" copy "%BUILD_DIR%\ACPIPatcherDxe.efi" .
+          dir *.efi
+          
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ACPIPatcher-${{ matrix.arch }}-${{ matrix.build_type }}
+          path: |
+            *.efi
+          retention-days: 30

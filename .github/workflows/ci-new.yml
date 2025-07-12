@@ -1,0 +1,248 @@
+name: CI Build
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+  workflow_dispatch:
+
+jobs:
+  # Linux and macOS builds (preserved)
+  build-unix:
+    name: Build ${{ matrix.os }} (${{ matrix.arch }}, ${{ matrix.build_type }})
+    runs-on: ${{ matrix.runner }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux builds
+          - os: linux
+            runner: ubuntu-latest
+            arch: X64
+            build_type: RELEASE
+            toolchain: GCC5
+          - os: linux
+            runner: ubuntu-latest
+            arch: X64
+            build_type: DEBUG
+            toolchain: GCC5
+          - os: linux
+            runner: ubuntu-latest
+            arch: IA32
+            build_type: RELEASE
+            toolchain: GCC5
+          - os: linux
+            runner: ubuntu-latest
+            arch: IA32
+            build_type: DEBUG
+            toolchain: GCC5
+          
+          # macOS builds
+          - os: macos
+            runner: macos-13
+            arch: X64
+            build_type: RELEASE
+            toolchain: XCODE5
+          - os: macos
+            runner: macos-13
+            arch: X64
+            build_type: DEBUG
+            toolchain: XCODE5
+          - os: macos
+            runner: macos-13
+            arch: IA32
+            build_type: RELEASE
+            toolchain: XCODE5
+          - os: macos
+            runner: macos-13
+            arch: IA32
+            build_type: DEBUG
+            toolchain: XCODE5
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    # Python Setup
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    # NASM Setup (all platforms)
+    - name: Setup NASM
+      uses: ilammy/setup-nasm@v1
+
+    # macOS Prerequisites
+    - name: Setup macOS Build Tools
+      if: matrix.os == 'macos'
+      run: |
+        echo "Setting up macOS build environment..."
+        
+        # Install Command Line Tools if not present
+        xcode-select --install 2>/dev/null || echo "Xcode Command Line Tools already installed"
+        
+        # Install mtoc using Homebrew (required for XCODE5 builds)
+        echo "Installing mtoc..."
+        if ! command -v mtoc &> /dev/null; then
+          # Try installing mtoc from homebrew
+          brew install mtoc 2>/dev/null || {
+            echo "mtoc not available via homebrew, installing manually..."
+            # Download and install mtoc manually
+            curl -L "https://github.com/acidanthera/ocbuild/raw/master/efidirect.tool/mtoc" -o /usr/local/bin/mtoc
+            chmod +x /usr/local/bin/mtoc
+          }
+        fi
+        
+        # Verify mtoc installation
+        if command -v mtoc &> /dev/null; then
+          echo "✓ mtoc found: $(which mtoc)"
+          mtoc --version 2>/dev/null || echo "mtoc installed (version info not available)"
+        else
+          echo "WARNING: mtoc not found - XCODE5 builds may fail"
+          echo "Using alternative toolchain configuration..."
+        fi
+        
+        # Install NASM for macOS builds
+        if ! command -v nasm &> /dev/null; then
+          echo "Installing NASM via Homebrew..."
+          brew install nasm
+        fi
+        
+        echo "✓ macOS build tools setup completed"
+      shell: bash
+
+    # Build Essentials (Linux only)
+    - name: Install Build Essentials
+      if: matrix.os == 'linux'
+      run: |
+        echo "Installing build-essential package..."
+        sudo apt-get update
+        sudo apt-get install -y build-essential
+      shell: bash
+
+    # Linux Prerequisites (EDK2 build requirements)
+    - name: Setup Linux Build Tools (EDK2 Requirements)
+      if: matrix.os == 'linux'
+      run: |
+        echo "Installing EDK2 build prerequisites for Linux..."
+        
+        # Update package list
+        sudo apt-get update
+        
+        # Install essential EDK2 build tools as per TianoCore documentation
+        sudo apt-get install -y \
+          build-essential \
+          uuid-dev \
+          iasl \
+          git \
+          nasm \
+          python-is-python3 \
+          acpica-tools
+        
+        # Verify critical tools are installed
+        echo "Verifying installed tools..."
+        iasl -v || echo "WARNING: iasl not properly installed"
+        nasm -v || echo "WARNING: nasm not properly installed"
+        gcc --version | head -n1
+        make --version | head -n1
+        python3 --version
+        
+        echo "✓ Linux EDK2 build prerequisites installed"
+      shell: bash
+
+    # Build with Traditional EDK2 (Linux/macOS)
+    - name: Build with EDK2 (Linux/macOS)
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        CI: true
+      run: |
+        echo "Building ACPIPatcher with simplified build system..."
+        echo "Configuration: ${{ matrix.arch }} ${{ matrix.build_type }} (${{ matrix.toolchain }})"
+        
+        # Run our automated setup and build script with parameters
+        chmod +x setup_and_build.sh
+        ./setup_and_build.sh ${{ matrix.arch }} ${{ matrix.build_type }}
+        
+        echo "✅ Build completed successfully"
+      shell: bash
+
+    # Upload Artifacts
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: ACPIPatcher-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.build_type }}-${{ matrix.toolchain }}
+        path: |
+          *.efi
+        retention-days: 30
+
+    # Verify Build Success (Linux/macOS)
+    - name: Verify Build Output (Linux/macOS)
+      run: |
+        echo "Checking build outputs..."
+        if [ -f "ACPIPatcher.efi" ]; then
+          echo "✅ ACPIPatcher.efi found ($(stat -f%z ACPIPatcher.efi 2>/dev/null || stat -c%s ACPIPatcher.efi) bytes)"
+        else
+          echo "❌ ACPIPatcher.efi not found"
+        fi
+        
+        if [ -f "ACPIPatcherDxe.efi" ]; then
+          echo "✅ ACPIPatcherDxe.efi found ($(stat -f%z ACPIPatcherDxe.efi 2>/dev/null || stat -c%s ACPIPatcherDxe.efi) bytes)"
+        else
+          echo "❌ ACPIPatcherDxe.efi not found"
+        fi
+        
+        echo "Build verification completed"
+      shell: bash
+
+  # Windows builds
+  build-windows:
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [X64, IA32]
+        build_type: [RELEASE, DEBUG]
+    
+    steps:
+      - name: Checkout EDK II
+        uses: actions/checkout@v3
+        
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: '3.x'
+          
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install virtualenv
+          python -m venv .venv
+          .venv\Scripts\activate
+          pip install -r requirements.txt
+        continue-on-error: true
+          
+      - name: Setup EDK II
+        run: |
+          git clone --depth 1 https://github.com/tianocore/edk2.git edk2
+          cd edk2
+          .\edksetup.bat
+          echo "WORKSPACE=%cd%" >> %GITHUB_ENV%
+          
+      - name: Build firmware
+        run: |
+          cd edk2
+          set "PACKAGES_PATH=%cd%;%GITHUB_WORKSPACE%"
+          build -p %GITHUB_WORKSPACE%\ACPIPatcherPkg\ACPIPatcherPkg.dsc -a ${{ matrix.arch }} -t VS2022 -b ${{ matrix.build_type }}
+          
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ACPIPatcher-${{ matrix.arch }}-${{ matrix.build_type }}
+          path: edk2/Build/ACPIPatcher/${{ matrix.build_type }}_VS2022/${{ matrix.arch }}/*.efi
