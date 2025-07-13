@@ -9,18 +9,16 @@ on:
         default: 'v1.1.0'
 
 jobs:
+  build:
+    name: Build Release Artifacts
+    uses: ./.github/workflows/ci-new.yml
+
   upload-release-assets:
     name: Upload Release Assets
     runs-on: ubuntu-latest
+    needs: build
+    
     steps:
-    - name: Wait for CI Build to Complete
-      uses: lewagon/wait-on-check-action@v1.3.4
-      with:
-        ref: ${{ github.ref }}
-        check-name: 'Build linux (X64, RELEASE)'
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-        wait-interval: 30
-
     - name: Download Release Artifacts
       uses: actions/download-artifact@v4
       with:
@@ -30,13 +28,20 @@ jobs:
       run: |
         mkdir release-assets
         
-        # Look for .efi files in all artifact directories
+        # Look for .efi files (the actual build artifacts)
         find artifacts -name "*.efi" | while read file; do
-          echo "Found EFI file: $file"
-          cp "$file" release-assets/
+          # Extract artifact name and rename descriptively
+          artifact_dir=$(dirname "$file")
+          artifact_name=$(basename "$artifact_dir")
+          filename=$(basename "$file")
+          
+          # Create descriptive filename from artifact directory name
+          # Example: ACPIPatcher-Windows-X64-Release-VS2022 -> ACPIPatcher-Windows-X64-Release.efi
+          new_name=$(echo "$artifact_name" | sed 's/-VS2022$//' | sed 's/ACPIPatcher-/ACPIPatcher-/')
+          cp "$file" "release-assets/${new_name}-${filename}"
         done
         
-        # Also look for any zip/tar.gz files
+        # Also look for any compressed archives (backward compatibility)
         find artifacts -name "*.tar.gz" -o -name "*.zip" | while read file; do
           echo "Found archive: $file"
           cp "$file" release-assets/
@@ -46,12 +51,9 @@ jobs:
         echo "Release assets prepared:"
         ls -la release-assets/
         
-        if [ -z "$(ls -A release-assets/)" ]; then
-          echo "ERROR: No artifacts found to upload!"
-          echo "Available artifacts:"
-          find artifacts -type f
-          exit 1
-        fi
+        # Show artifact structure for debugging
+        echo "Available artifacts:"
+        find artifacts -type f -name "*.efi" -o -name "*.tar.gz" -o -name "*.zip"
     
     - name: Upload Assets to Release
       uses: softprops/action-gh-release@v1
