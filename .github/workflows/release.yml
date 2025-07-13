@@ -1,8 +1,6 @@
 name: Release ACPIPatcher
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       tag_name:
@@ -14,9 +12,15 @@ jobs:
   upload-release-assets:
     name: Upload Release Assets
     runs-on: ubuntu-latest
-    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-    
     steps:
+    - name: Wait for CI Build to Complete
+      uses: lewagon/wait-on-check-action@v1.3.4
+      with:
+        ref: ${{ github.ref }}
+        check-name: 'Build linux (X64, RELEASE)'
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+        wait-interval: 30
+
     - name: Download Release Artifacts
       uses: actions/download-artifact@v4
       with:
@@ -25,18 +29,34 @@ jobs:
     - name: Prepare Release Assets
       run: |
         mkdir release-assets
+        
+        # Look for .efi files in all artifact directories
+        find artifacts -name "*.efi" | while read file; do
+          echo "Found EFI file: $file"
+          cp "$file" release-assets/
+        done
+        
+        # Also look for any zip/tar.gz files
         find artifacts -name "*.tar.gz" -o -name "*.zip" | while read file; do
+          echo "Found archive: $file"
           cp "$file" release-assets/
         done
         
         # List what we're uploading
         echo "Release assets prepared:"
         ls -la release-assets/
+        
+        if [ -z "$(ls -A release-assets/)" ]; then
+          echo "ERROR: No artifacts found to upload!"
+          echo "Available artifacts:"
+          find artifacts -type f
+          exit 1
+        fi
     
     - name: Upload Assets to Release
       uses: softprops/action-gh-release@v1
       with:
-        tag_name: ${{ github.event.inputs.tag_name || github.event.release.tag_name }}
+        tag_name: ${{ github.event.inputs.tag_name }}
         files: release-assets/*
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
