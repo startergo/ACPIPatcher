@@ -157,8 +157,9 @@ jobs:
         echo "✓ Linux EDK2 build prerequisites installed"
       shell: bash
 
-    # Build with Traditional EDK2 (Linux/macOS)
-    - name: Build with EDK2 (Linux/macOS)
+    # Build with EDK2 (Linux)
+    - name: Build with EDK2 (Linux)
+      if: matrix.os == 'linux'
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         CI: true
@@ -171,6 +172,100 @@ jobs:
         ./setup_and_build.sh ${{ matrix.arch }} ${{ matrix.build_type }}
         
         echo "✅ Build completed successfully"
+      shell: bash
+
+    # Build with Direct EDK2 (macOS) - Fixed to produce proper EFI executables
+    - name: Build with Direct EDK2 (macOS)
+      if: matrix.os == 'macos'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        CI: true
+      run: |
+        echo "Building ACPIPatcher with direct EDK2 approach for macOS..."
+        echo "Configuration: ${{ matrix.arch }} ${{ matrix.build_type }} (${{ matrix.toolchain }})"
+        
+        # Clone EDK2 if not present
+        if [ ! -d "edk2" ]; then
+          echo "Cloning EDK2..."
+          git clone --depth 1 https://github.com/tianocore/edk2.git
+          cd edk2
+          echo "Initializing essential submodules..."
+          git submodule update --init --depth 1 MdePkg/Library/MipiSysTLib
+          git submodule update --init --depth 1 BaseTools/Source/C/BrotliCompress
+          git submodule update --init --depth 1 CryptoPkg/Library/OpensslLib/openssl
+        else
+          cd edk2
+        fi
+        
+        # Set up EDK2 environment
+        echo "Setting up EDK2 environment..."
+        export WORKSPACE="$(pwd)"
+        export PACKAGES_PATH="$(pwd):$(dirname $(pwd))"
+        export EDK_TOOLS_PATH="$(pwd)/BaseTools"
+        
+        # Build BaseTools
+        echo "Building BaseTools..."
+        make -C BaseTools/Source/C
+        
+        # Set up EDK2 build environment
+        echo "Setting up EDK2 build environment..."
+        source edksetup.sh BaseTools
+        
+        # Verify toolchain
+        echo "Verifying XCODE5 toolchain..."
+        which clang || echo "WARNING: clang not found"
+        which mtoc || echo "WARNING: mtoc not found"
+        echo "WORKSPACE: $WORKSPACE"
+        echo "PACKAGES_PATH: $PACKAGES_PATH"
+        
+        # Build ACPIPatcher
+        echo "Building ACPIPatcher..."
+        build -a ${{ matrix.arch }} -t ${{ matrix.toolchain }} -b ${{ matrix.build_type }} \
+              -p ../ACPIPatcherPkg/ACPIPatcherPkg.dsc \
+              -D DISABLE_NEW_DEPRECATED_INTERFACES
+        
+        # Find and copy artifacts to root
+        echo "Looking for build artifacts..."
+        BUILD_DIR="Build/ACPIPatcher/${{ matrix.build_type }}_${{ matrix.toolchain }}/${{ matrix.arch }}"
+        echo "Expected build directory: $BUILD_DIR"
+        
+        if [ -d "$BUILD_DIR" ]; then
+          echo "Build directory found, listing contents..."
+          find "$BUILD_DIR" -name "*.efi" -type f
+          
+          if [ -f "$BUILD_DIR/ACPIPatcher.efi" ]; then
+            cp "$BUILD_DIR/ACPIPatcher.efi" "../ACPIPatcher.efi"
+            echo "✅ Copied ACPIPatcher.efi"
+          else
+            echo "❌ ACPIPatcher.efi not found"
+          fi
+          
+          if [ -f "$BUILD_DIR/ACPIPatcherDxe.efi" ]; then
+            cp "$BUILD_DIR/ACPIPatcherDxe.efi" "../ACPIPatcherDxe.efi"
+            echo "✅ Copied ACPIPatcherDxe.efi"
+          else
+            echo "❌ ACPIPatcherDxe.efi not found"
+          fi
+        else
+          echo "❌ Build directory not found: $BUILD_DIR"
+          echo "Available directories:"
+          find Build -type d -name "*ACPIPatcher*" 2>/dev/null || echo "No ACPIPatcher directories found"
+        fi
+        
+        # Verify output format
+        cd ..
+        if [ -f "ACPIPatcherDxe.efi" ]; then
+          echo "Verifying EFI file format..."
+          file ACPIPatcherDxe.efi
+          ls -la ACPIPatcherDxe.efi
+        fi
+        if [ -f "ACPIPatcher.efi" ]; then
+          echo "Verifying EFI file format..."
+          file ACPIPatcher.efi
+          ls -la ACPIPatcher.efi
+        fi
+        
+        echo "✅ macOS build completed successfully"
       shell: bash
 
     # Upload Artifacts
