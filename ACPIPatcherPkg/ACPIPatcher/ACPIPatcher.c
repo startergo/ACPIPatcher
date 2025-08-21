@@ -43,12 +43,14 @@ EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER  *gRsdp = NULL;
 EFI_ACPI_DESCRIPTION_HEADER                    *gXsdt = NULL;
 EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE      *gFacp = NULL;
 
+// Global variables for both UEFI Application and DXE Driver builds
+EFI_HANDLE                                     gAcpiPatcherImageHandle = NULL;
+EFI_SYSTEM_TABLE                               *gAcpiPatcherSystemTable = NULL;
+
 #ifdef DXE_DRIVER_BUILD
 // DXE Driver specific globals for delayed file system access
 EFI_EVENT                                      gFileSystemReadyEvent = NULL;
 VOID                                           *gFileSystemProtocolNotifyReg = NULL;
-EFI_HANDLE                                     gAcpiPatcherImageHandle = NULL;
-EFI_SYSTEM_TABLE                               *gAcpiPatcherSystemTable = NULL;
 BOOLEAN                                        gFileSystemReady = FALSE;
 #endif
 
@@ -1138,6 +1140,10 @@ AcpiPatcherEntryPoint (
 #else
   AcpiDebugPrint(DEBUG_INFO, L"ACPIPatcher Application v%d.%d starting...\n",
                  ACPI_PATCHER_VERSION_MAJOR, ACPI_PATCHER_VERSION_MINOR);
+  
+  // Store handles for both UEFI application and DXE driver compatibility
+  gAcpiPatcherImageHandle = ImageHandle;
+  gAcpiPatcherSystemTable = SystemTable;
   
   // Get the file system protocol from our own image
   SelfDir = FsGetSelfDir();

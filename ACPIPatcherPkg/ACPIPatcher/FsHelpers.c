@@ -147,11 +147,21 @@ FsGetLoadedImage(VOID)
 	
 	if (gAcpiPatcherLoadedImage == NULL) {
 		// get our EfiLoadedImageProtocol
-		Status = gBS->HandleProtocol(
-			gImageHandle,
-			&gEfiLoadedImageProtocolGuid,
-			(VOID **) &gAcpiPatcherLoadedImage
-			);
+		if (gAcpiPatcherImageHandle != NULL) {
+			Status = gBS->HandleProtocol(
+				gAcpiPatcherImageHandle,
+				&gEfiLoadedImageProtocolGuid,
+				(VOID **) &gAcpiPatcherLoadedImage
+				);
+			
+			if (Status != EFI_SUCCESS) {
+				Print(L"FsGetLoadedImage: HandleProtocol(gEfiLoadedImageProtocolGuid) = %r\n", Status);
+				return;
+			}
+		} else {
+			Print(L"FsGetLoadedImage: gAcpiPatcherImageHandle is NULL - ImageHandle not set\n");
+			return;
+		}
 		
 		if (Status != EFI_SUCCESS) {
 			Print(L"FsGetLoadedImage: HandleProtocol(gEfiLoadedImageProtocolGuid) = %r\n", Status);

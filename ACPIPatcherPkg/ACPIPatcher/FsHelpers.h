@@ -12,6 +12,12 @@
 
 #include <Protocol/LoadedImage.h>
 
+//
+// External global variables from ACPIPatcher.c
+//
+extern EFI_HANDLE                gAcpiPatcherImageHandle;
+extern EFI_SYSTEM_TABLE          *gAcpiPatcherSystemTable;
+
 /*++
  
  Routine Description:
