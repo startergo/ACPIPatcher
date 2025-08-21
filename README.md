@@ -109,8 +109,9 @@ EFI/OC/Drivers/ACPI/SSDT-CPU.aml   ← Loads this file
 1. **Download** or compile the ACPIPatcher binaries
 2. **Create** an `ACPI` folder in the same directory as `ACPIPatcher.efi` (or place .aml files directly alongside it)
 3. **Place** your `.aml` files in the `ACPI` folder (or same directory)
-4. **Run** `ACPIPatcher.efi` from an EFI shell
-5. **Reboot** to apply changes
+4. **🔍 For testing/new tables:** Run from **EFI shell** to see debug messages clearly
+5. **⚡ For production:** Can run directly from **bootloader menu** for convenience
+6. **Important:** Application mode patches are **temporary** (lost on reboot) - use driver mode for persistence
 
 ### Detailed Usage Instructions
 
@@ -129,18 +130,60 @@ The tool will automatically:
 - Support both numeric patterns (`SSDT-1.aml`, `SSDT-2.aml`) and descriptive names (`SSDT-CPU.aml`, `SSDT-GPU.aml`)
 - Avoid duplicate loading of the same tables
 
+**📋 Execution Methods:**
+
+**Method 1: EFI Shell Execution (Recommended for Debugging)**
+```
+1. Boot to EFI shell (F2/F12 during boot or UEFI shell USB)
+2. Navigate to your EFI partition: fs0: (or fs1:, fs2:, etc.)
+3. Run: ACPIPatcher.efi
+4. Review debug output carefully - messages stay visible
+5. Type 'exit' to return to bootloader menu
+6. Continue normal OS boot from rEFInd/RefindPlus
+```
+✅ **Advantages:**
+- Debug messages remain visible for inspection
+- Can exit shell and return to bootloader menu
+- Full control over timing and execution
+- Best for troubleshooting and validation
+
+**Method 2: Direct Bootloader Execution (Convenient but Limited Debugging)**
+Add ACPIPatcher.efi as a menu entry in rEFInd/RefindPlus configuration.
+```
+# Add to refind.conf
+menuentry "ACPI Patcher" {
+    loader /ACPIPatcher.efi
+    options ""
+}
+```
+⚠️ **Limitations:**
+- Debug messages scroll very fast and disappear quickly
+- Cannot inspect output before OS boot continues
+- Harder to troubleshoot issues
+- Best for production use when patches are verified working
+
 **Steps:**
 1. Boot to EFI shell (usually by pressing F2/F12 during boot or using a UEFI shell USB)
 2. Navigate to your EFI partition: `fs0:` (or `fs1:`, `fs2:`, etc.)
 3. Place `ACPIPatcher.efi` and `ACPI` folder in the same directory
 4. Run the application: `ACPIPatcher.efi`
 5. Review the output for any errors or warnings
-6. Type `reset` to reboot and apply changes
+6. **Important**: ACPI patches are applied **only for the current boot session**
+7. For **permanent patches**, use the **Driver Mode** instead (see below)
+
+**Note**: Application mode patches are **temporary** - they only last until the system is powered off or reboots. The ACPI tables are patched in memory during this boot session only.
 
 #### Driver Mode (Persistent patching)
-However, if you would like your patches to survive reboots you can use the driver version of this software. To do this simply place `ACPIPatcherDxe.efi` in your bootloader's driver folder along with the `ACPI` folder mentioned above.
+For **permanent ACPI patches** that survive reboots, use the driver version. The DXE driver loads automatically during every boot and applies patches before the operating system starts.
 
 **Important**: For OpenCore and Clover users, consider using their built-in ACPI patching features first, as they provide more comprehensive and tested solutions. Use ACPIPatcher with these bootloaders only for specific development needs or edge cases not covered by their native ACPI support.
+
+**How Driver Mode Works:**
+1. **DXE Driver Loading**: `ACPIPatcherDxe.efi` loads automatically during the UEFI DXE phase
+2. **File System Waiting**: The driver waits for storage to become available
+3. **Automatic Patching**: Once the file system is ready, it automatically applies ACPI patches
+4. **Persistence**: Patches are applied on **every boot** without user intervention
+5. **Operating System Handoff**: The patched ACPI tables are passed to the OS
 
 **For OpenCore users:**
 1. Place `ACPIPatcherDxe.efi` in `EFI/OC/Drivers/`
@@ -166,6 +209,23 @@ However, if you would like your patches to survive reboots you can use the drive
 **For RefindPlus/rEFInd users (Recommended):**
 1. Place `ACPIPatcherDxe.efi` in `EFI/refind/drivers_x64/`
 2. Place `ACPI` folder in `EFI/refind/drivers_x64/` (same location as the DXE driver) **OR** place .aml files directly in `EFI/refind/drivers_x64/`
+
+### Application vs Driver Mode Comparison
+
+| Feature | Application Mode | Driver Mode |
+|---------|------------------|-------------|
+| **Execution** | Manual execution required | Automatic on every boot |
+| **Persistence** | ❌ **Temporary** - patches lost on reboot | ✅ **Permanent** - patches applied every boot |
+| **Use Case** | Testing, debugging, one-time fixes | Production use, permanent patches |
+| **User Interaction** | Requires EFI shell access | No user interaction needed |
+| **Boot Dependency** | Must run before OS boot | Integrated into boot process |
+| **Bootloader Support** | Any EFI shell environment | Requires bootloader driver support |
+| **Patch Timing** | After manual execution | During DXE phase (early boot) |
+| **Troubleshooting** | Easy to disable (just don't run) | Requires removing from driver folder |
+
+**Recommendation**: 
+- **Use Application Mode for**: Testing new ACPI patches, debugging, temporary fixes
+- **Use Driver Mode for**: Production environments, permanent patches, hands-off operation
 
 ### File Organization
 ACPIPatcher supports flexible file organization with automatic fallback:
@@ -287,20 +347,106 @@ ACPIPatcher now supports **unlimited SSDT files** with flexible naming patterns:
 3. **Validation**: Each table is validated for integrity before integration
 4. **Integration**: Tables are added to XSDT with proper checksum updates
 
+### Debug Output and Visibility
+
+**⚠️ Important: Debug Message Visibility Depends on Execution Method**
+
+**📱 EFI Shell Execution (Best for Development/Troubleshooting):**
+```bash
+# Boot to EFI shell first, then run ACPIPatcher
+fs0:\> ACPIPatcher.efi
+[INFO] === ACPIPatcher v1.1 Starting ===
+[INFO] Found XSDT at address: 0x7FF8B000
+[INFO] Scanning for SSDT-*.aml files...
+[INFO] ✓ SSDT-CPU.aml loaded and added successfully
+[INFO] Status: Successfully patched 4 ACPI tables!
+# Messages stay visible - you can read them carefully
+fs0:\> exit
+# Returns to rEFInd/RefindPlus menu - continue OS boot
+```
+✅ **Advantages:**
+- Debug messages remain visible for inspection
+- Can review output thoroughly before continuing
+- Can exit shell and return to bootloader
+- Perfect for development and troubleshooting
+
+**🚀 Direct Bootloader Menu Execution (Convenient but Limited):**
+```bash
+# Running directly from rEFInd/RefindPlus menu entry
+[INFO] === ACPIPatcher v1.1 Starting ===
+[INFO] Found XSDT... [scrolls fast]
+[INFO] Scanning... [scrolls fast]  
+[INFO] Status... [disappears quickly]
+# Boot continues automatically to OS - no time to read!
+```
+⚠️ **Limitations:**
+- Messages scroll very fast and disappear
+- No time to inspect output for errors
+- Automatic transition to OS boot
+- Difficult to troubleshoot issues
+
+**🔧 Recommendation for Different Use Cases:**
+
+**Development/New Tables:** Always use EFI Shell execution
+- Need to see validation messages
+- Check for errors and warnings  
+- Verify proper file loading
+- Debug any issues thoroughly
+
+**Production/Verified Tables:** Can use direct bootloader execution
+- Tables already tested and working
+- Want convenient automatic execution
+- Don't need to inspect debug output
+
+**Driver Mode:** Messages appear during boot but may scroll quickly
+- Best for stable, tested configurations
+- Debug output still available but harder to read
+- Consider using application mode during development
+
 ### Testing and Validation
 
 I have also provided a test SSDT in `Build/ACPI` for validation purposes.
 
+**Recommended Testing Workflow:**
+1. **Start with Application Mode**: Test patches temporarily first
+2. **Validate Functionality**: Boot and verify patches work correctly
+3. **Deploy Driver Mode**: Only after successful application mode testing
+4. **Keep Backup Configuration**: Always maintain a working fallback
+
 **Before deploying custom tables:**
-1. Test with the provided `SSDT-Test.aml` first
+1. Test with the provided `SSDT-Test.aml` first using **Application Mode**
 2. Enable VERBOSE debugging to monitor the patching process
-3. Keep backup of working configuration
-4. Test boot with new tables before making permanent
+3. Verify patches work correctly **before** switching to Driver Mode
+4. Keep backup of working configuration
+5. Test boot multiple times to ensure stability
+
+**Testing Process:**
+```bash
+# Phase 1: Application Mode Testing (Temporary)
+1. Boot to EFI shell
+2. Run: ACPIPatcher.efi
+3. Continue boot to OS
+4. Verify patches work (check functionality, no crashes)
+5. Reboot (patches are automatically cleared)
+
+# Phase 2: Driver Mode Deployment (Permanent) 
+1. If Application Mode testing succeeded:
+2. Install ACPIPatcherDxe.efi in bootloader drivers
+3. Reboot and verify patches persist
+4. Monitor multiple boot cycles for stability
+```
 
 **Common issues and solutions:**
-- **Boot failure:** Remove DSDT.aml and try SSDT-only approach
-- **No effect:** Check file permissions and naming conventions
-- **Errors:** Enable debugging and check DEBUG_GUIDE.md
+- **Boot failure**: Remove ACPIPatcherDxe.efi from drivers folder immediately
+- **Application Mode works, Driver Mode doesn't**: Check file system access timing and paths
+- **No effect**: Check file permissions, naming conventions, and bootloader driver loading
+- **Intermittent issues**: Enable debugging and check logs across multiple boots
+
+**Memory and Persistence Notes:**
+- **Application Mode**: Patches exist **only in current boot session** - lost on reboot/shutdown
+- **Driver Mode**: Patches are **reapplied automatically** on every boot
+- **ACPI Tables**: Are always in RAM, never written to firmware/storage permanently
+- **Safety**: Both modes only modify in-memory ACPI tables, never firmware
 
 **Older Mac Hardware (MacPro5,1, etc.):**
 - **EFI Shell Access:** Use Option key during boot, look for "EFI Boot" options
