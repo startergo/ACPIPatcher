@@ -15,6 +15,9 @@ I made this tool because I wanted a way to use [RehabMans ACPI Debug tool](https
 ## Features
 - **DSDT Replacement**: Replace the system DSDT with a custom one
 - **SSDT Addition**: Add custom SSDT tables to the system
+- **✨ Enhanced SSDT Naming**: Support for both numeric (`SSDT-1.aml`) and descriptive (`SSDT-CPU.aml`) patterns
+- **🔍 Smart Directory Scanning**: Automatically discovers all SSDT-*.aml files with intelligent duplicate detection
+- **📁 Flexible File Organization**: Supports both ACPI/ subdirectory and same-directory placement
 - **Table Validation**: Validates ACPI table integrity before patching
 - **Comprehensive Debugging**: Multiple debug levels for troubleshooting
 - **Error Recovery**: Graceful handling of corrupted or invalid files
@@ -63,17 +66,68 @@ I made this tool because I wanted a way to use [RehabMans ACPI Debug tool](https
 
 ## How to use:
 
+### 🔍 **ACPI File Location Logic**
+
+ACPIPatcher uses a sophisticated file discovery system that works consistently across both Application and DXE Driver modes:
+
+#### **Step 1: Determine Base Directory**
+- **Application Mode**: Base directory = directory where you run `ACPIPatcher.efi` from
+- **DXE Driver Mode**: Base directory = directory where `ACPIPatcherDxe.efi` is located
+
+#### **Step 2: ACPI File Discovery (with Smart Fallback)**
+1. **Primary**: Try to open `ACPI/` subdirectory in the base directory
+2. **Fallback**: If no `ACPI/` folder exists, scan the base directory directly
+3. **Discovery**: Find all `.aml` files using the enhanced naming system
+
+#### **Step 3: File Processing**
+1. **DSDT Processing**: If `DSDT.aml` exists, replace system DSDT
+2. **SSDT Processing Phase 1**: Load numeric SSDTs (`SSDT-1.aml` through `SSDT-10.aml`)
+3. **SSDT Processing Phase 2**: Scan for descriptive SSDTs (`SSDT-*.aml`), skipping already-loaded numeric ones
+4. **Integration**: Add all tables to XSDT with checksum validation
+
+#### **Practical Examples**
+```
+# Application Mode - EFI Shell
+fs0:\> dir
+  ACPIPatcher.efi
+  ACPI\              ← ACPIPatcher looks here FIRST
+    DSDT.aml
+    SSDT-CPU.aml
+
+fs0:\> ACPIPatcher.efi
+[INFO] Found ACPI directory, loading from ACPI/DSDT.aml
+```
+
+```
+# DXE Driver Mode - OpenCore
+EFI/OC/Drivers/ACPIPatcherDxe.efi  ← Driver location = base directory
+EFI/OC/Drivers/ACPI/               ← ACPIPatcher looks here FIRST
+EFI/OC/Drivers/ACPI/SSDT-CPU.aml   ← Loads this file
+```
+
 ### Quick Start
 1. **Download** or compile the ACPIPatcher binaries
-2. **Create** an `ACPI` folder in the same directory as `ACPIPatcher.efi`
-3. **Place** your `.aml` files in the `ACPI` folder
+2. **Create** an `ACPI` folder in the same directory as `ACPIPatcher.efi` (or place .aml files directly alongside it)
+3. **Place** your `.aml` files in the `ACPI` folder (or same directory)
 4. **Run** `ACPIPatcher.efi` from an EFI shell
 5. **Reboot** to apply changes
 
 ### Detailed Usage Instructions
 
 #### Application Mode (One-time patching)
-Using this is fairly straightforward. Just place a folder titled `ACPI` in the same directory as `ACPIPatcher.efi` and it will search the folder for any `.aml` files. Any file not named `DSDT.aml` will be added to the XSDT table as SSDTs while `DSDT.aml` will completely replace the OEM DSDT.
+ACPIPatcher uses a smart file discovery system that supports two organizational approaches:
+
+**Option 1: ACPI Subdirectory (Recommended)**
+Place your .aml files in an `ACPI` folder next to `ACPIPatcher.efi`. This keeps files organized and is the preferred method.
+
+**Option 2: Same Directory (Fallback)**
+If no `ACPI` folder exists, ACPIPatcher will look for .aml files in the same directory as the executable.
+
+The tool will automatically:
+- Replace the system DSDT if `DSDT.aml` is found
+- Add any other `.aml` files as SSDT tables
+- Support both numeric patterns (`SSDT-1.aml`, `SSDT-2.aml`) and descriptive names (`SSDT-CPU.aml`, `SSDT-GPU.aml`)
+- Avoid duplicate loading of the same tables
 
 **Steps:**
 1. Boot to EFI shell (usually by pressing F2/F12 during boot or using a UEFI shell USB)
@@ -90,7 +144,7 @@ However, if you would like your patches to survive reboots you can use the drive
 
 **For OpenCore users:**
 1. Place `ACPIPatcherDxe.efi` in `EFI/OC/Drivers/`
-2. Place `ACPI` folder in `EFI/OC/` (same level as `Drivers` folder)
+2. Place `ACPI` folder in `EFI/OC/Drivers/` (same location as the DXE driver) **OR** place .aml files directly in `EFI/OC/Drivers/`
 3. Add the driver to your `config.plist`:
    ```xml
    <dict>
@@ -107,40 +161,92 @@ However, if you would like your patches to survive reboots you can use the drive
 
 **For Clover users:**
 1. Place `ACPIPatcherDxe.efi` in `EFI/CLOVER/drivers/UEFI/`
-2. Place `ACPI` folder in `EFI/CLOVER/`
+2. Place `ACPI` folder in `EFI/CLOVER/drivers/UEFI/` (same location as the DXE driver) **OR** place .aml files directly in `EFI/CLOVER/drivers/UEFI/`
 
 **For RefindPlus/rEFInd users (Recommended):**
 1. Place `ACPIPatcherDxe.efi` in `EFI/refind/drivers_x64/`
-2. Place `ACPI` folder in `EFI/refind/`
+2. Place `ACPI` folder in `EFI/refind/drivers_x64/` (same location as the DXE driver) **OR** place .aml files directly in `EFI/refind/drivers_x64/`
 
 ### File Organization
-Your directory structure should look like this:
+ACPIPatcher supports flexible file organization with automatic fallback:
 
-**Application Mode:**
+**✅ Method 1: ACPI Subdirectory (Recommended)**
 ```
 FS0:\
 ├── ACPIPatcher.efi
-└── ACPI\
-    ├── DSDT.aml          (Optional: replaces system DSDT)
-    ├── SSDT-CPU.aml      (Custom CPU management)
-    ├── SSDT-GPU.aml      (Graphics patches)
-    └── SSDT-USB.aml      (USB port configuration)
+└── ACPI\                     ← Preferred location
+    ├── DSDT.aml              (Optional: replaces system DSDT)
+    ├── SSDT-1.aml            (Numeric naming - backward compatible)
+    ├── SSDT-2.aml            (Numeric naming - backward compatible)
+    ├── SSDT-CPU.aml          (✨ NEW: Descriptive naming)
+    ├── SSDT-GPU.aml          (✨ NEW: Graphics patches)
+    ├── SSDT-USB.aml          (✨ NEW: USB port configuration)
+    ├── SSDT-BATTERY.aml      (✨ NEW: Battery patches)
+    └── SSDT-ETHERNET.aml     (✨ NEW: Network patches)
 ```
 
-**Driver Mode (OpenCore example):**
+**✅ Method 2: Same Directory (Automatic Fallback)**
+```
+FS0:\                         ← Fallback if no ACPI folder exists
+├── ACPIPatcher.efi
+├── DSDT.aml                  (Optional: replaces system DSDT)
+├── SSDT-1.aml                (Numeric naming)
+├── SSDT-CPU.aml              (✨ NEW: Descriptive naming)
+├── SSDT-GPU.aml              (✨ NEW: Graphics patches)
+└── SSDT-USB.aml              (✨ NEW: USB configuration)
+```
+
+**Driver Mode Examples:**
+
+**OpenCore (ACPI folder - Recommended):**
 ```
 EFI\
 └── OC\
     ├── Drivers\
-    │   └── ACPIPatcherDxe.efi
-    ├── ACPI\
-    │   ├── DSDT.aml
-    │   ├── SSDT-CPU.aml
+    │   ├── ACPIPatcherDxe.efi
+    │   └── ACPI\             ← ACPI folder next to the driver
+    │       ├── DSDT.aml
+    │       ├── SSDT-CPU.aml
+    │       └── SSDT-USB.aml
+    └── config.plist
+```
+
+**OpenCore (Same directory fallback):**
+```
+EFI\
+└── OC\
+    ├── Drivers\
+    │   ├── ACPIPatcherDxe.efi
+    │   ├── DSDT.aml          ← .aml files alongside the driver
+    │   ├── SSDT-CPU.aml      ← (if no ACPI folder exists)
     │   └── SSDT-USB.aml
     └── config.plist
 ```
 
-### ACPI Table Types
+**RefindPlus/rEFInd (ACPI folder - Recommended):**
+```
+EFI\
+└── refind\
+    ├── drivers_x64\
+    │   ├── ACPIPatcherDxe.efi
+    │   └── ACPI\             ← ACPI folder next to the driver
+    │       ├── DSDT.aml
+    │       ├── SSDT-CPU.aml
+    │       └── SSDT-GPU.aml
+    └── refind.conf
+```
+
+**⚠️ Important Note for DXE Driver File Location:**
+The ACPIPatcherDxe.efi driver looks for ACPI files **relative to its own location**, not in the bootloader root directory. This means:
+- ✅ **Correct**: Place ACPI files in the same directory as `ACPIPatcherDxe.efi`
+- ❌ **Incorrect**: Place ACPI files in the bootloader root while driver is in a subdirectory
+
+**Why this matters:**
+- **Application mode**: `ACPIPatcher.efi` looks relative to where you run it from
+- **Driver mode**: `ACPIPatcherDxe.efi` looks relative to where the driver file is located
+- **Both modes**: Support the same ACPI folder → same directory fallback mechanism
+
+### ACPI Table Types and Naming
 
 #### DSDT (Differentiated System Description Table)
 - **Filename:** Must be named exactly `DSDT.aml`
@@ -149,10 +255,37 @@ EFI\
 - **Warning:** Incorrect DSDT can prevent system boot
 
 #### SSDT (Secondary System Description Table)
-- **Filename:** Any `.aml` file except `DSDT.aml`
-- **Purpose:** Adds additional ACPI functionality
-- **Use case:** Device patches, power management, hardware fixes
-- **Safer:** Less likely to cause boot issues than DSDT replacement
+ACPIPatcher now supports **unlimited SSDT files** with flexible naming patterns:
+
+**✅ Numeric Pattern (Backward Compatible)**
+- **Filenames:** `SSDT-1.aml`, `SSDT-2.aml`, `SSDT-3.aml`, ..., `SSDT-10.aml`
+- **Legacy Support:** Maintains compatibility with existing workflows
+
+**✨ Descriptive Pattern (NEW Enhanced Feature)**
+- **Filenames:** Any `SSDT-*.aml` pattern with descriptive names
+- **Examples:**
+  - `SSDT-CPU.aml` - CPU power management patches
+  - `SSDT-GPU.aml` - Graphics device patches  
+  - `SSDT-USB.aml` - USB port mapping
+  - `SSDT-BATTERY.aml` - Battery status patches
+  - `SSDT-ETHERNET.aml` - Network device patches
+  - `SSDT-WIFI.aml` - WiFi device patches
+  - `SSDT-AUDIO.aml` - Audio codec patches
+  - `SSDT-THERMAL.aml` - Thermal management
+  - `SSDT-KEYBOARD.aml` - Keyboard and trackpad patches
+
+**Key Benefits:**
+- 🔄 **Unlimited Files**: No longer limited to 10 SSDT tables
+- 📝 **Self-Documenting**: Clear purpose identification from filename
+- 🏗️ **Professional**: Matches industry ACPI patching standards
+- 🔒 **Backward Compatible**: Existing numeric files continue to work
+- 🚀 **Smart Loading**: Avoids duplicate loading, comprehensive validation
+
+**Loading Behavior:**
+1. **Phase 1**: Loads numeric SSDTs (1-10) for backward compatibility
+2. **Phase 2**: Scans directory for descriptive SSDTs, skipping already-loaded numeric ones
+3. **Validation**: Each table is validated for integrity before integration
+4. **Integration**: Tables are added to XSDT with proper checksum updates
 
 ### Testing and Validation
 
@@ -189,10 +322,27 @@ ACPIPatcher now includes comprehensive debugging capabilities to help troublesho
 ```
 [INFO]  === ACPIPatcher v1.1 Starting ===
 [INFO]  Found XSDT at address: 0x7FF8B000
-[INFO]  Processing file: DSDT.aml (16384 bytes)
-[INFO]  ACPI patching summary:
-[INFO]    Files processed: 5
-[INFO]    Tables added/replaced: 4
+[INFO]  === Starting Real ACPI Patching ===
+[INFO]  Attempting to load: DSDT.aml
+[INFO]  Found ACPI directory, loading from ACPI/DSDT.aml
+[INFO]  ✓ DSDT replaced successfully
+[INFO]  Scanning for SSDT-*.aml files...
+[INFO]  Found ACPI directory, loading from ACPI/SSDT-1.aml
+[INFO]  ✓ SSDT-1.aml added successfully
+[INFO]  Found ACPI directory, loading from ACPI/SSDT-2.aml
+[INFO]  ✓ SSDT-2.aml added successfully
+[INFO]  Starting directory scan for additional SSDT files...
+[INFO]  Scanning ACPI/ subdirectory
+[INFO]  Skipping numeric SSDT: SSDT-1.aml (already processed)
+[INFO]  Skipping numeric SSDT: SSDT-2.aml (already processed)
+[INFO]  Found descriptive SSDT: SSDT-CPU.aml
+[INFO]  ✓ SSDT-CPU.aml loaded and added successfully
+[INFO]  Found descriptive SSDT: SSDT-GPU.aml
+[INFO]  ✓ SSDT-GPU.aml loaded and added successfully
+[INFO]  Directory scan complete: 15 files scanned, 4 SSDT files found
+[INFO]  ✓ XSDT checksum recalculated: 0x42
+[INFO]  ✓ RSDP updated: 0x7FF8A000 -> 0x7FF9C000
+[INFO]  Status: Successfully patched 5 ACPI tables!
 ```
 
 ### Troubleshooting
@@ -427,6 +577,9 @@ This project has evolved significantly from its original form:
 * ✅ **Security Hardening** - Input validation, buffer overflow protection, and ACPI table integrity checking
 * ✅ **Debugging System** - Multi-level debugging with detailed logging and troubleshooting capabilities
 * ✅ **Code Quality** - Professional-grade documentation, consistent coding standards, and maintainability improvements
+* ✅ **Enhanced SSDT Support** - ⭐ **NEW**: Unlimited SSDT files with descriptive naming (SSDT-CPU.aml, SSDT-GPU.aml, etc.)
+* ✅ **Smart Directory Scanning** - ⭐ **NEW**: Intelligent file discovery with duplicate detection and comprehensive validation
+* ✅ **Flexible File Organization** - ⭐ **NEW**: Support for both ACPI subdirectory and same-directory placement with automatic fallback
 
 ### Memory Management Improvements:
 - **Proper Pool Selection**: Uses appropriate memory pool types (EfiBootServicesData vs EfiBootServicesCode)
