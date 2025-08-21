@@ -1,30 +1,66 @@
 # ACPIPatcher
-An EFI application and driver to add SSDTs and/or patch in your own DSDT
+A professional UEFI/EFI application and driver for ACPI table patching and SSDT injection
 
 [![CI Build](https://github.com/startergo/ACPIPatcher/actions/workflows/ci-new.yml/badge.svg)](https://github.com/startergo/ACPIPatcher/actions/workflows/ci-new.yml)
 [![Release](https://github.com/startergo/ACPIPatcher/actions/workflows/release.yml/badge.svg)](https://github.com/startergo/ACPIPatcher/actions/workflows/release.yml)
 [![GitHub release](https://img.shields.io/github/v/release/startergo/ACPIPatcher)](https://github.com/startergo/ACPIPatcher/releases)
 [![License](https://img.shields.io/github/license/startergo/ACPIPatcher)](LICENSE)
 
-> **🚀 Clean & Simple**: This project has been streamlined with a focus on reliability and ease of use. The build system now uses traditional EDK2 tools for maximum compatibility and minimal dependencies.
+ACPIPatcher is a comprehensive UEFI/EFI tool for ACPI table modification that works with any OS and bootloader. Originally designed for macOS systems without advanced ACPI patching capabilities, it provides professional-grade ACPI table injection and modification for development, debugging, and production use.
 
-I made this tool because I wanted a way to use [RehabMans ACPI Debug tool](https://github.com/RehabMan/OS-X-ACPI-Debug) on my MacBook Pro without using Clover's built-in ACPI patching. Although I made this with macOS in mind, it will work with any OS along with any EFI/UEFI-compatible bootloader. This tool is particularly useful for older Mac hardware (like MacPro5,1) that uses EFI 1.x firmware.
+## Quick Start
+1. **Download** or compile the ACPIPatcher binaries
+2. **Create** an `ACPI` folder in the same directory as `ACPIPatcher.efi` (or place .aml files directly alongside it)
+3. **Place** your `.aml` files in the `ACPI` folder (or same directory)
+4. **🔍 For testing/new tables:** Run from **EFI shell** to see debug messages clearly
+5. **⚡ For production:** Can run directly from **bootloader menu** for convenience
+6. **Important:** Application mode patches are **temporary** (lost on reboot) - use driver mode for persistence
 
-**Important Note on Bootloader Compatibility**: While ACPIPatcher can technically run with any bootloader, **OpenCore and Clover have their own sophisticated ACPI patching systems** that are generally preferred for production use. ACPIPatcher is most useful with bootloaders like **RefindPlus** or **rEFInd** that don't provide extensive ACPI modification capabilities, or for development/debugging scenarios where you need direct control over ACPI table injection.
+<details>
+<summary><strong>📋 Architecture & Design Details</strong></summary>
 
-## Features
-- **DSDT Replacement**: Replace the system DSDT with a custom one
-- **SSDT Addition**: Add custom SSDT tables to the system
-- **✨ Enhanced SSDT Naming**: Support for both numeric (`SSDT-1.aml`) and descriptive (`SSDT-CPU.aml`) patterns
-- **🔍 Smart Directory Scanning**: Automatically discovers all SSDT-*.aml files with intelligent duplicate detection
-- **📁 Flexible File Organization**: Supports both ACPI/ subdirectory and same-directory placement
-- **Table Validation**: Validates ACPI table integrity before patching
-- **Comprehensive Debugging**: Multiple debug levels for troubleshooting
-- **Error Recovery**: Graceful handling of corrupted or invalid files
-- **Memory Safety**: Enhanced memory management and bounds checking
-- **Checksum Updates**: Automatic recalculation of table checksums
+### **Dual-Mode Operation**
+- **Application Mode**: Manual execution for testing and development
+- **DXE Driver Mode**: Automatic execution during boot for production deployment
 
-## System Requirements
+### **Universal Bootloader Compatibility**
+- **Primary Use Cases**: RefindPlus, rEFInd, GRUB, or custom UEFI environments
+- **Advanced Bootloaders**: Compatible with OpenCore and Clover but consider their built-in ACPI systems first
+- **Legacy Support**: Works with EFI 1.x firmware (MacPro5,1 and older Mac hardware)
+
+### **Intelligent File Discovery System**
+- **Multi-Filesystem Search**: Scans all available storage devices automatically
+- **Priority-Based Selection**: Favors co-located files and driver-specific directories
+- **Resource Fork Filtering**: Ignores macOS `._filename.aml` metadata files
+- **Universal AML Support**: Loads all `.aml` files regardless of naming pattern
+
+### **Multi-Phase AML Loading**
+1. **Phase 1**: DSDT replacement (`DSDT.aml`)
+2. **Phase 2**: Numeric SSDT loading (`SSDT-1.aml` through `SSDT-10.aml`)
+3. **Phase 3**: Descriptive SSDT loading (`SSDT-*.aml` patterns)
+4. **Phase 4**: General AML loading (any other `*.aml` files)
+
+</details>
+
+<details>
+<summary><strong>🚀 Features</strong></summary>
+- **DSDT Replacement**: Replace the system DSDT with a custom implementation
+- **SSDT Addition**: Add unlimited custom SSDT tables to the system
+- **Universal AML Support**: Load any `.aml` file regardless of naming pattern
+- **Intelligent File Discovery**: Automatic detection across multiple filesystems and directories
+- **Priority-Based Selection**: Smart directory selection favoring co-located files
+- **Multi-Phase Loading**: Comprehensive four-phase system ensures no AML files are missed
+- **Resource Fork Filtering**: Excludes macOS metadata files for accurate file counting
+- **Table Validation**: Comprehensive ACPI table integrity checking before patching
+- **Memory Safety**: Professional-grade memory management with bounds checking
+- **Error Recovery**: Graceful handling of corrupted or missing files
+- **Cross-Platform Debugging**: Multi-level debug output for troubleshooting
+- **Checksum Management**: Automatic recalculation of table checksums
+
+</details>
+
+<details>
+<summary><strong>💻 System Requirements & Compatibility</strong></summary>
 
 ### Minimum Requirements
 - **Firmware**: ACPI 2.0+ compatible EFI or UEFI firmware
@@ -64,7 +100,10 @@ I made this tool because I wanted a way to use [RehabMans ACPI Debug tool](https
 - **EFI Shell Access**: On older Macs, accessing EFI shell may require holding Option during boot and selecting "EFI Boot" options
 - **Firmware Limitations**: Some older EFI implementations may have stricter memory or file size limitations
 
-## How to use:
+</details>
+
+<details>
+<summary><strong>📖 How to Use</strong></summary>
 
 ### 🔍 **ACPI File Location Logic**
 
@@ -105,17 +144,10 @@ EFI/OC/Drivers/ACPI/               ← ACPIPatcher looks here FIRST
 EFI/OC/Drivers/ACPI/SSDT-CPU.aml   ← Loads this file
 ```
 
-### Quick Start
-1. **Download** or compile the ACPIPatcher binaries
-2. **Create** an `ACPI` folder in the same directory as `ACPIPatcher.efi` (or place .aml files directly alongside it)
-3. **Place** your `.aml` files in the `ACPI` folder (or same directory)
-4. **🔍 For testing/new tables:** Run from **EFI shell** to see debug messages clearly
-5. **⚡ For production:** Can run directly from **bootloader menu** for convenience
-6. **Important:** Application mode patches are **temporary** (lost on reboot) - use driver mode for persistence
+</details>
 
-### Detailed Usage Instructions
-
-#### Application Mode (One-time patching)
+<details>
+<summary><strong>⚡ Application Mode (One-time patching)</strong></summary>
 ACPIPatcher uses a smart file discovery system that supports two organizational approaches:
 
 **Option 1: ACPI Subdirectory (Recommended)**
@@ -173,7 +205,10 @@ menuentry "ACPI Patcher" {
 
 **Note**: Application mode patches are **temporary** - they only last until the system is powered off or reboots. The ACPI tables are patched in memory during this boot session only.
 
-#### Driver Mode (Persistent patching)
+</details>
+
+<details>
+<summary><strong>🔧 Driver Mode (Persistent patching)</strong></summary>
 For **permanent ACPI patches** that survive reboots, use the driver version. The DXE driver loads automatically during every boot and applies patches before the operating system starts.
 
 **Important**: For OpenCore and Clover users, consider using their built-in ACPI patching features first, as they provide more comprehensive and tested solutions. Use ACPIPatcher with these bootloaders only for specific development needs or edge cases not covered by their native ACPI support.
@@ -186,27 +221,24 @@ For **permanent ACPI patches** that survive reboots, use the driver version. The
 5. **Persistence**: Patches are applied on **every boot** without user intervention
 6. **Operating System Handoff**: The patched ACPI tables are passed to the OS
 
-**🔧 Enhanced DXE Driver Features (Latest Version):**
-- **✅ Multi-Filesystem Search**: Automatically searches across ALL available file systems
-- **✅ Multi-Location Discovery**: Intelligently searches multiple standard ACPI paths
-- **✅ Smart Directory Selection**: Chooses best ACPI directory based on file count
-- **✅ Storage Timing Resilience**: Handles delayed file system initialization gracefully
-- **✅ Cross-Platform Compatibility**: Works reliably across different firmware implementations
-- **✅ Driver-Relative Paths**: Finds ACPI files relative to driver location for any bootloader
-- **✅ ESP Root Discovery**: Locates shared ACPI directories at ESP root level
-- **✅ Comprehensive Debug Logging**: Detailed logs showing all search attempts and discoveries
+**Enhanced DXE Driver Features:**
+- ✅ **Multi-Filesystem Search**: Automatically searches across ALL available file systems
+- ✅ **Multi-Location Discovery**: Intelligently searches multiple standard ACPI paths
+- ✅ **Smart Directory Selection**: Chooses best ACPI directory based on file count
+- ✅ **Storage Timing Resilience**: Handles delayed file system initialization gracefully
+- ✅ **Cross-Platform Compatibility**: Works reliably across different firmware implementations
+- ✅ **Driver-Relative Paths**: Finds ACPI files relative to driver location for any bootloader
 
-**For OpenCore users:**
+**Installation Instructions:**
+
+For **OpenCore** users:
 1. Place `ACPIPatcherDxe.efi` in `EFI/OC/Drivers/`
-2. **Recommended**: Create `ACPI` folder in `EFI/OC/Drivers/` and place .aml files there
-3. **Alternative**: Place .aml files directly in `EFI/OC/Drivers/` (same directory as the driver)
-4. Add the driver to your `config.plist`:
+2. Create `ACPI` folder in `EFI/OC/Drivers/` and place .aml files there
+3. Add the driver to your `config.plist`:
    ```xml
    <dict>
-       <key>Arguments</key>
-       <string></string>
        <key>Comment</key>
-       <string>ACPI Patcher Driver - Enhanced Version</string>
+       <string>ACPI Patcher Driver</string>
        <key>Enabled</key>
        <true/>
        <key>Path</key>
@@ -214,85 +246,18 @@ For **permanent ACPI patches** that survive reboots, use the driver version. The
    </dict>
    ```
 
-**For Clover users:**
-1. Place `ACPIPatcherDxe.efi` in `EFI/CLOVER/drivers/UEFI/`
-2. **Recommended**: Create `ACPI` folder in `EFI/CLOVER/drivers/UEFI/` and place .aml files there
-3. **Alternative**: Place .aml files directly in `EFI/CLOVER/drivers/UEFI/` (same directory as the driver)
-
-**For RefindPlus/rEFInd users (Recommended):**
+For **RefindPlus/rEFInd** users (Recommended):
 1. Place `ACPIPatcherDxe.efi` in `EFI/refind/drivers_x64/`
-2. **Recommended**: Create `ACPI` folder in `EFI/refind/drivers_x64/` and place .aml files there
-3. **Alternative**: Place .aml files directly in `EFI/refind/drivers_x64/` (same directory as the driver)
+2. Create `ACPI` folder in `EFI/refind/drivers_x64/` and place .aml files there
 
-**🔍 DXE Driver File Search Logic:**
-The enhanced DXE driver now uses comprehensive multi-filesystem and multi-location search:
+For **Clover** users:
+1. Place `ACPIPatcherDxe.efi` in `EFI/CLOVER/drivers/UEFI/`
+2. Create `ACPI` folder in `EFI/CLOVER/drivers/UEFI/` and place .aml files there
 
-1. **Multi-Filesystem Discovery**: Searches across ALL available file systems
-   - Finds all Simple File System Protocol handles
-   - Handles USB drives, SATA, NVMe, and network storage
-   - Works regardless of boot device or storage configuration
+</details>
 
-2. **Multi-Location Search per File System**: For each filesystem, checks:
-   - `EFI\ACPI\` (ESP root - cross-bootloader sharing)
-   - `EFI\ACPIPatcher\` (ESP root - dedicated location)
-   - `drivers_x64\ACPI\` (rEFInd/RefindPlus specific)
-   - `OC\Drivers\ACPI\` (OpenCore specific)
-   - `CLOVER\drivers\UEFI\ACPI\` (Clover specific)
-   - `ACPI\` (relative to any driver location)
-   - Driver directory (fallback if contains .aml files)
-
-3. **Smart Directory Selection**: 
-   - Counts .aml files in each discovered directory
-   - Selects directory with the most ACPI files
-   - Prevents loading from empty or sparse directories
-   - Provides detailed logging of discovery process
-
-4. **Comprehensive Coverage**:
-   - Works regardless of bootloader directory structure
-   - Finds ACPI files in any reasonable location
-   - Handles complex EFI partition layouts automatically
-   - Adapts to user's specific configuration
-
-**📋 Debug Output for DXE Driver:**
-The enhanced DXE driver provides detailed logging to help troubleshoot file discovery:
-
-```
-[DXE] ACPIPatcher DXE Driver v1.2 loading...
-[DXE] Starting comprehensive file system search...
-[DXE] Found 3 file system(s), searching each for ACPI directories...
-[DXE] FileSystem 0: Checking EFI\ACPI... Found! (5 .aml files)
-[DXE] FileSystem 1: Checking drivers_x64\ACPI... Found! (3 .aml files)
-[DXE] FileSystem 2: Checking ACPI... Not found
-[DXE] Selected best directory: EFI\ACPI (most files: 5)
-[DXE] SUCCESS: Found ACPI directory with 5 .aml files
-[INFO] Found ACPI directory, loading from ACPI/SSDT-CPU.aml
-[INFO] ✓ SSDT-CPU.aml loaded and added successfully
-[INFO] ✓ SSDT-GPU.aml loaded and added successfully
-[INFO] Status: Successfully patched 6 ACPI tables!
-[DXE] Enhanced directory search completed successfully
-```
-
-### Application vs Driver Mode Comparison
-
-| Feature | Application Mode | Driver Mode |
-|---------|------------------|-------------|
-| **Execution** | Manual execution required | Automatic on every boot |
-| **Persistence** | ❌ **Temporary** - patches lost on reboot | ✅ **Permanent** - patches applied every boot |
-| **File Search** | Relative to execution directory | **✨ Enhanced**: Multi-location intelligent search |
-| **Storage Timing** | Assumes file system ready | **✨ Handles delayed storage initialization** |
-| **Use Case** | Testing, debugging, one-time fixes | Production use, permanent patches |
-| **User Interaction** | Requires EFI shell access | No user interaction needed |
-| **Boot Dependency** | Must run before OS boot | Integrated into boot process |
-| **Bootloader Support** | Any EFI shell environment | **✨ Enhanced**: Works with all major bootloaders |
-| **Patch Timing** | After manual execution | During DXE phase (early boot) |
-| **Troubleshooting** | Easy to disable (just don't run) | **✨ Enhanced debug logging** for diagnosis |
-| **Configuration Flexibility** | Single execution directory | **✨ Multiple search locations** |
-
-**Recommendation**: 
-- **Use Application Mode for**: Testing new ACPI patches, debugging, temporary fixes
-- **Use Driver Mode for**: Production environments, permanent patches, hands-off operation
-
-### File Organization
+<details>
+<summary><strong>📁 File Organization & Naming</strong></summary>
 ACPIPatcher supports flexible file organization with automatic fallback:
 
 **✅ Method 1: ACPI Subdirectory (Recommended)**
@@ -303,11 +268,10 @@ FS0:\
     ├── DSDT.aml              (Optional: replaces system DSDT)
     ├── SSDT-1.aml            (Numeric naming - backward compatible)
     ├── SSDT-2.aml            (Numeric naming - backward compatible)
-    ├── SSDT-CPU.aml          (✨ NEW: Descriptive naming)
-    ├── SSDT-GPU.aml          (✨ NEW: Graphics patches)
-    ├── SSDT-USB.aml          (✨ NEW: USB port configuration)
-    ├── SSDT-BATTERY.aml      (✨ NEW: Battery patches)
-    └── SSDT-ETHERNET.aml     (✨ NEW: Network patches)
+    ├── SSDT-CPU.aml          (Descriptive naming)
+    ├── SSDT-GPU.aml          (Graphics patches)
+    ├── SSDT-USB.aml          (USB port configuration)
+    └── SSDT-BATTERY.aml      (Battery patches)
 ```
 
 **✅ Method 2: Same Directory (Automatic Fallback)**
@@ -316,103 +280,10 @@ FS0:\                         ← Fallback if no ACPI folder exists
 ├── ACPIPatcher.efi
 ├── DSDT.aml                  (Optional: replaces system DSDT)
 ├── SSDT-1.aml                (Numeric naming)
-├── SSDT-CPU.aml              (✨ NEW: Descriptive naming)
-├── SSDT-GPU.aml              (✨ NEW: Graphics patches)
-└── SSDT-USB.aml              (✨ NEW: USB configuration)
+├── SSDT-CPU.aml              (Descriptive naming)
+├── SSDT-GPU.aml              (Graphics patches)
+└── SSDT-USB.aml              (USB configuration)
 ```
-
-**Driver Mode Examples:**
-
-**OpenCore (ACPI folder - Recommended):**
-```
-EFI\
-└── OC\
-    ├── Drivers\
-    │   ├── ACPIPatcherDxe.efi
-    │   └── ACPI\             ← ACPI folder next to the driver
-    │       ├── DSDT.aml
-    │       ├── SSDT-CPU.aml
-    │       └── SSDT-USB.aml
-    └── config.plist
-```
-
-**OpenCore (Same directory fallback):**
-```
-EFI\
-└── OC\
-    ├── Drivers\
-    │   ├── ACPIPatcherDxe.efi
-    │   ├── DSDT.aml          ← .aml files alongside the driver
-    │   ├── SSDT-CPU.aml      ← (if no ACPI folder exists)
-    │   └── SSDT-USB.aml
-    └── config.plist
-```
-
-**OpenCore (ESP root ACPI directory - Enhanced Search):**
-```
-EFI\
-├── ACPI\                     ← ✨ NEW: Driver will find this automatically
-│   ├── DSDT.aml
-│   ├── SSDT-CPU.aml
-│   └── SSDT-USB.aml
-└── OC\
-    ├── Drivers\
-    │   └── ACPIPatcherDxe.efi ← Driver searches multiple locations
-    └── config.plist
-```
-
-**RefindPlus/rEFInd (ACPI folder - Recommended):**
-```
-EFI\
-└── refind\
-    ├── drivers_x64\
-    │   ├── ACPIPatcherDxe.efi
-    │   └── ACPI\             ← ACPI folder next to the driver
-    │       ├── DSDT.aml
-    │       ├── SSDT-CPU.aml
-    │       └── SSDT-GPU.aml
-    └── refind.conf
-```
-
-**RefindPlus/rEFInd (ESP root search - Enhanced):**
-```
-EFI\
-├── ACPIPatcher\              ← ✨ NEW: Alternative global location
-│   ├── DSDT.aml
-│   ├── SSDT-CPU.aml
-│   └── SSDT-GPU.aml
-└── refind\
-    ├── drivers_x64\
-    │   └── ACPIPatcherDxe.efi ← Automatically finds ACPIPatcher folder
-    └── refind.conf
-```
-
-**⚠️ Important Note for DXE Driver File Location:**
-The enhanced ACPIPatcherDxe.efi driver now uses **comprehensive multi-filesystem and multi-location search** to find ACPI files. This provides maximum flexibility and compatibility:
-
-**✅ Enhanced Search Capabilities:**
-- **Multi-Filesystem Search**: Automatically searches ALL available file systems (not just boot device)
-- **Intelligent Path Detection**: Recognizes bootloader-specific directory structures automatically
-- **Smart Directory Selection**: Chooses the directory with the most .aml files (indicates main ACPI location)
-- **Universal Compatibility**: Works with any bootloader configuration without manual path specification
-- **Delayed Storage Handling**: Gracefully handles file systems that initialize after driver loading
-- **Comprehensive Logging**: Shows exactly which paths were searched and where files were found
-
-**🔍 Search Coverage Examples:**
-- **rEFInd/RefindPlus**: Finds `drivers_x64\ACPI\`, `EFI\ACPI\`, `ACPI\` automatically
-- **OpenCore**: Finds `OC\Drivers\ACPI\`, `EFI\ACPI\`, driver directory automatically
-- **Clover**: Finds `CLOVER\drivers\UEFI\ACPI\`, `EFI\ACPI\` automatically
-- **Generic/Multiple**: Searches all reasonable paths across all storage devices
-
-**🚀 Benefits of Enhanced Search:**
-- **Zero Configuration**: No need to specify paths - driver finds files automatically
-- **Maximum Coverage**: Searches every possible reasonable location
-- **Smart Selection**: Automatically picks the best ACPI directory
-- **Future-Proof**: Adapts to new bootloader configurations automatically
-- **Troubleshooting**: Detailed logs show exactly what was searched and found
-
-**Backward Compatibility:**
-The enhanced driver maintains full backward compatibility with existing configurations while adding comprehensive search capabilities. Existing ACPI file placements continue to work exactly as before.
 
 ### ACPI Table Types and Naming
 
@@ -423,13 +294,13 @@ The enhanced driver maintains full backward compatibility with existing configur
 - **Warning:** Incorrect DSDT can prevent system boot
 
 #### SSDT (Secondary System Description Table)
-ACPIPatcher now supports **unlimited SSDT files** with flexible naming patterns:
+ACPIPatcher supports **unlimited SSDT files** with flexible naming patterns:
 
 **✅ Numeric Pattern (Backward Compatible)**
 - **Filenames:** `SSDT-1.aml`, `SSDT-2.aml`, `SSDT-3.aml`, ..., `SSDT-10.aml`
 - **Legacy Support:** Maintains compatibility with existing workflows
 
-**✨ Descriptive Pattern (NEW Enhanced Feature)**
+**✨ Descriptive Pattern (Enhanced Feature)**
 - **Filenames:** Any `SSDT-*.aml` pattern with descriptive names
 - **Examples:**
   - `SSDT-CPU.aml` - CPU power management patches
@@ -440,7 +311,6 @@ ACPIPatcher now supports **unlimited SSDT files** with flexible naming patterns:
   - `SSDT-WIFI.aml` - WiFi device patches
   - `SSDT-AUDIO.aml` - Audio codec patches
   - `SSDT-THERMAL.aml` - Thermal management
-  - `SSDT-KEYBOARD.aml` - Keyboard and trackpad patches
 
 **Key Benefits:**
 - 🔄 **Unlimited Files**: No longer limited to 10 SSDT tables
@@ -449,13 +319,10 @@ ACPIPatcher now supports **unlimited SSDT files** with flexible naming patterns:
 - 🔒 **Backward Compatible**: Existing numeric files continue to work
 - 🚀 **Smart Loading**: Avoids duplicate loading, comprehensive validation
 
-**Loading Behavior:**
-1. **Phase 1**: Loads numeric SSDTs (1-10) for backward compatibility
-2. **Phase 2**: Scans directory for descriptive SSDTs, skipping already-loaded numeric ones
-3. **Validation**: Each table is validated for integrity before integration
-4. **Integration**: Tables are added to XSDT with proper checksum updates
+</details>
 
-### Debug Output and Visibility
+<details>
+<summary><strong>🔍 Debug Output and Testing</strong></summary>
 
 **⚠️ Important: Debug Message Visibility Depends on Execution Method**
 
@@ -479,49 +346,16 @@ fs0:\> exit
 - Perfect for development and troubleshooting
 
 **🚀 Direct Bootloader Menu Execution (Convenient but Limited):**
-```bash
-# Running directly from rEFInd/RefindPlus menu entry
-[INFO] === ACPIPatcher v1.1 Starting ===
-[INFO] Found XSDT... [scrolls fast]
-[INFO] Scanning... [scrolls fast]  
-[INFO] Status... [disappears quickly]
-# Boot continues automatically to OS - no time to read!
-```
-⚠️ **Limitations:**
 - Messages scroll very fast and disappear
 - No time to inspect output for errors
 - Automatic transition to OS boot
 - Difficult to troubleshoot issues
 
 **🔧 Recommendation for Different Use Cases:**
-
-**Development/New Tables:** Always use EFI Shell execution
-- Need to see validation messages
-- Check for errors and warnings  
-- Verify proper file loading
-- Debug any issues thoroughly
-
-**Production/Verified Tables:** Can use direct bootloader execution
-- Tables already tested and working
-- Want convenient automatic execution
-- Don't need to inspect debug output
-
-**Driver Mode:** Messages appear during boot but may scroll quickly
-- **Enhanced Debug Output**: Comprehensive logging shows file discovery process
-- Debug output available but may scroll during boot sequence  
-- Consider using application mode during initial development and testing
-- **Example DXE Debug Output**:
-  ```
-  [DXE] ACPIPatcher DXE Driver v1.1 loading...
-  [DXE] Found 3 file system(s), searching for ACPI files...
-  [DXE] SUCCESS: Found ACPI directory at EFI\ACPI
-  [INFO] ✓ SSDT-CPU.aml loaded and added successfully
-  [DXE] ACPI tables have been patched - driver staying resident
-  ```
+- **Development/New Tables:** Always use EFI Shell execution
+- **Production/Verified Tables:** Can use direct bootloader execution
 
 ### Testing and Validation
-
-I have also provided a test SSDT in `Build/ACPI` for validation purposes.
 
 **Recommended Testing Workflow:**
 1. **Start with Application Mode**: Test patches temporarily first
@@ -536,230 +370,7 @@ I have also provided a test SSDT in `Build/ACPI` for validation purposes.
 4. Keep backup of working configuration
 5. Test boot multiple times to ensure stability
 
-**Testing Process:**
-```bash
-# Phase 1: Application Mode Testing (Temporary)
-1. Boot to EFI shell
-2. Run: ACPIPatcher.efi
-3. Continue boot to OS
-4. Verify patches work (check functionality, no crashes)
-5. Reboot (patches are automatically cleared)
-
-# Phase 2: Driver Mode Deployment (Permanent) 
-1. If Application Mode testing succeeded:
-2. Install ACPIPatcherDxe.efi in bootloader drivers
-3. Reboot and verify patches persist
-4. Monitor multiple boot cycles for stability
-```
-
-**Common issues and solutions:**
-- **Boot failure**: Remove ACPIPatcherDxe.efi from drivers folder immediately
-- **Application Mode works, Driver Mode doesn't**: Check file system access timing and paths
-- **No effect**: Check file permissions, naming conventions, and bootloader driver loading
-- **Intermittent issues**: Enable debugging and check logs across multiple boots
-
-**Memory and Persistence Notes:**
-- **Application Mode**: Patches exist **only in current boot session** - lost on reboot/shutdown
-- **Driver Mode**: Patches are **reapplied automatically** on every boot
-- **ACPI Tables**: Are always in RAM, never written to firmware/storage permanently
-- **Safety**: Both modes only modify in-memory ACPI tables, never firmware
-
-**Older Mac Hardware (MacPro5,1, etc.):**
-- **EFI Shell Access:** Use Option key during boot, look for "EFI Boot" options
-- **Memory Limitations:** Keep ACPI files small (<64KB each) for EFI 1.x compatibility
-- **Bootloader Requirements:** RefindPlus or rEFInd work best with older EFI firmware
-- **File Path Issues:** Ensure short path names and avoid deep directory structures
-
-## DXE Driver Technical Details
-
-### 🔧 Enhanced Multi-Filesystem Directory Search Algorithm
-
-The ACPIPatcherDxe.efi driver implements a comprehensive three-stage file discovery system:
-
-#### Stage 1: Complete File System Discovery
-```
-[DXE] Starting comprehensive file system search...
-[DXE] Found 8 file system(s), searching each for ACPI directories...
-```
-- Enumerates ALL available Simple File System Protocol handles
-- Searches every accessible storage device (boot drive, USB, network, etc.)
-- Handles delayed storage initialization (waits for USB/SATA/NVMe drives)
-- Gracefully handles file systems that aren't ready immediately
-- Works regardless of which device contains ACPI files
-
-#### Stage 2: Comprehensive Multi-Location Search
-```
-For each discovered file system, search priority:
-1. EFI\ACPI\              (ESP root - cross-bootloader compatibility)
-2. EFI\ACPIPatcher\       (ESP root - dedicated ACPIPatcher location)
-3. drivers_x64\ACPI\      (rEFInd/RefindPlus bootloader paths)
-4. OC\Drivers\ACPI\       (OpenCore bootloader paths)  
-5. CLOVER\drivers\UEFI\ACPI\ (Clover bootloader paths)
-6. ACPI\                  (relative to any driver location)
-7. ACPIPatcher\           (alternative relative location)
-8. Driver directory       (fallback - if .aml files present)
-9. File system root       (last resort - if .aml files present)
-```
-
-#### Stage 3: Smart Directory Selection and File Detection
-```
-[DXE] Directory analysis results:
-[DXE]   EFI\ACPI\: 5 .aml files found
-[DXE]   drivers_x64\ACPI\: 3 .aml files found
-[DXE] Selected best directory: EFI\ACPI (highest file count)
-[INFO] Found ACPI directory, loading from ACPI/SSDT-CPU.aml
-```
-- Counts .aml files in each discovered directory
-- Selects directory with the most ACPI files (indicates main ACPI location)
-- Validates file accessibility before attempting to load
-- Prevents loading from empty or test directories
-- Provides comprehensive logging for troubleshooting
-
-### 🚀 Storage Timing Resilience
-
-The enhanced DXE driver handles complex boot timing scenarios:
-
-#### Delayed File System Initialization
-```c
-// Pseudo-code showing the approach
-if (FileSystemNotReady) {
-    SetupDelayedPatching();
-    RegisterFileSystemCallback();
-    return EFI_SUCCESS;  // Driver stays resident
-}
-
-OnFileSystemReady() {
-    PerformDelayedAcpiPatching();
-    SearchMultipleLocations();
-    ApplyPatchesWhenReady();
-}
-```
-
-**Benefits:**
-- **USB/External Storage**: Handles USB drives that initialize after DXE phase
-- **SATA/NVMe Timing**: Works with storage controllers that have initialization delays
-- **Multiple Storage**: Searches across all available storage devices
-- **Retry Logic**: Automatically retries when storage becomes available
-
-### 🔍 Debug and Troubleshooting Features
-
-#### Comprehensive Logging
-The DXE driver provides detailed debug output for troubleshooting:
-
-```
-[DXE] ACPIPatcher DXE Driver v1.1 loading...
-[DXE] Starting ACPI patching process...
-[DXE] File system not ready yet, setting up delayed patching
-[DXE] File system notification set up successfully
-[DXE] Driver will remain resident and patch ACPI when storage is ready
-...
-[DXE] File System Protocol ready notification received!
-[DXE] Now attempting delayed ACPI patching with file system access...
-[DXE] Searching for ACPI files directory on available file systems...
-[DXE] Found 3 file system(s), searching for ACPI files...
-[DXE] SUCCESS: Found ACPI directory at EFI\ACPI
-[INFO] Found ACPI directory, loading from ACPI/SSDT-CPU.aml
-[INFO] ✓ SSDT-CPU.aml loaded and added successfully
-[DXE] SUCCESS: Delayed ACPI patching completed!
-```
-
-#### Error Handling and Recovery
-```
-[DXE] ERROR: No file systems found: Not Ready
-[DXE] WARNING: Could not locate ACPI files directory, continuing without files
-[DXE] INFO: No ACPI directory found on any file system
-```
-
-**Enhanced Error Handling:**
-- **Graceful Multi-System Handling**: Continues if some file systems are inaccessible
-- **Smart Directory Selection**: Automatically chooses best ACPI directory based on file count  
-- **Resource Cleanup**: Properly closes handles and frees memory across all file systems
-- **Comprehensive Logging**: Shows search results for every file system and directory
-- **Recovery Attempts**: Retries operations when file systems become available
-
-### 🛠 Compatibility and Platform Support
-
-#### Bootloader Integration Matrix
-| Bootloader | Compatibility | Recommended Location | Notes |
-|------------|---------------|---------------------|--------|
-| **RefindPlus** | ✅ **Excellent** | `EFI/refind/drivers_x64/` | Native driver support |
-| **rEFInd** | ✅ **Excellent** | `EFI/refind/drivers_x64/` | Native driver support |
-| **OpenCore** | ✅ **Good** | `EFI/OC/Drivers/` | Consider built-in ACPI first |
-| **Clover** | ✅ **Good** | `EFI/CLOVER/drivers/UEFI/` | Consider built-in ACPI first |
-| **GRUB** | ⚠️ **Limited** | Manual placement | May require additional configuration |
-
-#### Firmware Compatibility
-- **UEFI 2.x**: Full support with all enhanced features
-- **EFI 1.x**: Compatible with enhanced search (MacPro5,1, etc.)
-- **Legacy BIOS**: Not supported (requires EFI/UEFI environment)
-
-#### Architecture Support
-- **X64**: Primary target, fully tested
-- **IA32**: Compatible, limited testing
-- **AARCH64**: Experimental support
-
-### 📊 Performance and Resource Usage
-
-#### Memory Footprint
-- **Driver Size**: ~36KB (optimized for minimal impact)
-- **Runtime Memory**: <1MB during patching operation
-- **Resident Memory**: ~32KB after patching complete
-
-#### Boot Impact
-- **Cold Boot**: +50-200ms (depending on storage speed)
-- **Warm Boot**: +20-100ms (cached file system access)
-- **No Files**: +10-20ms (quick search and exit)
-
-#### Resource Management
-- **Proper Cleanup**: All allocated memory freed after patching
-- **Handle Management**: File handles properly closed
-- **Event Management**: Notification events properly disposed
-
-### 🔧 Advanced Configuration Options
-
-#### Debug Level Control
-Modify debug verbosity by rebuilding with different debug levels:
-```c
-// In ACPIPatcher.c - for maximum debugging
-#define DXE_DEBUG_LEVEL DEBUG_VERBOSE
-
-// For production - minimal output
-#define DXE_DEBUG_LEVEL DEBUG_ERROR
-```
-
-#### Search Path Customization
-The comprehensive multi-location search can be customized by modifying the search arrays:
-```c
-// Bootloader-specific paths - automatically detected
-CHAR16* BootloaderPaths[] = {
-    L"drivers_x64\\ACPI",           // rEFInd/RefindPlus
-    L"OC\\Drivers\\ACPI",           // OpenCore  
-    L"CLOVER\\drivers\\UEFI\\ACPI", // Clover
-    L"grub\\ACPI",                  // GRUB (custom)
-    NULL
-};
-
-// Standard ACPI paths - searched on all file systems  
-CHAR16* StandardPaths[] = {
-    L"EFI\\ACPI",                   // ESP root ACPI
-    L"EFI\\ACPIPatcher",            // ESP root ACPIPatcher
-    L"ACPI",                        // Relative ACPI
-    L"ACPIPatcher",                 // Relative ACPIPatcher
-    NULL
-};
-```
-
-## Debugging
-
-ACPIPatcher now includes comprehensive debugging capabilities to help troubleshoot ACPI patching issues. See [DEBUG_GUIDE.md](DEBUG_GUIDE.md) for detailed information.
-
-### Debug Levels
-- **ERROR**: Only critical failures
-- **WARN**: Warnings and errors  
-- **INFO**: General information (default)
-- **VERBOSE**: Detailed debugging with memory dumps
-
-### Sample Debug Output
+**Sample Debug Output:**
 ```
 [INFO]  === ACPIPatcher v1.1 Starting ===
 [INFO]  Found XSDT at address: 0x7FF8B000
@@ -768,36 +379,21 @@ ACPIPatcher now includes comprehensive debugging capabilities to help troublesho
 [INFO]  Found ACPI directory, loading from ACPI/DSDT.aml
 [INFO]  ✓ DSDT replaced successfully
 [INFO]  Scanning for SSDT-*.aml files...
-[INFO]  Found ACPI directory, loading from ACPI/SSDT-1.aml
-[INFO]  ✓ SSDT-1.aml added successfully
-[INFO]  Found ACPI directory, loading from ACPI/SSDT-2.aml
-[INFO]  ✓ SSDT-2.aml added successfully
-[INFO]  Starting directory scan for additional SSDT files...
-[INFO]  Scanning ACPI/ subdirectory
-[INFO]  Skipping numeric SSDT: SSDT-1.aml (already processed)
-[INFO]  Skipping numeric SSDT: SSDT-2.aml (already processed)
-[INFO]  Found descriptive SSDT: SSDT-CPU.aml
 [INFO]  ✓ SSDT-CPU.aml loaded and added successfully
-[INFO]  Found descriptive SSDT: SSDT-GPU.aml
 [INFO]  ✓ SSDT-GPU.aml loaded and added successfully
-[INFO]  Directory scan complete: 15 files scanned, 4 SSDT files found
-[INFO]  ✓ XSDT checksum recalculated: 0x42
-[INFO]  ✓ RSDP updated: 0x7FF8A000 -> 0x7FF9C000
 [INFO]  Status: Successfully patched 5 ACPI tables!
 ```
 
-### Troubleshooting
-If you encounter issues, increase the debug level by modifying `DEBUG_LEVEL` in the source code:
-```c
-#define DEBUG_LEVEL DEBUG_VERBOSE  // For maximum debugging output
-```
+**Common issues and solutions:**
+- **Boot failure**: Remove ACPIPatcherDxe.efi from drivers folder immediately
+- **Application Mode works, Driver Mode doesn't**: Check file system access timing and paths
+- **No effect**: Check file permissions, naming conventions, and bootloader driver loading
+- **Intermittent issues**: Enable debugging and check logs across multiple boots
 
-## Documentation
-- [IMPROVEMENTS.md](IMPROVEMENTS.md) - Details about code improvements and security enhancements
-- [DEBUG_GUIDE.md](DEBUG_GUIDE.md) - Comprehensive debugging and troubleshooting guide
-- [EFI_1X_COMPATIBILITY.md](EFI_1X_COMPATIBILITY.md) - Detailed guide for MacPro5,1 and other EFI 1.x systems
+</details>
 
-## How to Build:
+<details>
+<summary><strong>🏗️ How to Build</strong></summary>
 
 ### Prerequisites
 
@@ -1008,70 +604,90 @@ For convenience, pre-built binaries are provided in the releases section. Howeve
 - Platform-specific optimizations
 - Development and contribution
 
+</details>
 
-### Completed Improvements:
-This project has evolved significantly from its original form:
+<details>
+<summary><strong>🏆 Completed Architecture</strong></summary>
 
-* ✅ **Rewrite as a driver** - Driver version available so the application does not need to be called before every boot
-* ✅ **Enhanced Memory Management** - Complete overhaul with proper cleanup, bounds checking, and leak prevention
-* ✅ **Robust Error Handling** - Comprehensive error checking with graceful degradation and detailed reporting
-* ✅ **Security Hardening** - Input validation, buffer overflow protection, and ACPI table integrity checking
-* ✅ **Debugging System** - Multi-level debugging with detailed logging and troubleshooting capabilities
-* ✅ **Code Quality** - Professional-grade documentation, consistent coding standards, and maintainability improvements
-* ✅ **Enhanced SSDT Support** - ⭐ **NEW**: Unlimited SSDT files with descriptive naming (SSDT-CPU.aml, SSDT-GPU.aml, etc.)
-* ✅ **Smart Directory Scanning** - ⭐ **NEW**: Intelligent file discovery with duplicate detection and comprehensive validation
-* ✅ **Flexible File Organization** - ⭐ **NEW**: Support for both ACPI subdirectory and same-directory placement with automatic fallback
-* ✅ **Multi-Filesystem Search** - ⭐ **LATEST**: Comprehensive search across ALL file systems and storage devices
-* ✅ **Intelligent Directory Selection** - ⭐ **LATEST**: Smart selection of best ACPI directory based on file count analysis
-* ✅ **Universal Bootloader Compatibility** - ⭐ **LATEST**: Automatic detection of bootloader-specific directory structures
-* ✅ **Enhanced DXE Driver Architecture** - ⭐ **LATEST**: Zero-configuration operation with comprehensive path coverage
+This project provides a complete, professional-grade ACPI patching solution:
 
-### Memory Management Improvements:
-- **Proper Pool Selection**: Uses appropriate memory pool types (EfiBootServicesData vs EfiBootServicesCode)
-- **Comprehensive Cleanup**: All allocated memory is properly freed in both success and error paths
-- **Bounds Checking**: Prevents buffer overflows when modifying XSDT and reading files
-- **Null Pointer Protection**: Validates all pointers before dereferencing
-- **Resource Limits**: Prevents memory exhaustion with configurable table limits
-- **Leak Prevention**: Goto cleanup patterns ensure resources are always freed
+* ✅ **DXE Driver Architecture** - Automatic operation with zero configuration required
+* ✅ **Professional Memory Management** - Comprehensive cleanup, bounds checking, and leak prevention
+* ✅ **Enterprise Error Handling** - Robust error checking with graceful degradation
+* ✅ **Security Hardening** - Input validation, buffer protection, and integrity checking
+* ✅ **Multi-Level Debugging** - Comprehensive logging and troubleshooting capabilities
+* ✅ **Production Code Quality** - Professional documentation and maintainable architecture
+* ✅ **Universal AML Support** - Loads any `.aml` file regardless of naming convention
+* ✅ **Intelligent File Discovery** - Multi-filesystem search with priority-based selection
+* ✅ **Flexible Organization** - ACPI subdirectory or same-directory placement with automatic fallback
+* ✅ **Cross-Platform Compatibility** - Universal bootloader support with automatic detection
+* ✅ **Smart Directory Selection** - Priority system favoring co-located and driver-specific paths
+* ✅ **Zero-Configuration Operation** - Comprehensive path coverage requiring no manual setup
+* ✅ **Resource Fork Handling** - macOS compatibility with proper metadata file filtering
+* ✅ **Multi-Phase Loading System** - Four-phase system ensuring complete AML file coverage
 
-### Error Handling Improvements:
-- **Graceful Degradation**: Continues processing when individual files fail
-- **Detailed Error Reporting**: Specific error codes with context and suggested fixes
-- **Input Validation**: Comprehensive parameter checking for all functions
-- **File System Resilience**: Handles missing files, access errors, and corrupted data
-- **Recovery Mechanisms**: Attempts to continue operation despite non-critical failures
-- **Status Propagation**: Proper EFI_STATUS codes throughout the application
+</details>
 
-## CI/CD and Automation
+<details>
+<summary><strong>📊 Project Status</strong></summary>
+
+ACPIPatcher is a mature, production-ready ACPI patching solution with comprehensive features:
+
+### Core Capabilities
+- **Professional Architecture**: Robust DXE driver and application modes
+- **Universal Compatibility**: Works with all major bootloaders and firmware types
+- **Intelligent Automation**: Zero-configuration file discovery and loading
+- **Enterprise-Grade Quality**: Memory safety, error handling, and comprehensive debugging
+
+### Current Implementation
+- **Multi-Platform Build System**: EDK2-based with CI/CD automation across Windows, macOS, and Linux
+- **Comprehensive File Support**: Handles DSDT replacement and unlimited SSDT injection
+- **Advanced Discovery**: Multi-filesystem search with intelligent priority-based selection
+- **Resource Management**: Professional memory management with automatic cleanup
+- **Debug Infrastructure**: Multi-level logging system for development and troubleshooting
+
+The project is actively maintained and suitable for both development and production environments.
+
+</details>
+
+<details>
+<summary><strong>🚀 CI/CD and Automation</strong></summary>
 
 This project uses streamlined GitHub Actions workflows for automated building, testing, and releasing:
 
-### 🚀 **Comprehensive CI Pipeline**
+### **Comprehensive CI Pipeline**
 - **Cross-platform**: Linux (Ubuntu), macOS, Windows Server 2022
 - **Multi-architecture**: X64 and IA32 support  
 - **Multiple toolchains**: GCC5 (Linux), Xcode5 (macOS), VS2022 (Windows)
 - **Matrix builds**: 16 different build configurations for maximum compatibility
 - **Automated testing**: Build validation across all supported platforms
 
-### 📦 **Dedicated Release Management**
+### **Dedicated Release Management**
 - **Automatic releases**: Triggered by git tags with `release.yml` workflow
 - **Multi-platform packages**: Platform-specific artifacts for all major systems
 - **Comprehensive artifacts**: Both Debug and Release builds included
 - **Asset verification**: Automated integrity checks and proper naming
 
-### 🔍 **Quality Assurance**
+### **Quality Assurance**
 - **Build validation**: Ensures all configurations compile successfully
 - **Cross-platform testing**: Validates compatibility across operating systems
 - **EDK2 integration**: Uses traditional EDK2 BaseTools for maximum reliability
 - **Modern toolchains**: Visual Studio 2022, GCC5, and Xcode5 support
 
-### 📊 **Workflow Status**
+### **Workflow Status**
 Current build status is shown in the badges above:
 - **CI Build**: Comprehensive multi-platform testing with 16 build jobs
 - **Release**: Automated release creation and artifact packaging
 
 The streamlined workflow system provides robust CI/CD while maintaining simplicity and reliability.
+
+</details>
+
+---
+
+## 🔮 Future Roadmap
+
 * Configuration file support for advanced patching options
-* ACPI table backup and restore functionality
+* ACPI table backup and restore functionality  
 * Integration with firmware setup utilities
 * Support for ACPI 6.5+ features

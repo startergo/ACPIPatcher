@@ -1217,8 +1217,82 @@ ScanDirectoryForSsdtFiles (
     FreePool(FileInfo);
   }
   
-  Print(L"[INFO]  Directory scan complete: %d files scanned, %d SSDT files found\n", 
-        FilesScanned, SsdtFilesFound);
+  // === PHASE 3: Scan for any other AML files (non-SSDT patterns) ===
+  Print(L"[INFO]  Scanning for other .aml files (non-SSDT patterns)...\n");
+  
+  // Reset directory to beginning for general AML scan
+  SearchDir->SetPosition(SearchDir, 0);
+  
+  UINTN GeneralAmlFound = 0;
+  while (TRUE) {
+    UINTN BufferSize = SIZE_OF_EFI_FILE_INFO + 256 * sizeof(CHAR16);
+    EFI_FILE_INFO *FileInfo = AllocatePool(BufferSize);
+    if (FileInfo == NULL) break;
+    
+    EFI_STATUS Status = SearchDir->Read(SearchDir, &BufferSize, FileInfo);
+    if (EFI_ERROR(Status) || BufferSize == 0) {
+      FreePool(FileInfo);
+      break;
+    }
+    
+    // Skip directories, . and .. entries
+    if ((FileInfo->Attribute & EFI_FILE_DIRECTORY) || 
+        FileInfo->FileSize == 0 ||
+        StrCmp(FileInfo->FileName, L".") == 0 || 
+        StrCmp(FileInfo->FileName, L"..") == 0) {
+      FreePool(FileInfo);
+      continue;
+    }
+    
+    CHAR16 *FileName = FileInfo->FileName;
+    UINTN NameLen = StrLen(FileName);
+    
+    // Check if it's an .aml file
+    if (NameLen <= 4 || StrCmp(&FileName[NameLen-4], L".aml") != 0) {
+      FreePool(FileInfo);
+      continue;
+    }
+    
+    // Skip macOS resource fork files
+    if (NameLen > 6 && StrnCmp(FileName, L"._", 2) == 0) {
+      FreePool(FileInfo);
+      continue;
+    }
+    
+    // Skip files we already processed (DSDT and SSDT-* patterns)
+    if (StrCmp(FileName, L"DSDT.aml") == 0 ||
+        (NameLen >= 9 && StrnCmp(FileName, L"SSDT-", 5) == 0)) {
+      FreePool(FileInfo);
+      continue;
+    }
+    
+    // This is a general AML file - try to load it
+    Print(L"[INFO]  Found general AML file: %s\n", FileName);
+    GeneralAmlFound++;
+    
+    EFI_ACPI_DESCRIPTION_HEADER *NewTable = NULL;
+    UINTN TableSize = 0;
+    
+    EFI_STATUS LoadStatus = LoadAmlFile(SearchDir, FileName, &NewTable, &TableSize);
+    if (!EFI_ERROR(LoadStatus) && NewTable != NULL) {
+      // Add to XSDT
+      EFI_STATUS AddStatus = AddTableToXsdt(Xsdt, NewTable, MaxEntries);
+      if (!EFI_ERROR(AddStatus)) {
+        Print(L"[INFO]  ✓ %s loaded and added successfully\n", FileName);
+        (*TablesPatched)++;
+      } else {
+        Print(L"[WARN]  Failed to add %s to XSDT: %r\n", FileName, AddStatus);
+        FreePool(NewTable);  // Clean up on failure
+      }
+    } else {
+      Print(L"[WARN]  Failed to load %s: %r\n", FileName, LoadStatus);
+    }
+    
+    FreePool(FileInfo);
+  }
+  
+  Print(L"[INFO]  Directory scan complete: %d files scanned, %d SSDT files found, %d other AML files found\n", 
+        FilesScanned, SsdtFilesFound, GeneralAmlFound);
   
   // Close ACPI directory if we opened it (different from input Directory)
   if (UsingAcpiSubdir && AcpiDir != NULL) {
@@ -1420,12 +1494,17 @@ FindAcpiFilesDirectory (
     // Since the absolute path is arbitrary, we try relative paths that would work
     // from common driver locations like drivers_x64/, EFI/, or root
     CHAR16* AcpiPaths[] = {
+      L".",                          // Current directory (where driver is located) - PRIORITY #1
       L"ACPI",                       // Same directory level (most likely for drivers_x64/ACPI)
       L"..\\ACPI",                   // One level up
       L"..\\..\\ACPI",               // Two levels up  
+      L"drivers_x64",                // Driver directory itself (drivers_x64/)
       L"drivers_x64\\ACPI",          // From EFI root to drivers_x64/ACPI
+      L"EFI\\drivers_x64",           // Driver directory from filesystem root
       L"EFI\\drivers_x64\\ACPI",     // From filesystem root
+      L"System\\Library\\CoreServices\\drivers_x64",  // macOS driver directory
       L"System\\Library\\CoreServices\\drivers_x64\\ACPI",  // Full macOS path
+      L"EFI\\OC\\ACPI",              // OpenCore ACPI location
       L"EFI\\ACPI",                  // Standard EFI ACPI location
       L"EFI\\ACPIPatcher",           // Custom EFI location
       L"ACPIPatcher",                // Root level custom folder
@@ -1433,6 +1512,9 @@ FindAcpiFilesDirectory (
       L"Drivers\\ACPI",              // Windows-style capitalization
       NULL
     };
+    
+    // Priority tracking variables (outside the loop)
+    UINT32 BestPriority = 0; // Track the priority of current best directory
     
     for (UINTN PathIndex = 0; AcpiPaths[PathIndex] != NULL; PathIndex++) {
       DXE_DEBUG(L"[DXE] Trying path: %s on file system #%d\r\n", AcpiPaths[PathIndex], Index);
@@ -1478,10 +1560,13 @@ FindAcpiFilesDirectory (
                      (FileInfo->Attribute & EFI_FILE_DIRECTORY) ? L"DIR" : L"FILE",
                      (UINT32)FileInfo->FileSize);
             
-            // Count .aml files
+            // Count .aml files (exclude macOS resource fork files starting with ._)
             UINTN NameLen = StrLen(FileInfo->FileName);
             if (NameLen > 4 && StrCmp(&FileInfo->FileName[NameLen-4], L".aml") == 0) {
-              FileCount++;
+              // Skip macOS resource fork files (._filename.aml)
+              if (!(NameLen > 6 && StrnCmp(FileInfo->FileName, L"._", 2) == 0)) {
+                FileCount++;
+              }
             }
           }
           
@@ -1497,8 +1582,73 @@ FindAcpiFilesDirectory (
         if (FileCount > 0) {
           DXE_DEBUG(L"[DXE] Found candidate directory with %d .aml files\r\n", FileCount);
           
-          // Keep the directory with the most .aml files
-          if (FileCount > BestFileCount) {
+          // Enhanced priority-based directory selection logic
+          BOOLEAN ShouldUseThisDirectory = FALSE;
+          UINT32 CurrentPriority = 0;
+          // BestPriority is now declared outside the loop
+          
+          // Calculate priority score for current directory
+          // Priority 1: Driver's own directory (same location as DXE driver)
+          if (StrCmp(AcpiPaths[PathIndex], L".") == 0) {
+            CurrentPriority = 1000; // Highest priority
+            DXE_DEBUG(L"[DXE] PRIORITY: Current directory (co-located with driver) - Priority: %d\r\n", CurrentPriority);
+          }
+          // Priority 2: ACPI subdirectory of driver location
+          else if (StrCmp(AcpiPaths[PathIndex], L"ACPI") == 0) {
+            CurrentPriority = 900; // Very high priority
+            DXE_DEBUG(L"[DXE] PRIORITY: Co-located ACPI subdirectory - Priority: %d\r\n", CurrentPriority);
+          }
+          // Priority 3: Driver-specific bootloader paths  
+          else if (StrStr(AcpiPaths[PathIndex], L"drivers_x64") != NULL) {
+            CurrentPriority = 800; // High priority
+            DXE_DEBUG(L"[DXE] PRIORITY: Driver-specific bootloader path - Priority: %d\r\n", CurrentPriority);
+          }
+          // Priority 4: Standard bootloader ACPI directories
+          else if (StrStr(AcpiPaths[PathIndex], L"EFI\\OC\\ACPI") != NULL || 
+                   StrStr(AcpiPaths[PathIndex], L"EFI\\ACPI") != NULL ||
+                   StrStr(AcpiPaths[PathIndex], L"EFI\\ACPIPatcher") != NULL) {
+            CurrentPriority = 700; // Medium-high priority
+            DXE_DEBUG(L"[DXE] PRIORITY: Standard bootloader ACPI directory - Priority: %d\r\n", CurrentPriority);
+          }
+          // Priority 5: Other relative paths
+          else if (StrStr(AcpiPaths[PathIndex], L"..\\") != NULL) {
+            CurrentPriority = 600; // Medium priority
+            DXE_DEBUG(L"[DXE] PRIORITY: Relative path directory - Priority: %d\r\n", CurrentPriority);
+          }
+          // Priority 6: Generic ACPI directories
+          else {
+            CurrentPriority = 500; // Lower priority
+            DXE_DEBUG(L"[DXE] PRIORITY: Generic directory - Priority: %d\r\n", CurrentPriority);
+          }
+          
+          // Add file count bonus (but don't let it override priority tiers)
+          CurrentPriority += (FileCount * 10); // Small bonus for more files
+          
+          // Determine if we should use this directory
+          if (BestAcpiDir == NULL) {
+            // First valid directory found
+            ShouldUseThisDirectory = TRUE;
+            BestPriority = CurrentPriority;
+            DXE_DEBUG(L"[DXE] SELECTION: First valid directory selected (Priority: %d, Files: %d)\r\n", CurrentPriority, FileCount);
+          }
+          else if (CurrentPriority > BestPriority) {
+            // Higher priority directory found
+            ShouldUseThisDirectory = TRUE;
+            UINT32 PreviousBestPriority = BestPriority; // Save for debug message
+            BestPriority = CurrentPriority;
+            DXE_DEBUG(L"[DXE] SELECTION: Higher priority directory selected (Priority: %d vs %d, Files: %d)\r\n", CurrentPriority, PreviousBestPriority, FileCount);
+          }
+          else if (CurrentPriority == BestPriority && FileCount > BestFileCount) {
+            // Same priority but more files
+            ShouldUseThisDirectory = TRUE;
+            DXE_DEBUG(L"[DXE] SELECTION: Same priority but more files (%d vs %d)\r\n", FileCount, BestFileCount);
+          }
+          else {
+            DXE_DEBUG(L"[DXE] SELECTION: Directory not selected (Priority: %d vs %d, Files: %d vs %d)\r\n", 
+                     CurrentPriority, BestPriority, FileCount, BestFileCount);
+          }
+          
+          if (ShouldUseThisDirectory) {
             if (BestAcpiDir != NULL) {
               BestAcpiDir->Close(BestAcpiDir);
             }
@@ -1506,7 +1656,7 @@ FindAcpiFilesDirectory (
             BestFileCount = FileCount;
             DXE_DEBUG(L"[DXE] New best directory with %d .aml files at %s\r\n", FileCount, AcpiPaths[PathIndex]);
           } else {
-            DXE_DEBUG(L"[DXE] Directory has fewer files (%d vs %d), continuing search\r\n", FileCount, BestFileCount);
+            DXE_DEBUG(L"[DXE] Directory not selected (%d files vs current best %d), continuing search\r\n", FileCount, BestFileCount);
             AcpiDir->Close(AcpiDir);
           }
         } else {
