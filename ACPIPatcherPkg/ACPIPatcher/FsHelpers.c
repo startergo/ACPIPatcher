@@ -21,7 +21,7 @@
 #include <Guid/Gpt.h>
 
 #include "FsHelpers.h"
-EFI_LOADED_IMAGE_PROTOCOL           *gLoadedImage;
+EFI_LOADED_IMAGE_PROTOCOL           *gAcpiPatcherLoadedImage;
 
 /*++
  
@@ -145,12 +145,12 @@ FsGetLoadedImage(VOID)
 	EFI_STATUS			Status;
 	
 	
-	if (gLoadedImage == NULL) {
+	if (gAcpiPatcherLoadedImage == NULL) {
 		// get our EfiLoadedImageProtocol
 		Status = gBS->HandleProtocol(
 			gImageHandle,
 			&gEfiLoadedImageProtocolGuid,
-			(VOID **) &gLoadedImage
+			(VOID **) &gAcpiPatcherLoadedImage
 			);
 		
 		if (Status != EFI_SUCCESS) {
@@ -189,11 +189,11 @@ FsGetSelfFileSystem(VOID)
 {
 	
 	FsGetLoadedImage();
-	if (gLoadedImage == NULL) {
+	if (gAcpiPatcherLoadedImage == NULL) {
 		return NULL;
 	}
 	
-	return FsGetFileSystem(gLoadedImage->DeviceHandle);
+	return FsGetFileSystem(gAcpiPatcherLoadedImage->DeviceHandle);
 }
 
 /** Returns root dir from given file system. */
@@ -241,7 +241,7 @@ FsGetSelfDir(VOID)
 	
 	// make sure we have our loaded image protocol
 	FsGetLoadedImage();
-	if (gLoadedImage == NULL) {
+	if (gAcpiPatcherLoadedImage == NULL) {
 		return NULL;
 	}
 	
@@ -251,7 +251,7 @@ FsGetSelfDir(VOID)
 	}
 	
 	// extract FilePath
-	FilePath = FileDevicePathToText(gLoadedImage->FilePath);
+	FilePath = FileDevicePathToText(gAcpiPatcherLoadedImage->FilePath);
 	if (FilePath == NULL) {
 		Print(L"FsGetSelfDir: FileDevicePathToText = NULL\n");
 		return NULL;

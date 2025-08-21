@@ -47,8 +47,8 @@ EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE      *gFacp = NULL;
 // DXE Driver specific globals for delayed file system access
 EFI_EVENT                                      gFileSystemReadyEvent = NULL;
 VOID                                           *gFileSystemProtocolNotifyReg = NULL;
-EFI_HANDLE                                     gImageHandle = NULL;
-EFI_SYSTEM_TABLE                               *gSystemTable = NULL;
+EFI_HANDLE                                     gAcpiPatcherImageHandle = NULL;
+EFI_SYSTEM_TABLE                               *gAcpiPatcherSystemTable = NULL;
 BOOLEAN                                        gFileSystemReady = FALSE;
 #endif
 
@@ -1105,8 +1105,8 @@ AcpiPatcherEntryPoint (
   gST->ConOut->OutputString(gST->ConOut, L"[DXE] ACPIPatcher DXE Driver starting ACPI patching\r\n");
   
   // Store handles for delayed processing
-  gImageHandle = ImageHandle;
-  gSystemTable = SystemTable;
+  gAcpiPatcherImageHandle = ImageHandle;
+  gAcpiPatcherSystemTable = SystemTable;
   
   // Check if file system is already available
   SelfDir = FsGetSelfDir();
