@@ -41,6 +41,7 @@
   ACPIPatcher.c
   FsHelpers.c
   FsHelpers.h
+  Intrinsics.c
   
 [Packages]
   MdePkg/MdePkg.dec
@@ -55,9 +56,6 @@
   DevicePathLib
   BaseMemoryLib
 
-[LibraryClasses.IA32]
-  IntrinsicLib
-  
 [Protocols]
   gEfiLoadedImageProtocolGuid            ## CONSUMES
   gEfiSimpleFileSystemProtocolGuid       ## CONSUMES
