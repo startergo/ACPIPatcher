@@ -54,6 +54,9 @@
   PrintLib
   DevicePathLib
   BaseMemoryLib
+
+[LibraryClasses.IA32]
+  IntrinsicLib
   
 [Protocols]
   gEfiLoadedImageProtocolGuid            ## CONSUMES

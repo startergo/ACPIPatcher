@@ -42,6 +42,9 @@
   StackCheckLib|MdePkg/Library/StackCheckLib/StackCheckLib.inf
   StackCheckFailureHookLib|MdePkg/Library/StackCheckFailureHookLibNull/StackCheckFailureHookLibNull.inf
 
+[LibraryClasses.IA32]
+  IntrinsicLib|MdePkg/Library/CompilerIntrinsicsLib/CompilerIntrinsicsLib.inf
+
 [Components]
   ACPIPatcherPkg/ACPIPatcher/ACPIPatcher.inf
   ACPIPatcherPkg/ACPIPatcher/ACPIPatcherDxe.inf
