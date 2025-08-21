@@ -1,3 +1,4 @@
+#include <Uefi.h>
 #include <Library/UefiLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/UefiBootServicesTableLib.h>
@@ -5,11 +6,117 @@
 #include <Library/BaseMemoryLib.h>
 #include <Library/PrintLib.h>
 #include <Library/DebugLib.h>
+#include <Library/SerialPortLib.h>
 
 #include <Guid/Acpi.h>
 #include <Guid/FileInfo.h>
 
 #include "FsHelpers.h"
+
+// Debug output macros for DXE driver
+#ifdef DXE_DRIVER_BUILD
+STATIC EFI_FILE_PROTOCOL *gDebugLogFile = NULL;
+
+EFI_STATUS
+InitializeDebugLog (
+  VOID
+  )
+{
+  EFI_STATUS Status;
+  UINTN HandleCount;
+  EFI_HANDLE *HandleBuffer;
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *FileSystem;
+  EFI_FILE_PROTOCOL *RootDir;
+  
+  // Find the first available file system (usually ESP)
+  Status = gBS->LocateHandleBuffer(
+    ByProtocol,
+    &gEfiSimpleFileSystemProtocolGuid,
+    NULL,
+    &HandleCount,
+    &HandleBuffer
+  );
+  
+  if (EFI_ERROR(Status) || HandleCount == 0) {
+    return Status;
+  }
+  
+  Status = gBS->HandleProtocol(
+    HandleBuffer[0],
+    &gEfiSimpleFileSystemProtocolGuid,
+    (VOID**)&FileSystem
+  );
+  
+  if (EFI_ERROR(Status)) {
+    FreePool(HandleBuffer);
+    return Status;
+  }
+  
+  Status = FileSystem->OpenVolume(FileSystem, &RootDir);
+  if (EFI_ERROR(Status)) {
+    FreePool(HandleBuffer);
+    return Status;
+  }
+  
+  // Create/open debug log file
+  Status = RootDir->Open(
+    RootDir,
+    &gDebugLogFile,
+    L"ACPIPatcher_Debug.log",
+    EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE,
+    0
+  );
+  
+  RootDir->Close(RootDir);
+  FreePool(HandleBuffer);
+  
+  if (!EFI_ERROR(Status)) {
+    CHAR8 InitMsg[] = "\r\n=== ACPIPatcher DXE Driver Debug Log ===\r\n";
+    UINTN WriteSize = AsciiStrLen(InitMsg);
+    gDebugLogFile->Write(gDebugLogFile, &WriteSize, InitMsg);
+  }
+  
+  return Status;
+}
+
+VOID
+WriteDebugLog (
+  IN CONST CHAR16 *Format,
+  ...
+  )
+{
+  if (gDebugLogFile == NULL) {
+    return;
+  }
+  
+  VA_LIST Args;
+  CHAR16 WideBuffer[512];
+  CHAR8 Buffer[512];
+  UINTN Length;
+  UINTN Index;
+  
+  VA_START(Args, Format);
+  Length = UnicodeVSPrint(WideBuffer, sizeof(WideBuffer), Format, Args);
+  VA_END(Args);
+  
+  // Convert to ASCII for file output
+  for (Index = 0; Index < Length && Index < (sizeof(Buffer) - 1); Index++) {
+    Buffer[Index] = (CHAR8)(WideBuffer[Index] & 0xFF);
+  }
+  Buffer[Index] = '\0';
+  
+  Length = AsciiStrLen(Buffer);
+  gDebugLogFile->Write(gDebugLogFile, &Length, Buffer);
+  gDebugLogFile->Flush(gDebugLogFile);
+  gDebugLogFile->Flush(gDebugLogFile);
+}
+
+#define DXE_DEBUG(Format, ...) WriteDebugLog(Format, ##__VA_ARGS__)
+#define DXE_DEBUG_INIT() InitializeDebugLog()
+#else
+#define DXE_DEBUG(Format, ...) Print(Format, ##__VA_ARGS__)
+#define DXE_DEBUG_INIT() 
+#endif
 
 //
 // Constants
@@ -96,6 +203,11 @@ EFI_STATUS
 PerformDelayedAcpiPatching (
   VOID
   );
+
+EFI_FILE_PROTOCOL *
+FindAcpiFilesDirectory (
+  VOID
+  );
 #endif
 
 //
@@ -165,12 +277,12 @@ LoadAmlFileFromDisk (
   UINTN               FileInfoSize;
   VOID                *FileBuffer;
 
-  Print(L"[INFO]  Loading AML file: %s\n", FileName);
+  DXE_DEBUG(L"[INFO]  Loading AML file: %s\r\n", FileName);
 
   // Try to open the file
   Status = FsOpenFile(Directory, (CHAR16*)FileName, &FileHandle);
   if (EFI_ERROR(Status)) {
-    Print(L"[WARN]  File %s not found, skipping\n", FileName);
+    DXE_DEBUG(L"[WARN]  File %s not found, skipping\r\n", FileName);
     return Status;
   }
 
@@ -184,19 +296,19 @@ LoadAmlFileFromDisk (
 
   Status = FileHandle->GetInfo(FileHandle, &gEfiFileInfoGuid, &FileInfoSize, FileInfo);
   if (EFI_ERROR(Status)) {
-    Print(L"[ERROR] Failed to get file info for %s: %r\n", FileName, Status);
+    DXE_DEBUG(L"[ERROR] Failed to get file info for %s: %r\r\n", FileName, Status);
     FreePool(FileInfo);
     FileHandle->Close(FileHandle);
     return Status;
   }
 
   *TableSize = (UINTN)FileInfo->FileSize;
-  Print(L"[INFO]  File size: %d bytes\n", *TableSize);
+  DXE_DEBUG(L"[INFO]  File size: %d bytes\r\n", *TableSize);
 
   // Read the file into memory
   Status = FsReadFileToBuffer(FileHandle, *TableSize, &FileBuffer);
   if (EFI_ERROR(Status)) {
-    Print(L"[ERROR] Failed to read file %s: %r\n", FileName, Status);
+    DXE_DEBUG(L"[ERROR] Failed to read file %s: %r\r\n", FileName, Status);
     FreePool(FileInfo);
     FileHandle->Close(FileHandle);
     return Status;
@@ -207,7 +319,7 @@ LoadAmlFileFromDisk (
   // Validate that this is a proper ACPI table
   Status = ValidateAcpiTable(*AmlTable);
   if (EFI_ERROR(Status)) {
-    Print(L"[ERROR] Invalid ACPI table in file %s\n", FileName);
+    DXE_DEBUG(L"[ERROR] Invalid ACPI table in file %s\r\n", FileName);
     FreePool(FileBuffer);
     FreePool(FileInfo);
     FileHandle->Close(FileHandle);
@@ -217,7 +329,7 @@ LoadAmlFileFromDisk (
   CHAR8 Signature[5];
   CopyMem(Signature, &(*AmlTable)->Signature, 4);
   Signature[4] = '\0';
-  Print(L"[INFO]  Successfully loaded '%a' table, %d bytes\n", Signature, (*AmlTable)->Length);
+  DXE_DEBUG(L"[INFO]  Successfully loaded '%a' table, %d bytes\r\n", Signature, (*AmlTable)->Length);
 
   FreePool(FileInfo);
   FileHandle->Close(FileHandle);
@@ -244,18 +356,18 @@ ValidateAcpiTable (
 
   // Check minimum table size
   if (Table->Length < sizeof(EFI_ACPI_DESCRIPTION_HEADER)) {
-    Print(L"[ERROR] Table too small: %d bytes\n", Table->Length);
+    DXE_DEBUG(L"[ERROR] Table too small: %d bytes\r\n", Table->Length);
     return EFI_INVALID_PARAMETER;
   }
 
   // Validate checksum
   UINT8 CalculatedChecksum = CalculateAcpiChecksum((UINT8*)Table, Table->Length);
   if (CalculatedChecksum != 0) {
-    Print(L"[ERROR] Checksum validation failed: expected 0, got 0x%02x\n", CalculatedChecksum);
+    DXE_DEBUG(L"[ERROR] Checksum validation failed: expected 0, got 0x%02x\r\n", CalculatedChecksum);
     return EFI_CRC_ERROR;
   }
 
-  Print(L"[INFO]  Table validation passed\n");
+  DXE_DEBUG(L"[INFO]  Table validation passed\r\n");
   return EFI_SUCCESS;
 }
 
@@ -311,24 +423,24 @@ ReplaceAcpiTableInXsdt (
 
   CopyMem(SigStr, &TableSignature, 4);
   SigStr[4] = '\0';
-  Print(L"[INFO]  Searching for table '%a' to replace\n", SigStr);
+  DXE_DEBUG(L"[INFO]  Searching for table '%a' to replace\r\n", SigStr);
 
   for (Index = 0; Index < EntryCount; Index++) {
     Entry = (EFI_ACPI_DESCRIPTION_HEADER *)(UINTN)EntryPtr[Index];
     if (Entry != NULL && Entry->Signature == TableSignature) {
-      Print(L"[INFO]  Found table '%a' at index %d, replacing\n", SigStr, Index);
-      Print(L"[INFO]  Old table: %d bytes at " PTR_FMT L"\n", Entry->Length, PTR_TO_INT(Entry));
-      Print(L"[INFO]  New table: %d bytes at " PTR_FMT L"\n", NewTable->Length, PTR_TO_INT(NewTable));
+      DXE_DEBUG(L"[INFO]  Found table '%a' at index %d, replacing\r\n", SigStr, Index);
+      DXE_DEBUG(L"[INFO]  Old table: %d bytes at " PTR_FMT L"\r\n", Entry->Length, PTR_TO_INT(Entry));
+      DXE_DEBUG(L"[INFO]  New table: %d bytes at " PTR_FMT L"\r\n", NewTable->Length, PTR_TO_INT(NewTable));
       
       // Replace the pointer
       EntryPtr[Index] = (UINT64)(UINTN)NewTable;
       
-      Print(L"[INFO]  Table '%a' successfully replaced\n", SigStr);
+      DXE_DEBUG(L"[INFO]  Table '%a' successfully replaced\r\n", SigStr);
       return EFI_SUCCESS;
     }
   }
 
-  Print(L"[WARN]  Table '%a' not found in XSDT\n", SigStr);
+  DXE_DEBUG(L"[WARN]  Table '%a' not found in XSDT\r\n", SigStr);
   return EFI_NOT_FOUND;
 }
 
@@ -344,31 +456,52 @@ LoadAmlFile (
   )
 {
   EFI_STATUS Status;
-  EFI_FILE_PROTOCOL *AcpiDir;
-  EFI_FILE_PROTOCOL *FileHandle;
+  EFI_FILE_PROTOCOL *AcpiDir = NULL;
+  EFI_FILE_PROTOCOL *FileHandle = NULL;
   VOID *FileBuffer;
   UINTN FileSize;
 
-  Print(L"[INFO]  Attempting to load: %s\n", FileName);
+  DXE_DEBUG(L"[INFO]  Attempting to load: %s\r\n", FileName);
+  DXE_DEBUG(L"[INFO]  Using directory handle: %p\r\n", Directory);
   
-  // First, try to open the ACPI subdirectory as specified in README
-  Status = Directory->Open(
-    Directory,
-    &AcpiDir,
-    L"ACPI",
-    EFI_FILE_MODE_READ,
-    0
-  );
+  if (Directory == NULL) {
+    DXE_DEBUG(L"[WARN]  No directory provided, cannot load file\r\n");
+    return EFI_INVALID_PARAMETER;
+  }
+
+  // For DXE driver mode, the Directory parameter might already be the ACPI directory
+  // from FindAcpiFilesDirectory(). Try to open the file directly first.
+  Status = FsOpenFile(Directory, (CHAR16*)FileName, &FileHandle);
   
-  if (EFI_ERROR(Status)) {
-    Print(L"[INFO]  ACPI directory not found, trying current directory as fallback\n");
-    // Fall back to current directory if ACPI directory doesn't exist
-    Status = FsOpenFile(Directory, (CHAR16*)FileName, &FileHandle);
+  if (!EFI_ERROR(Status)) {
+    DXE_DEBUG(L"[INFO]  Found file in provided directory: %s\r\n", FileName);
   } else {
-    Print(L"[INFO]  Found ACPI directory, loading from ACPI/%s\n", FileName);
-    // Open file in ACPI directory
-    Status = FsOpenFile(AcpiDir, (CHAR16*)FileName, &FileHandle);
-    AcpiDir->Close(AcpiDir);  // Close the ACPI directory handle
+    // If direct access failed, try to find ACPI subdirectory (for application mode only)
+    // First check if we might already be in an ACPI directory by trying to open the parent
+    Status = Directory->Open(
+      Directory,
+      &AcpiDir,
+      L"ACPI",
+      EFI_FILE_MODE_READ,
+      0
+    );
+    
+    if (EFI_ERROR(Status)) {
+      // No ACPI subdirectory found - we might already be in the ACPI directory
+      // or the file simply doesn't exist. Either way, we already tried direct access
+      DXE_DEBUG(L"[INFO]  File not found: %s\r\n", FileName);
+      return EFI_NOT_FOUND;
+    } else {
+      DXE_DEBUG(L"[INFO]  Found ACPI subdirectory, loading from ACPI/%s\r\n", FileName);
+      // Use ACPI directory for searching
+      Status = FsOpenFile(AcpiDir, (CHAR16*)FileName, &FileHandle);
+      AcpiDir->Close(AcpiDir);  // Close the ACPI directory handle after use
+      
+      if (EFI_ERROR(Status)) {
+        DXE_DEBUG(L"[INFO]  File not found in ACPI subdirectory: %s\r\n", FileName);
+        return EFI_NOT_FOUND;
+      }
+    }
   }
   
   if (EFI_ERROR(Status)) {
@@ -387,7 +520,7 @@ LoadAmlFile (
   *AmlTable = (EFI_ACPI_DESCRIPTION_HEADER*)FileBuffer;
   *TableSize = (*AmlTable)->Length;
   
-  Print(L"[INFO]  Loaded %d bytes\n", *TableSize);
+  DXE_DEBUG(L"[INFO]  Loaded %d bytes\r\n", *TableSize);
   return EFI_SUCCESS;
 }
 
@@ -438,7 +571,7 @@ AddTableToXsdt (
 }
 
 /**
-  Debug print function that respects debug levels.
+  Debug print function that forces output to console for DXE driver visibility.
   
   @param[in]  Level   Debug level for this message
   @param[in]  Format  Format string for debug output
@@ -451,6 +584,14 @@ AcpiDebugPrint (
   ...
   )
 {
+#ifdef DXE_DRIVER_BUILD
+  // For DXE drivers, force ALL debug output to console for visibility
+  Print(Format);
+  gST->ConOut->OutputString(gST->ConOut, (CHAR16*)Format);
+  
+  // Also add a short delay to ensure visibility
+  gBS->Stall(100000); // 100ms delay
+#else
   // Use standard EDK2 DEBUG levels and output to Print for visibility
   if (Level == DEBUG_ERROR) {
     Print(L"ERROR: ");
@@ -467,6 +608,7 @@ AcpiDebugPrint (
   } else {
     Print(Format);
   }
+#endif
 }
 
 /**
@@ -503,13 +645,13 @@ FindFadtInXsdt (
   SigStr[4] = '\0';
 
   // Enhanced debug: Show detailed ACPI table discovery
-  Print(L"[INFO]  === ACPI Table Discovery ===\n");
-  Print(L"[INFO]  XSDT contains %d table entries\n", EntryCount);
+  DXE_DEBUG(L"[INFO]  === ACPI Table Discovery ===\r\n");
+  DXE_DEBUG(L"[INFO]  XSDT contains %d table entries\r\n", EntryCount);
   
   for (Index = 0; Index < EntryCount; Index++) {
     Entry = (EFI_ACPI_DESCRIPTION_HEADER *)(UINTN)EntryPtr[Index];
     if (Entry == NULL) {
-      Print(L"[WARN]  Entry %d: NULL pointer, skipping\n", Index);
+      DXE_DEBUG(L"[WARN]  Entry %d: NULL pointer, skipping\r\n", Index);
       continue;
     }
 
@@ -517,31 +659,31 @@ FindFadtInXsdt (
     CopyMem(SigStr, &Entry->Signature, 4);
     
     // Show detailed table information
-    Print(L"[INFO]  Table[%d]: Signature='%a', Length=%d bytes, Revision=%d\n", 
+    DXE_DEBUG(L"[INFO]  Table[%d]: Signature='%a', Length=%d bytes, Revision=%d\r\n", 
           Index, SigStr, Entry->Length, Entry->Revision);
-    Print(L"[INFO]    Address: " PTR_FMT L", Checksum=0x%02x\n", 
+    DXE_DEBUG(L"[INFO]    Address: " PTR_FMT L", Checksum=0x%02x\r\n", 
           PTR_TO_INT(Entry), Entry->Checksum);
 
     // Show table-specific information
     if (Entry->Signature == EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE_SIGNATURE) {
       gFacp = (EFI_ACPI_2_0_FIXED_ACPI_DESCRIPTION_TABLE *)Entry;
-      Print(L"[INFO]    -> FADT (Fixed ACPI Description Table)\n");
-      Print(L"[INFO]       DSDT Address: 0x%x, X_DSDT Address: 0x%llx\n", 
+      DXE_DEBUG(L"[INFO]    -> FADT (Fixed ACPI Description Table)\r\n");
+      DXE_DEBUG(L"[INFO]       DSDT Address: 0x%x, X_DSDT Address: 0x%llx\r\n", 
             gFacp->Dsdt, gFacp->XDsdt);
     } else if (Entry->Signature == EFI_ACPI_2_0_DIFFERENTIATED_SYSTEM_DESCRIPTION_TABLE_SIGNATURE) {
-      Print(L"[INFO]    -> DSDT (Differentiated System Description Table)\n");
+      DXE_DEBUG(L"[INFO]    -> DSDT (Differentiated System Description Table)\r\n");
     } else if (Entry->Signature == EFI_ACPI_2_0_SECONDARY_SYSTEM_DESCRIPTION_TABLE_SIGNATURE) {
-      Print(L"[INFO]    -> SSDT (Secondary System Description Table)\n");
+      DXE_DEBUG(L"[INFO]    -> SSDT (Secondary System Description Table)\r\n");
     } else if (Entry->Signature == EFI_ACPI_2_0_MULTIPLE_APIC_DESCRIPTION_TABLE_SIGNATURE) {
-      Print(L"[INFO]    -> APIC/MADT (Multiple APIC Description Table)\n");
+      DXE_DEBUG(L"[INFO]    -> APIC/MADT (Multiple APIC Description Table)\r\n");
     } else if (Entry->Signature == EFI_ACPI_2_0_MEMORY_MAPPED_CONFIGURATION_BASE_ADDRESS_TABLE_SIGNATURE) {
-      Print(L"[INFO]    -> MCFG (Memory Mapped Configuration)\n");
+      DXE_DEBUG(L"[INFO]    -> MCFG (Memory Mapped Configuration)\r\n");
     }
   }
 
   if (gFacp != NULL) {
-    Print(L"[INFO]  === FADT Analysis Complete ===\n");
-    Print(L"[INFO]  Successfully found FADT at " PTR_FMT L"\n", PTR_TO_INT(gFacp));
+    DXE_DEBUG(L"[INFO]  === FADT Analysis Complete ===\r\n");
+    DXE_DEBUG(L"[INFO]  Successfully found FADT at " PTR_FMT L"\r\n", PTR_TO_INT(gFacp));
     return EFI_SUCCESS;
   }
 
@@ -655,13 +797,20 @@ PerformDelayedAcpiPatching (
   
   Print(L"[DXE] === Delayed ACPI Patching (File System Ready) ===\n");
   
-  // Now try to get file system access (should succeed)
+  // For DXE drivers, we need to search for ACPI files in standard locations
+  // since FsGetSelfDir() doesn't work (DXE drivers are loaded from firmware, not filesystem)
   SelfDir = FsGetSelfDir();
   if (SelfDir == NULL) {
-    Print(L"[DXE] WARNING: File system still not accessible, continuing without files\n");
-    // Continue anyway - we can still do ACPI table discovery
+    DXE_DEBUG(L"[DXE] INFO: DXE driver loaded from firmware, searching for ACPI files in standard locations\r\n");
+    // Try to find ESP and look for ACPI files in standard paths
+    SelfDir = FindAcpiFilesDirectory();
+    if (SelfDir == NULL) {
+      DXE_DEBUG(L"[DXE] WARNING: Could not locate ACPI files directory, continuing without files\r\n");
+    } else {
+      DXE_DEBUG(L"[DXE] SUCCESS: Found ACPI files directory\r\n");
+    }
   } else {
-    Print(L"[DXE] SUCCESS: File system now accessible, .aml files can be loaded\n");
+    DXE_DEBUG(L"[DXE] SUCCESS: File system accessible via self directory\r\n");
   }
   
   // Get RSDP from the system table (if not already done)
@@ -748,18 +897,10 @@ PatchAcpiTables (
 
   CurrentEntries = (Xsdt->Length - sizeof(EFI_ACPI_DESCRIPTION_HEADER)) / sizeof(UINT64);
   
-  // Determine maximum entries based on EFI version
-  if (gST->Hdr.Revision < EFI_2_00_SYSTEM_TABLE_REVISION) {
-    // EFI 1.x - limit additional tables for compatibility
-    MaxEntries = CurrentEntries + MIN(MAX_ADDITIONAL_TABLES, 8);  // Limit to 8 additional tables for EFI 1.x
-    AcpiDebugPrint(DEBUG_INFO, L"EFI 1.x detected, limiting to %d additional tables (%d total)\n",
-                   MIN(MAX_ADDITIONAL_TABLES, 8));
-  } else {
-    // EFI 2.0+ - use full limit
-    MaxEntries = CurrentEntries + MAX_ADDITIONAL_TABLES;
-    AcpiDebugPrint(DEBUG_INFO, L"EFI 2.0+ detected, allowing %d additional tables (%d total)\n",
-                   MAX_ADDITIONAL_TABLES, MaxEntries);
-  }
+  // Determine maximum entries - use simpler approach for compatibility
+  MaxEntries = CurrentEntries + MAX_ADDITIONAL_TABLES;
+  AcpiDebugPrint(DEBUG_INFO, L"Allowing %d additional tables (%d total)\n",
+                 MAX_ADDITIONAL_TABLES, MaxEntries);
 
   NewXsdtSize = sizeof(EFI_ACPI_DESCRIPTION_HEADER) + (MaxEntries * sizeof(UINT64));
   
@@ -933,11 +1074,13 @@ ScanDirectoryForSsdtFiles (
 {
   EFI_STATUS Status;
   EFI_FILE_PROTOCOL *AcpiDir = NULL;
+  EFI_FILE_PROTOCOL *SearchDir = NULL;
   EFI_FILE_INFO *FileInfo = NULL;
   UINTN FileInfoSize;
   BOOLEAN EndOfDirectory = FALSE;
   UINTN FilesScanned = 0;
   UINTN SsdtFilesFound = 0;
+  BOOLEAN UsingAcpiSubdir = FALSE;
   
   if (Directory == NULL || Xsdt == NULL || MaxEntries == NULL || TablesPatched == NULL) {
     return EFI_INVALID_PARAMETER;
@@ -945,7 +1088,11 @@ ScanDirectoryForSsdtFiles (
   
   Print(L"[INFO]  Starting directory scan for additional SSDT files...\n");
   
-  // Try to open ACPI subdirectory first, fallback to current directory
+  // Check if the provided Directory already contains .aml files (DXE driver case)
+  // If so, use it directly. Otherwise, try to find ACPI subdirectory (application case)
+  SearchDir = Directory;
+  
+  // Try to open ACPI subdirectory (for application mode)
   Status = Directory->Open(
     Directory,
     &AcpiDir,
@@ -954,11 +1101,13 @@ ScanDirectoryForSsdtFiles (
     0
   );
   
-  if (EFI_ERROR(Status)) {
-    Print(L"[INFO]  No ACPI subdirectory, scanning current directory\n");
-    AcpiDir = Directory;  // Use current directory
+  if (!EFI_ERROR(Status)) {
+    Print(L"[INFO]  Found ACPI subdirectory, scanning ACPI/ subdirectory\n");
+    SearchDir = AcpiDir;
+    UsingAcpiSubdir = TRUE;
   } else {
-    Print(L"[INFO]  Scanning ACPI/ subdirectory\n");
+    Print(L"[INFO]  No ACPI subdirectory found, scanning provided directory\n");
+    SearchDir = Directory;
   }
   
   // Start directory enumeration
@@ -970,7 +1119,7 @@ ScanDirectoryForSsdtFiles (
       break;
     }
     
-    Status = AcpiDir->Read(AcpiDir, &FileInfoSize, FileInfo);
+    Status = SearchDir->Read(SearchDir, &FileInfoSize, FileInfo);
     if (Status == EFI_BUFFER_TOO_SMALL) {
       // Need larger buffer for filename
       FreePool(FileInfo);
@@ -979,7 +1128,7 @@ ScanDirectoryForSsdtFiles (
         Status = EFI_OUT_OF_RESOURCES;
         break;
       }
-      Status = AcpiDir->Read(AcpiDir, &FileInfoSize, FileInfo);
+      Status = SearchDir->Read(SearchDir, &FileInfoSize, FileInfo);
     }
     
     if (EFI_ERROR(Status) || FileInfoSize == 0) {
@@ -1049,7 +1198,8 @@ ScanDirectoryForSsdtFiles (
     EFI_ACPI_DESCRIPTION_HEADER *NewSsdt = NULL;
     UINTN SsdtSize = 0;
     
-    EFI_STATUS LoadStatus = LoadAmlFile(AcpiDir, FileName, &NewSsdt, &SsdtSize);
+    // Use the SearchDir (which is either the ACPI subdir or the main directory)
+    EFI_STATUS LoadStatus = LoadAmlFile(SearchDir, FileName, &NewSsdt, &SsdtSize);
     if (!EFI_ERROR(LoadStatus) && NewSsdt != NULL) {
       // Add to XSDT
       EFI_STATUS AddStatus = AddTableToXsdt(Xsdt, NewSsdt, MaxEntries);
@@ -1070,8 +1220,8 @@ ScanDirectoryForSsdtFiles (
   Print(L"[INFO]  Directory scan complete: %d files scanned, %d SSDT files found\n", 
         FilesScanned, SsdtFilesFound);
   
-  // Close ACPI directory if we opened it
-  if (AcpiDir != Directory && AcpiDir != NULL) {
+  // Close ACPI directory if we opened it (different from input Directory)
+  if (UsingAcpiSubdir && AcpiDir != NULL) {
     AcpiDir->Close(AcpiDir);
   }
   
@@ -1097,14 +1247,14 @@ AcpiPatcherEntryPoint (
   EFI_STATUS                       Status;
   EFI_FILE_PROTOCOL                *SelfDir;
   
-  // Very first thing - confirm we're running
-  Print(L"*** ACPIPatcher Entry Point Called ***\n");
+  // Very first thing - initialize debug and confirm we're running  
+  DXE_DEBUG_INIT();
+  DXE_DEBUG(L"*** ACPIPatcher Entry Point Called ***\r\n");
   
 #ifdef DXE_DRIVER_BUILD
-  Print(L"[DXE] ACPIPatcher DXE Driver v%d.%d loading...\n",
+  DXE_DEBUG(L"[DXE] ACPIPatcher DXE Driver v%d.%d loading...\r\n",
         ACPI_PATCHER_VERSION_MAJOR, ACPI_PATCHER_VERSION_MINOR);
-  // Force console output for DXE driver debugging
-  gST->ConOut->OutputString(gST->ConOut, L"[DXE] ACPIPatcher DXE Driver starting ACPI patching\r\n");
+  DXE_DEBUG(L"[DXE] Starting ACPI patching process...\r\n");
   
   // Store handles for delayed processing
   gAcpiPatcherImageHandle = ImageHandle;
@@ -1113,19 +1263,19 @@ AcpiPatcherEntryPoint (
   // Check if file system is already available
   SelfDir = FsGetSelfDir();
   if (SelfDir != NULL) {
-    Print(L"[DXE] File system already ready, proceeding with immediate patching\n");
+    DXE_DEBUG(L"[DXE] File system already ready, proceeding with immediate patching\r\n");
     gFileSystemReady = TRUE;
   } else {
-    Print(L"[DXE] File system not ready yet, setting up delayed patching\n");
+    DXE_DEBUG(L"[DXE] File system not ready yet, setting up delayed patching\r\n");
     
     // Set up notification to wait for file system
     Status = WaitForFileSystemReady();
     if (EFI_ERROR(Status)) {
-      Print(L"[DXE] ERROR: Failed to set up file system notification: %r\n", Status);
+      DXE_DEBUG(L"[DXE] ERROR: Failed to set up file system notification: %r\r\n", Status);
       // Continue anyway - we can still do basic ACPI discovery
     } else {
-      Print(L"[DXE] File system notification set up successfully\n");
-      Print(L"[DXE] Driver will remain resident and patch ACPI when storage is ready\n");
+      DXE_DEBUG(L"[DXE] File system notification set up successfully\r\n");
+      DXE_DEBUG(L"[DXE] Driver will remain resident and patch ACPI when storage is ready\r\n");
       // Return success so driver stays loaded and waits for file system
       return EFI_SUCCESS;
     }
@@ -1134,7 +1284,7 @@ AcpiPatcherEntryPoint (
   // If we get here, either file system is ready or notification setup failed
   // Continue with immediate processing
   if (SelfDir == NULL) {
-    Print(L"[DXE] Proceeding without file system access\n");
+    DXE_DEBUG(L"[DXE] Proceeding without file system access\r\n");
   }
   
 #else
@@ -1154,17 +1304,24 @@ AcpiPatcherEntryPoint (
 #endif
 
   // Get RSDP from the system table
-  Status = EfiGetSystemConfigurationTable(&gEfiAcpi20TableGuid, (VOID**)&gRsdp);
-  if (EFI_ERROR(Status)) {
-    // Try ACPI 1.0 table if 2.0 is not available
-    Status = EfiGetSystemConfigurationTable(&gEfiAcpiTableGuid, (VOID**)&gRsdp);
-    if (EFI_ERROR(Status)) {
-      AcpiDebugPrint(DEBUG_ERROR, L"Failed to find ACPI tables: %r\n", Status);
-      return Status;
+  UINTN Index;
+  EFI_CONFIGURATION_TABLE *ConfigTable = gST->ConfigurationTable;
+  
+  gRsdp = NULL;
+  for (Index = 0; Index < gST->NumberOfTableEntries; Index++) {
+    if (CompareGuid(&ConfigTable[Index].VendorGuid, &gEfiAcpi20TableGuid)) {
+      gRsdp = (EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER*)ConfigTable[Index].VendorTable;
+      AcpiDebugPrint(DEBUG_INFO, L"Using ACPI 2.0+ tables\n");
+      break;
+    } else if (CompareGuid(&ConfigTable[Index].VendorGuid, &gEfiAcpiTableGuid)) {
+      gRsdp = (EFI_ACPI_2_0_ROOT_SYSTEM_DESCRIPTION_POINTER*)ConfigTable[Index].VendorTable;
+      AcpiDebugPrint(DEBUG_INFO, L"Using ACPI 1.0 tables\n");
     }
-    AcpiDebugPrint(DEBUG_INFO, L"Using ACPI 1.0 tables\n");
-  } else {
-    AcpiDebugPrint(DEBUG_INFO, L"Using ACPI 2.0+ tables\n");
+  }
+  
+  if (gRsdp == NULL) {
+    AcpiDebugPrint(DEBUG_ERROR, L"Failed to find ACPI tables\n");
+    return EFI_NOT_FOUND;
   }
 
   // Get XSDT from RSDP
@@ -1198,3 +1355,234 @@ AcpiPatcherEntryPoint (
 #endif
   return EFI_SUCCESS;
 }
+
+#ifdef DXE_DRIVER_BUILD
+/**
+  Searches for ACPI files directory on available file systems.
+  This is used by DXE drivers since they can't use FsGetSelfDir().
+  
+  @retval File Protocol   Pointer to the directory containing ACPI files
+  @retval NULL           ACPI files directory not found
+**/
+EFI_FILE_PROTOCOL *
+FindAcpiFilesDirectory (
+  VOID
+  )
+{
+  EFI_STATUS Status;
+  UINTN HandleCount;
+  EFI_HANDLE *HandleBuffer;
+  UINTN Index;
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *FileSystem;
+  EFI_FILE_PROTOCOL *RootDir;
+  EFI_FILE_PROTOCOL *AcpiDir;
+  
+  DXE_DEBUG(L"[DXE] Searching for ACPI files directory on available file systems...\r\n");
+  
+  // Get all handles that support Simple File System Protocol
+  Status = gBS->LocateHandleBuffer(
+    ByProtocol,
+    &gEfiSimpleFileSystemProtocolGuid,
+    NULL,
+    &HandleCount,
+    &HandleBuffer
+  );
+  
+  if (EFI_ERROR(Status)) {
+    DXE_DEBUG(L"[DXE] ERROR: No file systems found: %r\r\n", Status);
+    return NULL;
+  }
+  
+  DXE_DEBUG(L"[DXE] Found %d file system(s), searching for ACPI files...\r\n", HandleCount);
+  
+  EFI_FILE_PROTOCOL *BestAcpiDir = NULL;
+  UINTN BestFileCount = 0;
+  
+  // Search each file system for ACPI directory
+  for (Index = 0; Index < HandleCount; Index++) {
+    Status = gBS->HandleProtocol(
+      HandleBuffer[Index],
+      &gEfiSimpleFileSystemProtocolGuid,
+      (VOID**)&FileSystem
+    );
+    
+    if (EFI_ERROR(Status)) {
+      continue;
+    }
+    
+    // Open root directory
+    Status = FileSystem->OpenVolume(FileSystem, &RootDir);
+    if (EFI_ERROR(Status)) {
+      continue;
+    }
+    
+    // Try common ACPI file locations in order of likelihood
+    // Since the absolute path is arbitrary, we try relative paths that would work
+    // from common driver locations like drivers_x64/, EFI/, or root
+    CHAR16* AcpiPaths[] = {
+      L"ACPI",                       // Same directory level (most likely for drivers_x64/ACPI)
+      L"..\\ACPI",                   // One level up
+      L"..\\..\\ACPI",               // Two levels up  
+      L"drivers_x64\\ACPI",          // From EFI root to drivers_x64/ACPI
+      L"EFI\\drivers_x64\\ACPI",     // From filesystem root
+      L"System\\Library\\CoreServices\\drivers_x64\\ACPI",  // Full macOS path
+      L"EFI\\ACPI",                  // Standard EFI ACPI location
+      L"EFI\\ACPIPatcher",           // Custom EFI location
+      L"ACPIPatcher",                // Root level custom folder
+      L"drivers\\ACPI",              // Alternative drivers folder
+      L"Drivers\\ACPI",              // Windows-style capitalization
+      NULL
+    };
+    
+    for (UINTN PathIndex = 0; AcpiPaths[PathIndex] != NULL; PathIndex++) {
+      DXE_DEBUG(L"[DXE] Trying path: %s on file system #%d\r\n", AcpiPaths[PathIndex], Index);
+      Status = RootDir->Open(
+        RootDir,
+        &AcpiDir,
+        AcpiPaths[PathIndex],
+        EFI_FILE_MODE_READ,
+        0
+      );
+      
+      if (!EFI_ERROR(Status)) {
+        DXE_DEBUG(L"[DXE] SUCCESS: Found ACPI directory at %s on file system #%d\r\n", AcpiPaths[PathIndex], Index);
+        
+        // List files in this directory to see what's available
+        EFI_FILE_INFO *FileInfo = NULL;
+        UINTN BufferSize = 0;
+        UINTN FileCount = 0;
+        DXE_DEBUG(L"[DXE] Listing files in ACPI directory:\r\n");
+        
+        // Reset directory position
+        AcpiDir->SetPosition(AcpiDir, 0);
+        
+        // Read directory entries
+        for (UINTN FileIndex = 0; FileIndex < 50; FileIndex++) {
+          BufferSize = 0;
+          Status = AcpiDir->Read(AcpiDir, &BufferSize, NULL);
+          if (BufferSize == 0) break; // No more files
+          
+          FileInfo = AllocatePool(BufferSize);
+          if (FileInfo == NULL) break;
+          
+          Status = AcpiDir->Read(AcpiDir, &BufferSize, FileInfo);
+          if (EFI_ERROR(Status) || BufferSize == 0) {
+            FreePool(FileInfo);
+            break;
+          }
+          
+          // Skip . and .. entries
+          if (StrCmp(FileInfo->FileName, L".") != 0 && StrCmp(FileInfo->FileName, L"..") != 0) {
+            DXE_DEBUG(L"[DXE]   - %s (%s, %d bytes)\r\n", 
+                     FileInfo->FileName,
+                     (FileInfo->Attribute & EFI_FILE_DIRECTORY) ? L"DIR" : L"FILE",
+                     (UINT32)FileInfo->FileSize);
+            
+            // Count .aml files
+            UINTN NameLen = StrLen(FileInfo->FileName);
+            if (NameLen > 4 && StrCmp(&FileInfo->FileName[NameLen-4], L".aml") == 0) {
+              FileCount++;
+            }
+          }
+          
+          FreePool(FileInfo);
+        }
+        
+        DXE_DEBUG(L"[DXE] Found %d .aml files in this directory\r\n", FileCount);
+        
+        // Reset position for actual use
+        AcpiDir->SetPosition(AcpiDir, 0);
+        
+        // If this directory has SSDT files, consider it as a candidate
+        if (FileCount > 0) {
+          DXE_DEBUG(L"[DXE] Found candidate directory with %d .aml files\r\n", FileCount);
+          
+          // Keep the directory with the most .aml files
+          if (FileCount > BestFileCount) {
+            if (BestAcpiDir != NULL) {
+              BestAcpiDir->Close(BestAcpiDir);
+            }
+            BestAcpiDir = AcpiDir;
+            BestFileCount = FileCount;
+            DXE_DEBUG(L"[DXE] New best directory with %d .aml files at %s\r\n", FileCount, AcpiPaths[PathIndex]);
+          } else {
+            DXE_DEBUG(L"[DXE] Directory has fewer files (%d vs %d), continuing search\r\n", FileCount, BestFileCount);
+            AcpiDir->Close(AcpiDir);
+          }
+        } else {
+          DXE_DEBUG(L"[DXE] Directory has no .aml files, continuing search\r\n");
+          AcpiDir->Close(AcpiDir);
+        }
+      } else {
+        DXE_DEBUG(L"[DXE] Path not found: %s (Status: %r)\r\n", AcpiPaths[PathIndex], Status);
+      }
+    }
+    
+    // If no ACPI subdirectories found, try using root directory itself
+    // Check if there are any .aml files in the root
+    EFI_FILE_INFO *FileInfo = NULL;
+    UINTN FileInfoSize = sizeof(EFI_FILE_INFO) + 512;
+    BOOLEAN FoundAmlFiles = FALSE;
+    
+    // Reset directory enumeration to the beginning
+    RootDir->SetPosition(RootDir, 0);
+    
+    // Scan for .aml files in root directory
+    while (TRUE) {
+      FileInfo = AllocateZeroPool(FileInfoSize);
+      if (FileInfo == NULL) {
+        break;
+      }
+      
+      Status = RootDir->Read(RootDir, &FileInfoSize, FileInfo);
+      if (Status == EFI_BUFFER_TOO_SMALL) {
+        FreePool(FileInfo);
+        FileInfo = AllocateZeroPool(FileInfoSize);
+        if (FileInfo == NULL) {
+          break;
+        }
+        Status = RootDir->Read(RootDir, &FileInfoSize, FileInfo);
+      }
+      
+      if (EFI_ERROR(Status) || FileInfoSize == 0) {
+        FreePool(FileInfo);
+        break;
+      }
+      
+      // Check for .aml files
+      if (!(FileInfo->Attribute & EFI_FILE_DIRECTORY) && FileInfo->FileSize > 0) {
+        CHAR16 *FileName = FileInfo->FileName;
+        UINTN NameLen = StrLen(FileName);
+        if (NameLen > 4 && StrnCmp(&FileName[NameLen-4], L".aml", 4) == 0) {
+          DXE_DEBUG(L"[DXE] Found .aml file in root: %s\r\n", FileName);
+          FoundAmlFiles = TRUE;
+          FreePool(FileInfo);
+          break;
+        }
+      }
+      
+      FreePool(FileInfo);
+    }
+    
+    if (FoundAmlFiles) {
+      DXE_DEBUG(L"[DXE] SUCCESS: Using root directory on file system #%d (found .aml files)\r\n", Index);
+      DXE_DEBUG(L"[DXE] SUCCESS: Found ACPI files directory\r\n");
+      FreePool(HandleBuffer);
+      return RootDir;  // Return root directory instead of closing it
+    }
+    
+    RootDir->Close(RootDir);
+  }
+  
+  // Return the best ACPI directory found (if any)
+  if (BestAcpiDir != NULL) {
+    DXE_DEBUG(L"[DXE] SUCCESS: Using best ACPI directory with %d .aml files\r\n", BestFileCount);
+    FreePool(HandleBuffer);
+    return BestAcpiDir;
+  }
+  
+  FreePool(HandleBuffer);
+  DXE_DEBUG(L"[DXE] INFO: No ACPI directory found on any file system\r\n");
+  return NULL;
+}
+#endif

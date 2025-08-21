@@ -64,7 +64,6 @@
   gEfiFileInfoGuid
 
 [Depex]
-  gEfiSimpleFileSystemProtocolGuid AND
   gEfiAcpiTableProtocolGuid
 
 [BuildOptions]
