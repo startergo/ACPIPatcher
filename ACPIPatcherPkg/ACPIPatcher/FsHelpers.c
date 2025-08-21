@@ -46,7 +46,7 @@ FsReadFileToBuffer (
   )
 {
     EFI_STATUS Status = EFI_SUCCESS;
-    Status = gBS->AllocatePool(EfiRuntimeServicesData, BufferSize, Buffer);
+    Status = gBS->AllocatePool(EfiBootServicesData, BufferSize, Buffer);
     if(Status != EFI_SUCCESS) {
         return Status;
     }

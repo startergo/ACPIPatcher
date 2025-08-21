@@ -1,12 +1,18 @@
 ## @file
-#  Sample UEFI Application Reference EDKII Module.
+#  ACPI Patcher DXE Driver
 #
-#  This is a sample shell application that will print "UEFI Hello World!" to the
-#  UEFI Console based on PCD setting.
+#  This DXE driver patches ACPI tables during UEFI boot by reading .aml files
+#  from an ACPI directory and either replacing the DSDT or adding additional
+#  SSDT tables to the system's XSDT.
 #
-#  It demos how to use EDKII PCD mechanism to make code more flexible.
+#  Features:
+#  - Validates ACPI table integrity before patching
+#  - Proper error handling and resource cleanup  
+#  - Supports both DSDT replacement and SSDT addition
+#  - Updates checksums for modified tables
+#  - Runs automatically during DXE phase
 #
-#  Copyright (c) 2008 - 2018, Intel Corporation. All rights reserved.<BR>
+#  Copyright (c) 2008 - 2025, Intel Corporation. All rights reserved.<BR>
 #
 #  This program and the accompanying materials
 #  are licensed and made available under the terms and conditions of the BSD License
@@ -21,9 +27,9 @@
 [Defines]
   INF_VERSION                    = 0x00010005
   BASE_NAME                      = ACPIPatcherDxe
-  FILE_GUID                      = 6987936E-ED34-44db-AE97-1FA5E4ED2116
+  FILE_GUID                      = 7A87936E-ED34-44db-AE97-1FA5E4ED2116
   MODULE_TYPE                    = DXE_DRIVER
-  VERSION_STRING                 = 1.0
+  VERSION_STRING                 = 1.1
   ENTRY_POINT                    = AcpiPatcherEntryPoint
 
 [Sources]
@@ -39,9 +45,17 @@
   BaseLib
   MemoryAllocationLib
   UefiDriverEntryPoint
+  UefiBootServicesTableLib
+  UefiRuntimeServicesTableLib
+  PrintLib
+  DevicePathLib
+  BaseMemoryLib
+  DebugLib
   
 [Protocols]
   gEfiLoadedImageProtocolGuid            ## CONSUMES
+  gEfiSimpleFileSystemProtocolGuid       ## CONSUMES
+  gEfiAcpiTableProtocolGuid              ## CONSUMES
   
 [Guids]
   gEfiAcpiTableGuid
@@ -49,8 +63,9 @@
   gEfiDxeServicesTableGuid
 
 [Depex]
-   gEfiLoadedImageProtocolGuid
+  gEfiSimpleFileSystemProtocolGuid AND
+  gEfiAcpiTableProtocolGuid
 
 [BuildOptions]
-	*_*_*_CC_FLAGS = -D DXE
+  *_*_*_CC_FLAGS = -D DXE_DRIVER_BUILD
 
