@@ -63,4 +63,5 @@
   gEfiAcpiTableGuid
   gEfiAcpi20TableGuid
   gEfiDxeServicesTableGuid
+  gEfiFileInfoGuid
 

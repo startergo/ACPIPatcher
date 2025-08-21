@@ -61,6 +61,7 @@
   gEfiAcpiTableGuid
   gEfiAcpi20TableGuid
   gEfiDxeServicesTableGuid
+  gEfiFileInfoGuid
 
 [Depex]
   gEfiSimpleFileSystemProtocolGuid AND
