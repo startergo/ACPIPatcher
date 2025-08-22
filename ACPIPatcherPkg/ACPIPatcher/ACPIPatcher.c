@@ -1226,43 +1226,43 @@ ScanDirectoryForSsdtFiles (
   UINTN GeneralAmlFound = 0;
   while (TRUE) {
     UINTN BufferSize = SIZE_OF_EFI_FILE_INFO + 256 * sizeof(CHAR16);
-    EFI_FILE_INFO *FileInfo = AllocatePool(BufferSize);
-    if (FileInfo == NULL) break;
+    EFI_FILE_INFO *CurrentFileInfo = AllocatePool(BufferSize);
+    if (CurrentFileInfo == NULL) break;
     
-    EFI_STATUS Status = SearchDir->Read(SearchDir, &BufferSize, FileInfo);
-    if (EFI_ERROR(Status) || BufferSize == 0) {
-      FreePool(FileInfo);
+    EFI_STATUS ReadStatus = SearchDir->Read(SearchDir, &BufferSize, CurrentFileInfo);
+    if (EFI_ERROR(ReadStatus) || BufferSize == 0) {
+      FreePool(CurrentFileInfo);
       break;
     }
     
     // Skip directories, . and .. entries
-    if ((FileInfo->Attribute & EFI_FILE_DIRECTORY) || 
-        FileInfo->FileSize == 0 ||
-        StrCmp(FileInfo->FileName, L".") == 0 || 
-        StrCmp(FileInfo->FileName, L"..") == 0) {
-      FreePool(FileInfo);
+    if ((CurrentFileInfo->Attribute & EFI_FILE_DIRECTORY) || 
+        CurrentFileInfo->FileSize == 0 ||
+        StrCmp(CurrentFileInfo->FileName, L".") == 0 || 
+        StrCmp(CurrentFileInfo->FileName, L"..") == 0) {
+      FreePool(CurrentFileInfo);
       continue;
     }
     
-    CHAR16 *FileName = FileInfo->FileName;
+    CHAR16 *FileName = CurrentFileInfo->FileName;
     UINTN NameLen = StrLen(FileName);
     
     // Check if it's an .aml file
     if (NameLen <= 4 || StrCmp(&FileName[NameLen-4], L".aml") != 0) {
-      FreePool(FileInfo);
+      FreePool(CurrentFileInfo);
       continue;
     }
     
     // Skip macOS resource fork files
     if (NameLen > 6 && StrnCmp(FileName, L"._", 2) == 0) {
-      FreePool(FileInfo);
+      FreePool(CurrentFileInfo);
       continue;
     }
     
     // Skip files we already processed (DSDT and SSDT-* patterns)
     if (StrCmp(FileName, L"DSDT.aml") == 0 ||
         (NameLen >= 9 && StrnCmp(FileName, L"SSDT-", 5) == 0)) {
-      FreePool(FileInfo);
+      FreePool(CurrentFileInfo);
       continue;
     }
     
@@ -1288,7 +1288,7 @@ ScanDirectoryForSsdtFiles (
       Print(L"[WARN]  Failed to load %s: %r\n", FileName, LoadStatus);
     }
     
-    FreePool(FileInfo);
+    FreePool(CurrentFileInfo);
   }
   
   Print(L"[INFO]  Directory scan complete: %d files scanned, %d SSDT files found, %d other AML files found\n", 
@@ -1622,7 +1622,7 @@ FindAcpiFilesDirectory (
           }
           
           // Add file count bonus (but don't let it override priority tiers)
-          CurrentPriority += (FileCount * 10); // Small bonus for more files
+          CurrentPriority += (UINT32)(FileCount * 10); // Small bonus for more files
           
           // Determine if we should use this directory
           if (BestAcpiDir == NULL) {
