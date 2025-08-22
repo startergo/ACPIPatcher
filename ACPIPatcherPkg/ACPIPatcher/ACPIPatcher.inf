@@ -41,6 +41,11 @@
   ACPIPatcher.c
   FsHelpers.c
   FsHelpers.h
+
+[Sources.X64.XCODE5, Sources.IA32.XCODE5]
+  Intrinsics.c
+
+[Sources.X64.GCC5, Sources.IA32.GCC5]  
   Intrinsics.c
   
 [Packages]

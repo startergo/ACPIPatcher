@@ -16,7 +16,7 @@
 //
 // Only provide these implementations for non-MSVC compilers
 //
-#ifndef _MSC_VER
+#if !defined(_MSC_VER)
 
 //
 // Redirect compiler-generated memcpy calls to EDK2 CopyMem
@@ -45,4 +45,12 @@ memset (
   return Buffer;
 }
 
-#endif // _MSC_VER
+#else
+
+//
+// For MSVC builds, provide a dummy symbol to ensure the compilation unit is not empty
+// This prevents linker warnings and build system issues with empty object files
+//
+static const int __dummy_intrinsics_symbol = 0;
+
+#endif // !defined(_MSC_VER)
