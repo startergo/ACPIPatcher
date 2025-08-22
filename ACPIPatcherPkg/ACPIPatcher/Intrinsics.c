@@ -5,10 +5,18 @@
   This provides minimal implementations of standard C library functions
   that the compiler may generate calls to, redirecting them to appropriate
   EDK2 BaseMemoryLib functions.
+  
+  NOTE: This file is primarily for non-MSVC compilers. Visual Studio provides
+  its own intrinsics and may not need these implementations.
 **/
 
 #include <Uefi.h>
 #include <Library/BaseMemoryLib.h>
+
+//
+// Only provide these implementations for non-MSVC compilers
+//
+#ifndef _MSC_VER
 
 //
 // Redirect compiler-generated memcpy calls to EDK2 CopyMem
@@ -36,3 +44,5 @@ memset (
   SetMem(Buffer, Length, (UINT8)Value);
   return Buffer;
 }
+
+#endif // _MSC_VER
