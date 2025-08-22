@@ -44,18 +44,25 @@ ACPIPatcher is a comprehensive UEFI/EFI tool for ACPI table modification that wo
 
 <details>
 <summary><strong>🚀 Features</strong></summary>
+
+### Core ACPI Functionality
 - **DSDT Replacement**: Replace the system DSDT with a custom implementation
 - **SSDT Addition**: Add unlimited custom SSDT tables to the system
 - **Universal AML Support**: Load any `.aml` file regardless of naming pattern
+- **Table Validation**: Comprehensive ACPI table integrity checking before patching
+- **Checksum Management**: Automatic recalculation of table checksums
+
+### Enhanced Discovery System
 - **Intelligent File Discovery**: Automatic detection across multiple filesystems and directories
 - **Priority-Based Selection**: Smart directory selection favoring co-located files
 - **Multi-Phase Loading**: Comprehensive four-phase system ensures no AML files are missed
 - **Resource Fork Filtering**: Excludes macOS metadata files for accurate file counting
-- **Table Validation**: Comprehensive ACPI table integrity checking before patching
+
+### Professional Quality & Safety
 - **Memory Safety**: Professional-grade memory management with bounds checking
 - **Error Recovery**: Graceful handling of corrupted or missing files
 - **Cross-Platform Debugging**: Multi-level debug output for troubleshooting
-- **Checksum Management**: Automatic recalculation of table checksums
+- **Production Ready**: Enterprise-grade error handling with graceful degradation
 
 </details>
 
